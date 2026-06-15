@@ -1,0 +1,40 @@
+# Test fixture mirroring the SECRET id-map.yml shape (NOT a real secret — these
+# are invented symbols). Note: ext_e4c31576a772 is DELIBERATELY absent so the
+# reporter must resolve it to a graceful <external …> placeholder.
+ids:
+  n_9806809c4b1f:
+    file: app/controllers/orders_controller.rb
+    line: 5
+    symbol: OrdersController#create
+    kind: endpoint
+    class_id: null
+  n_e188e5adb49f:
+    file: app/services/billing.rb
+    line: 8
+    symbol: Billing#charge
+    kind: function
+    class_id: cls_e1303d65422d
+  n_b3db7d55c659:
+    file: app/services/billing.rb
+    line: 20
+    symbol: Billing#refund
+    kind: function
+    class_id: cls_e1303d65422d
+  n_4452f2ecaf84:
+    file: app/models/user.rb
+    line: 12
+    symbol: User#save
+    kind: function
+    class_id: cls_7a9758b1a745
+  cls_e1303d65422d:
+    file: app/services/billing.rb
+    line: 1
+    symbol: Billing
+    kind: class_rollup
+    class_id: null
+  cls_7a9758b1a745:
+    file: app/models/user.rb
+    line: 1
+    symbol: User
+    kind: class_rollup
+    class_id: null

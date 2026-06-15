@@ -1,0 +1,244 @@
+# frozen_string_literal: true
+
+require "archbuddy/report"
+require "archbuddy/report/reconnect"
+require "archbuddy/report/ranker"
+require "archbuddy/report/formatter"
+require "architecture_auditor"
+
+RSpec.describe "Reporter end-to-end (R-1..R-7)" do
+  let(:fixtures)     { File.expand_path("../fixtures/report", __dir__) }
+  let(:findings_yml) { File.join(fixtures, "findings_fixture.yml") }
+  let(:id_map_yml)   { File.join(fixtures, "id_map_fixture.yml") }
+
+  let(:result) do
+    Archbuddy::Report::Reconnect.from_files(
+      findings_path: findings_yml, id_map_path: id_map_yml
+    ).call
+  end
+  let(:ranker) { Archbuddy::Report::Ranker.new(result) }
+
+  def bottleneck(symbol)
+    result.bottlenecks.find { |b| b.location.symbol == symbol }
+  end
+
+  # --- R-2 / R-3: ranking by clutter_score ------------------------------------
+
+  it "ranks bottlenecks by clutter_score descending (deterministic)" do
+    ranked = ranker.ranked
+    expect(ranked.map(&:clutter_score)).to eq([9.5, 8.0, 5.0, 2.0])
+    expect(ranked.map { |b| b.location.symbol }).to eq(
+      ["OrdersController#create", "Billing#charge", "User#save", "Billing#refund"]
+    )
+  end
+
+  it "honors --top N" do
+    top2 = ranker.ranked(top: 2)
+    expect(top2.length).to eq(2)
+    expect(top2.map { |b| b.location.symbol }).to eq(
+      ["OrdersController#create", "Billing#charge"]
+    )
+  end
+
+  # --- R-2: de-anonymization at the three join sites --------------------------
+
+  it "de-anonymizes a high_fan_in node to its real symbol" do
+    charge = bottleneck("Billing#charge")
+    expect(charge).not_to be_nil
+    expect(charge.location).to be_resolved
+    expect(charge.location.file).to eq("app/services/billing.rb")
+    expect(charge.location.line).to eq(8)
+
+    fan_in = charge.findings.find { |f| f.type == "high_fan_in" }
+    expect(fan_in).not_to be_nil
+    expect(fan_in.node.symbol).to eq("Billing#charge")
+  end
+
+  it "renders a long_path finding as a real ordered call chain" do
+    create = bottleneck("OrdersController#create")
+    long_path = create.findings.find { |f| f.type == "long_path" }
+    expect(long_path).not_to be_nil
+    expect(long_path.path?).to be(true)
+    # ordered chain, de-anonymized; the trailing ext_ sink is a placeholder.
+    expect(long_path.path_refs.map(&:symbol)).to eq(
+      ["OrdersController#create", "User#save", "Billing#charge", "<external sink ext_e4c31576a772>"]
+    )
+    expect(long_path.chain).to eq(
+      "OrdersController#create → User#save → Billing#charge → <external sink ext_e4c31576a772>"
+    )
+  end
+
+  # --- graceful external/missing id (no raise) --------------------------------
+
+  it "resolves an ext_/missing id to a graceful placeholder without raising" do
+    expect {
+      loc = result.resolve("ext_e4c31576a772")
+      expect(loc.resolved?).to be(false)
+      expect(loc.symbol).to include("<external")
+    }.not_to raise_error
+  end
+
+  it "resolves a totally unknown id gracefully too" do
+    loc = result.resolve("n_deadbeefdead")
+    expect(loc.resolved?).to be(false)
+    expect(loc.symbol).to include("<external")
+  end
+
+  # --- R-3: class rollups via cls_ de-anon (D9) -------------------------------
+
+  it "rolls up bottlenecks by class_id and de-anonymizes the cls_ id" do
+    rollups = ranker.class_rollups
+    billing = rollups.find { |r| r.location.symbol == "Billing" }
+    expect(billing).not_to be_nil
+    expect(billing).to be_rollup
+    # Billing#charge (8.0) + Billing#refund (2.0) = 10.0
+    expect(billing.clutter_score).to eq(10.0)
+    expect(billing.metrics["member_count"]).to eq(2)
+
+    user = rollups.find { |r| r.location.symbol == "User" }
+    expect(user.clutter_score).to eq(5.0)
+
+    # ranked by summed score desc
+    expect(rollups.map { |r| r.location.symbol }).to eq(["Billing", "User"])
+  end
+
+  # --- D17: metrics copied VERBATIM, never recomputed -------------------------
+
+  it "shows the full 8-metric breakdown VERBATIM (no recomputation)" do
+    charge = bottleneck("Billing#charge")
+    # The fixture deliberately sets fan_in=42 and clutter_score=8.0 — numbers
+    # that do not derive from one another. The reporter must echo them exactly.
+    Archbuddy::Report::METRIC_KEYS_FOR_DISPLAY.each do |key|
+      expect(charge.metrics).to have_key(key)
+    end
+    expect(charge.metrics["fan_in"]).to eq(42)
+    expect(charge.metrics["centrality"]).to eq(0.90)
+    expect(charge.metrics["path_length"]).to eq(2)
+    expect(charge.clutter_score).to eq(8.0)
+
+    # null metrics survive as nil
+    refund = bottleneck("Billing#refund")
+    expect(refund.metrics["path_length"]).to be_nil
+    expect(refund.metrics["instability"]).to be_nil
+  end
+
+  # --- R-6: terminal formatter ------------------------------------------------
+
+  describe "terminal formatter" do
+    let(:output) do
+      context = Archbuddy::Report::Formatter::RenderContext.new(
+        ranked:        ranker.ranked,
+        class_rollups: ranker.class_rollups,
+        generator:     result.findings_doc["generator"],
+        graph:         nil,
+        resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map)
+      )
+      Archbuddy::Report::Formatter.for("terminal").new(context).render
+    end
+
+    it "shows real symbol, file:line, clutter_score and the 8-metric breakdown" do
+      expect(output).to include("Billing#charge")
+      expect(output).to include("app/services/billing.rb:8")
+      expect(output).to include("clutter 8.0000")
+      Archbuddy::Report::METRIC_KEYS_FOR_DISPLAY.each do |key|
+        expect(output).to include(key)
+      end
+      # verbatim absurd fan_in value rendered
+      expect(output).to match(/fan_in\s+42/)
+    end
+
+    it "renders the de-anonymized long_path chain and explanations" do
+      expect(output).to include("OrdersController#create → User#save → Billing#charge")
+      expect(output).to match(/High fan-in/)
+      expect(output).to match(/Long path/)
+    end
+
+    it "shows class rollups" do
+      expect(output).to include("Class rollups")
+      expect(output).to match(/Billing.*clutter 10\.0000/)
+    end
+  end
+
+  # --- R-6: structured exports ------------------------------------------------
+
+  describe "yaml/json exports" do
+    def context
+      Archbuddy::Report::Formatter::RenderContext.new(
+        ranked:        ranker.ranked,
+        class_rollups: ranker.class_rollups,
+        generator:     result.findings_doc["generator"],
+        graph:         nil,
+        resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map)
+      )
+    end
+
+    it "yaml export round-trips with verbatim metrics" do
+      yaml = Archbuddy::Report::Formatter.for("yaml").new(context).render
+      doc  = ArchitectureAuditor::Contract::Serializer.load_string(yaml)
+      charge = doc["bottlenecks"].find { |b| b["symbol"] == "Billing#charge" }
+      expect(charge["metrics"]["fan_in"]).to eq(42)
+      expect(charge["clutter_score"]).to eq(8.0)
+    end
+
+    it "json export is valid JSON with de-anonymized symbols" do
+      json = Archbuddy::Report::Formatter.for("json").new(context).render
+      doc  = JSON.parse(json)
+      expect(doc["bottlenecks"].first["symbol"]).to eq("OrdersController#create")
+    end
+  end
+
+  # --- R-6: dot formatter (optional / needs --graph) --------------------------
+
+  describe "dot formatter" do
+    def context(graph:)
+      Archbuddy::Report::Formatter::RenderContext.new(
+        ranked:        ranker.ranked,
+        class_rollups: ranker.class_rollups,
+        generator:     result.findings_doc["generator"],
+        graph:         graph,
+        resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map)
+      )
+    end
+
+    it "is unavailable with a clear message when --graph is absent" do
+      out = Archbuddy::Report::Formatter.for("dot").new(context(graph: nil)).render
+      expect(out).to include("requires the graph edge list")
+      expect(out).to include("--graph")
+    end
+
+    it "emits a de-anonymized digraph when graph is supplied" do
+      graph = {
+        "nodes" => [
+          { "id" => "n_9806809c4b1f" },
+          { "id" => "n_e188e5adb49f" }
+        ],
+        "edges" => [
+          { "from" => "n_9806809c4b1f", "to" => "n_e188e5adb49f" }
+        ]
+      }
+      out = Archbuddy::Report::Formatter.for("dot").new(context(graph: graph)).render
+      expect(out).to include("digraph archbuddy {")
+      expect(out).to include("OrdersController#create")
+      expect(out).to include("Billing#charge")
+      expect(out).to include('"n_9806809c4b1f" -> "n_e188e5adb49f"')
+    end
+  end
+
+  # --- R-4: explanation table covers all 7 finding types ----------------------
+
+  it "has an explanation for all 7 contract finding types (D38)" do
+    expected = %w[high_fan_in high_fan_out high_centrality orphan dead long_path cycle]
+    expect(Archbuddy::Report::Explanation::TABLE.keys.sort).to eq(expected.sort)
+    expected.each do |type|
+      entry = Archbuddy::Report::Explanation.for(type)
+      expect(entry[:summary]).to be_a(String)
+      expect(entry[:axis]).to match(/discoverability|traceability|both/)
+    end
+  end
+
+  # --- open/closed registry ---------------------------------------------------
+
+  it "registers the four built-in formats" do
+    expect(Archbuddy::Report::Formatter.registered).to include("terminal", "yaml", "json", "dot")
+  end
+end

@@ -4,6 +4,7 @@ require "architecture_auditor"
 
 require_relative "archbuddy/version"
 require_relative "archbuddy/collect"
+require_relative "archbuddy/report"
 
 # archbuddy — the Ruby client for the architecture-auditor engine.
 #

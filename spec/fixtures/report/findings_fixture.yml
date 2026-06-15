@@ -1,0 +1,75 @@
+schema_version: "1.0"
+generator:
+  tool: architecture-auditor test
+  adapter: ruby
+  capture: static
+nodes:
+  # OrdersController#create — top of the ranking (highest clutter_score).
+  n_9806809c4b1f:
+    metrics:
+      path_length: 0
+      fan_in: 0
+      fan_out: 3
+      centrality: 0.10
+      instability: 1.0
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 9.5
+  # Billing#charge — high_fan_in. The fan_in value is DELIBERATELY absurd (42)
+  # and the clutter_score (8.0) does NOT match any recomputation from these
+  # metrics — so a "no recompute" assertion can prove the reporter echoes them
+  # verbatim (D17) rather than deriving its own numbers.
+  n_e188e5adb49f:
+    metrics:
+      path_length: 2
+      fan_in: 42
+      fan_out: 1
+      centrality: 0.90
+      instability: 0.25
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 8.0
+  # User#save — mid ranking.
+  n_4452f2ecaf84:
+    metrics:
+      path_length: 1
+      fan_in: 2
+      fan_out: 1
+      centrality: 0.40
+      instability: 0.50
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 5.0
+  # Billing#refund — orphan, lowest clutter_score.
+  n_b3db7d55c659:
+    metrics:
+      path_length: null
+      fan_in: 0
+      fan_out: 0
+      centrality: 0.0
+      instability: null
+      in_cycle: 0
+      orphan: 1
+      dead: 0
+    clutter_score: 2.0
+findings:
+  # node-type: high_fan_in on Billing#charge
+  - type: high_fan_in
+    severity: high
+    node: n_e188e5adb49f
+  # node-type: orphan on Billing#refund
+  - type: orphan
+    severity: low
+    node: n_b3db7d55c659
+  # path-type: long_path — an ordered chain ending at an EXTERNAL sink that is
+  # ABSENT from the id-map (ext_…), to exercise graceful de-anon.
+  - type: long_path
+    severity: medium
+    path:
+      - n_9806809c4b1f
+      - n_4452f2ecaf84
+      - n_e188e5adb49f
+      - ext_e4c31576a772
