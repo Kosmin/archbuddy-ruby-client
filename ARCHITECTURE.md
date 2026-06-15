@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — archbuddy-ruby-client
 
 The as-built code map. Find any responsibility **by name** here without opening source. For data
-contracts (graph/id-map/findings shapes) see [`APP_SCHEMA.md`](APP_SCHEMA.md). For deep topics see
+contracts (graph/id-map/findings shapes) see [`CONTRACT.md`](CONTRACT.md). For deep topics see
 [`.claude/docs/`](.claude/docs/). For rationale see [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Two concerns, one gem

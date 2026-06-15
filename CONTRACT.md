@@ -1,6 +1,6 @@
-# APP_SCHEMA.md — data contracts
+# CONTRACT.md — data contracts
 
-This repo has **no database**. This file adapts the APP_SCHEMA role to document the **data contracts**:
+This repo has **no database**. This file is the **contract/schema** doc: it documents the **data contracts** —
 what the **collector EMITS** (`graph.yml` + `id-map.yml`) and what **`report` CONSUMES** (`findings.yml`).
 
 All three shapes are owned canonically by the **engine Contract** (`ArchitectureAuditor::Contract`). The
