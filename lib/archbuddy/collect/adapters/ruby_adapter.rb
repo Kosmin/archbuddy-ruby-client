@@ -48,7 +48,14 @@ module Archbuddy
           edges       = build_edges(acc, key_for_fq, external_key)
           entrypoints = build_entrypoints(table, key_for_fq)
 
-          AdapterResult.new(nodes: nodes, edges: edges, entrypoints: entrypoints)
+          AdapterResult.new(
+            nodes: nodes, edges: edges, entrypoints: entrypoints,
+            # Honest about metaprogramming blind spots (D-intent): these call
+            # sites were detected but produce no edges (we cannot statically
+            # resolve their targets). Surfaced as a diagnostic count only —
+            # never as graph content.
+            diagnostics: { meta_sites_skipped: acc.meta_sites.length }
+          )
         end
 
         private

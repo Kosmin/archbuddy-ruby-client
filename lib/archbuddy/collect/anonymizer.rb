@@ -43,7 +43,12 @@ module Archbuddy
             "id"            => node_id,
             "kind"          => raw.kind,
             "class_id"      => class_id,
-            "loc"           => loc_for(raw),
+            # D7/D16/D18: graph.yml carries ZERO app semantics. The real
+            # rel_file:line lives ONLY in the secret id-map (below, as
+            # file/line). The opaque node's loc is therefore always null
+            # (the schema types loc as ["string","null"]). Emitting the real
+            # path here would leak app file paths into the shareable graph.
+            "loc"           => nil,
             "self_time_ms"  => nil,
             "total_time_ms" => nil,
             "count"         => nil
@@ -102,12 +107,6 @@ module Archbuddy
           }
           cls_id
         end
-      end
-
-      def loc_for(raw)
-        return nil if raw.rel_file.nil? || raw.line.nil?
-
-        "#{raw.rel_file}:#{raw.line}"
       end
 
       def build_edges

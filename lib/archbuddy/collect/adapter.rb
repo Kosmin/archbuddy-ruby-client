@@ -5,12 +5,18 @@ module Archbuddy
     # Result of an Adapter#collect run: neutral Raw* value objects in real
     # symbol space. This is the contract every language adapter must return —
     # the Anonymizer consumes it without knowing which language produced it.
-    AdapterResult = Struct.new(:nodes, :edges, :entrypoints, keyword_init: true) do
+    #
+    # `diagnostics` carries NON-SEMANTIC capture diagnostics (e.g. how many
+    # metaprogramming call sites were skipped) for the CLI to surface to the
+    # user. It is deliberately consumed by the CLI ONLY and NEVER by the
+    # Anonymizer — diagnostics must not leak into graph.yml node/edge data.
+    AdapterResult = Struct.new(:nodes, :edges, :entrypoints, :diagnostics, keyword_init: true) do
       def initialize(*)
         super
         self.nodes       ||= []
         self.edges       ||= []
         self.entrypoints ||= []
+        self.diagnostics ||= {}
       end
     end
 

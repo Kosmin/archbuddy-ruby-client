@@ -136,6 +136,46 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
     expect(graph["nodes"].map { |n| n["id"] }).to all(satisfy { |id| !id.start_with?("cls_") })
   end
 
+  # --- agnostic-boundary leak guard (D7/D16/D18) ------------------------------
+
+  it "emits a null loc for every node (no real file:line leaks into graph.yml)" do
+    expect(graph["nodes"]).not_to be_empty
+    graph["nodes"].each do |node|
+      expect(node).to have_key("loc")
+      expect(node["loc"]).to be_nil, "node #{node['id']} leaked a loc: #{node['loc'].inspect}"
+    end
+  end
+
+  it "keeps the REAL location ONLY in the secret id-map, never in graph.yml" do
+    # The id-map still carries real file/line for de-anonymization...
+    _opaque_id, desc = id_map_entry_for_symbol("OrdersController#index")
+    expect(desc["file"]).to eq("app/controllers/orders_controller.rb")
+    expect(desc["line"]).to be_a(Integer)
+
+    # ...but that same real path appears NOWHERE in the graph hash.
+    node = node_for_symbol("OrdersController#index")
+    expect(node["loc"]).to be_nil
+  end
+
+  it "contains ZERO real app paths/symbols anywhere in the serialized graph.yml" do
+    serialized = ArchitectureAuditor::Contract::Serializer.dump(graph)
+
+    # Real file paths / extensions and fixture symbol names must not appear in
+    # the shareable, supposedly-agnostic graph. Only opaque ids, kinds,
+    # class_id refs, and null/numeric weights are allowed.
+    %w[
+      app/ .rb
+      Invoice Orders overdue subtotal ApplicationRecord ExternalTaxApi
+      Billing controllers models
+    ].each do |needle|
+      expect(serialized).not_to include(needle),
+        "graph.yml leaked app semantics: found #{needle.inspect}"
+    end
+
+    # Belt-and-suspenders regex covering the same boundary.
+    expect(serialized).not_to match(%r{app/|\.rb|Invoice|Orders|overdue})
+  end
+
   # --- static timing fields null (D4) -----------------------------------------
 
   it "writes all static timing fields as null" do

@@ -30,7 +30,13 @@ module Archbuddy
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)
-        adapter_result = adapter.collect
+        adapter_result =
+          begin
+            adapter.collect
+          rescue Archbuddy::Collect::Adapters::Ruby::FileEnumerator::NoSourceError => e
+            warn "error: #{e.message}"
+            exit 1
+          end
 
         anon = Archbuddy::Collect::Anonymizer.new(
           adapter_result,
@@ -41,6 +47,11 @@ module Archbuddy
         paths = Archbuddy::Collect::Emitter.new(out_dir: out_dir).emit(
           graph: anon.graph, id_map: anon.id_map
         )
+
+        skipped = adapter_result.diagnostics[:meta_sites_skipped].to_i
+        if skipped.positive?
+          warn "note: #{skipped} metaprogramming call site#{'s' if skipped != 1} skipped (no edges)"
+        end
 
         warn "wrote #{paths[:graph]}"
         warn "wrote #{paths[:id_map]} (SECRET — gitignored, never share)"
