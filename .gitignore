@@ -1,0 +1,35 @@
+# ─── SECRET: the de-anonymization key and any de-anonymized output MUST NEVER be committed ───
+id-map.yml
+*.id-map.yml
+# de-anonymized exports contain real file/symbol names — treat as secret/local-only
+report.yml
+report.json
+*.report.yml
+*.report.json
+*.dot
+/out/
+
+# Auditor I/O — captured graphs / findings from real repos
+*.graph.yml
+graph.yml
+findings.yml
+*.findings.yml
+
+# Bundler / gems
+/.bundle/
+/vendor/bundle/
+/pkg/
+*.gem
+Gemfile.lock
+
+# Ruby
+/coverage/
+/tmp/
+/.yardoc/
+/doc/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
