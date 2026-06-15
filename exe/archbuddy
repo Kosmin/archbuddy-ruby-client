@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "archbuddy/cli"
+
+Dry::CLI.new(Archbuddy::CLI).call
