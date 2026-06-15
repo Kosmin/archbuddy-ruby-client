@@ -2,6 +2,7 @@
 
 require "architecture_auditor"
 require_relative "model"
+require_relative "scores"
 
 module Archbuddy
   module Report
@@ -22,8 +23,10 @@ module Archbuddy
       Serializer = ArchitectureAuditor::Contract::Serializer
 
       # Result of a join: ranked-able Bottleneck objects + the resolver so the
-      # Ranker can de-anonymize cls_ rollups against the same id-map.
-      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, keyword_init: true) do
+      # Ranker can de-anonymize cls_ rollups against the same id-map. `scores`
+      # is the optional de-anonymized project-level dimension scores (findings
+      # 1.1) — NIL for a 1.0 findings doc with no scores block (back-compat).
+      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, keyword_init: true) do
         # Look up a (possibly missing) opaque id → Model::Location.
         def resolve(id)
           IdMapResolver.new(id_map).resolve(id)
@@ -113,7 +116,14 @@ module Archbuddy
           )
         end
 
-        Result.new(bottlenecks: bottlenecks, id_map: @id_map, findings_doc: @findings_doc)
+        Result.new(
+          bottlenecks:  bottlenecks,
+          id_map:       @id_map,
+          findings_doc: @findings_doc,
+          # Optional findings-1.1 project scores, de-anonymized via the SAME
+          # resolver. NIL when absent (1.0 doc) — graceful, no header rendered.
+          scores:       Scores.from_findings(@findings_doc, @resolver)
+        )
       end
 
       private

@@ -18,6 +18,7 @@ module Archbuddy
         def render
           lines = []
           lines << header
+          lines.concat(scores_section) if context.scores && !context.scores.empty?
           lines.concat(bottleneck_sections)
           lines.concat(rollup_section) unless context.class_rollups.empty?
           lines << ""
@@ -31,6 +32,50 @@ module Archbuddy
           tool = gen["tool"] || gen[:tool] || "unknown"
           "archbuddy report — clutter ranking (source: #{tool})\n" \
             "#{'=' * 60}"
+        end
+
+        # The eslint/rubocop-style project summary (findings 1.1). LEADS with each
+        # dimension's score + grade; then lists that dimension's de-anonymized
+        # hotspots as the TOP CONTRIBUTORS to the dimension (relative to the
+        # graph) — NOT inherently-broken nodes. On a high-scoring project the top
+        # contributors may be entirely benign; the grade is the headline.
+        def scores_section
+          lines = ["", "Architecture Scores", "-" * 60]
+          # Summary rows first, score/grade leading.
+          context.scores.each { |dim| lines << score_row(dim) }
+          # Then per-dimension top contributors.
+          context.scores.each { |dim| lines.concat(dimension_detail(dim)) }
+          lines
+        end
+
+        def score_row(dim)
+          score = dim.display_score.ljust(7)
+          grade = "(#{dim.grade})"
+          "  #{dim.label.ljust(24)}#{score} #{grade.ljust(6)} — #{dim.question}"
+        end
+
+        def dimension_detail(dim)
+          lines = ["", "  #{dim.label}"]
+          if dim.na?
+            lines << "    N/A — #{dim.na_reason || 'undeterminable'}"
+            return lines
+          end
+          if dim.hotspots.empty?
+            lines << "    (no hotspots)"
+            return lines
+          end
+          lines << "    top contributors to this dimension (worst-ranked first):"
+          dim.hotspots.each_with_index do |h, i|
+            lines << hotspot_line(h, i + 1)
+          end
+          lines
+        end
+
+        def hotspot_line(hotspot, rank)
+          loc    = hotspot.location
+          where  = loc.resolved? ? " (#{loc.file_line})" : ""
+          driver = hotspot.metrics.map { |k, v| "#{k}=#{format_metric(v)}" }.join(", ")
+          "      #{rank}. #{loc.symbol}#{where}  [#{driver}]"
         end
 
         def bottleneck_sections

@@ -1,0 +1,83 @@
+# Test fixture: findings 1.1 WITH a project-level `scores` block (forward +
+# reverse, each with worst-first OPAQUE hotspot ids). NOT a real secret — these
+# are invented opaque ids matching id_map_fixture.yml. Reuses the same node ids
+# as findings_fixture.yml so the existing id-map de-anonymizes them.
+#
+# - reverse_traceability is SCORED (58/D) with hotspots → exercises both the
+#   score/grade header AND de-anon of hotspots with driving metrics.
+# - forward_discoverability is SCORED (72/C) with hotspots too.
+# - One reverse hotspot is the ext_ sink ABSENT from the id-map → graceful
+#   <external …> placeholder (no raise).
+schema_version: "1.1"
+generator:
+  tool: architecture-auditor test
+  adapter: ruby
+  capture: static
+nodes:
+  n_9806809c4b1f:
+    metrics:
+      path_length: 0
+      fan_in: 0
+      fan_out: 3
+      centrality: 0.10
+      instability: 1.0
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 9.5
+  n_e188e5adb49f:
+    metrics:
+      path_length: 2
+      fan_in: 42
+      fan_out: 1
+      centrality: 0.90
+      instability: 0.25
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 8.0
+  n_4452f2ecaf84:
+    metrics:
+      path_length: 1
+      fan_in: 2
+      fan_out: 1
+      centrality: 0.40
+      instability: 0.50
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 5.0
+  n_b3db7d55c659:
+    metrics:
+      path_length: null
+      fan_in: 0
+      fan_out: 0
+      centrality: 0.0
+      instability: null
+      in_cycle: 0
+      orphan: 1
+      dead: 0
+    clutter_score: 2.0
+findings:
+  - type: high_fan_in
+    severity: high
+    node: n_e188e5adb49f
+  - type: orphan
+    severity: low
+    node: n_b3db7d55c659
+scores:
+  reverse_traceability:
+    score: 58
+    grade: D
+    # worst-first: Billing#charge (centrality 0.90, fan_in 42) leads, then the
+    # ext_ sink which is DELIBERATELY absent from the id-map.
+    hotspots:
+      - n_e188e5adb49f
+      - n_4452f2ecaf84
+      - ext_e4c31576a772
+  forward_discoverability:
+    score: 72
+    grade: C
+    hotspots:
+      - n_9806809c4b1f
+      - n_e188e5adb49f

@@ -105,6 +105,32 @@ findings:                                   # array; EXACTLY 7 types (D38), oneO
 == `ArchitectureAuditor::Analyze::METRIC_KEYS`. Asserted by `spec/report/metric_kernel_consistency_spec.rb`.
 Changing the metric set requires changing **both repos** together.
 
+### Optional `scores` block (findings 1.1 — additive, back-compat)
+
+`findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1; a 1.0 doc without it
+still validates and `report` still works unchanged). The block is **owned canonically by the engine** —
+`findings.v1.schema.json` `#/properties/scores` → `#/definitions/dimension_score` is the source of truth;
+this is a quick-reference summary only. It carries two **project-level** dimension scores:
+
+```yaml
+scores:                                # OPTIONAL; absent in 1.0 docs
+  reverse_traceability:                # "can you tell where code is USED?" — always computable
+    score: 58                          # 0-100, OR null when undeterminable
+    grade: "D"                         # A|B|C|D|F|N/A
+    hotspots: ["n_…", "ext_…", …]      # OPAQUE node-ids, worst-first by this dimension's penalty
+  forward_discoverability:             # "can you FOLLOW where execution goes?"
+    score: null                        # null/"N/A" when collection found NO entrypoints (M3)
+    grade: "N/A"
+    hotspots: []
+```
+
+`report` **consumes** this block (R-8): `score`/`grade` are project-level and copied **verbatim** (D17 — the
+client NEVER recomputes them); `hotspots` are **OPAQUE** ids de-anonymized locally via the SAME secret id-map
+as everything else (graceful `<external …>` for missing/`ext_` ids). A hotspot is just the worst-RANKED node
+for that dimension — on a clean/high-scoring project the top hotspots may be benign; the **grade is the
+headline**, not the hotspot. A null/`N/A` forward score renders honestly as `N/A` with a one-line reason
+(`no entrypoints — re-collect with --entrypoints all_public`), never a fabricated number.
+
 ---
 
 ## PRODUCED by `report` (de-anonymized output — SECRET/local-only)
@@ -113,9 +139,9 @@ Rendered by the Formatter strategy; all carry real symbols → gitignored, never
 
 | `--format` | Output | Shape |
 |------------|--------|-------|
-| `terminal` (default) | stdout text | Ranked bottlenecks: symbol, `file:line`, `clutter_score`, 8-metric breakdown, finding explanations (with real `A → B` chains), class rollups. |
-| `yaml` | `report.yml` | `{ generator, bottlenecks[ {id,symbol,file,line,kind,class_id,resolved,clutter_score,metrics{8},findings[]} ], class_rollups[ {class_id,symbol,file,line,resolved,clutter_score,member_count} ] }` via `StructuredExport`. |
-| `json` | `report.json` | Same structured shape, `JSON.pretty_generate`. |
+| `terminal` (default) | stdout text | When findings carry `scores` (1.1): an `Architecture Scores` summary header FIRST — each dimension's `score/grade` + framing question (the headline), then its de-anonymized hotspots as "top contributors to this dimension (worst-first)" with real symbol + `file:line` + driving metric(s), or `N/A` + reason. Then ranked bottlenecks: symbol, `file:line`, `clutter_score`, 8-metric breakdown, finding explanations (with real `A → B` chains), class rollups. |
+| `yaml` | `report.yml` | `{ generator, bottlenecks[ {id,symbol,file,line,kind,class_id,resolved,clutter_score,metrics{8},findings[]} ], class_rollups[ {class_id,symbol,file,line,resolved,clutter_score,member_count} ] }` via `StructuredExport`; plus, when present (1.1), `scores{ <dimension> => {score,grade,question,na_reason?,hotspots[ {symbol,file,line,resolved,metrics} ]} }` (de-anonymized; the key is omitted entirely for a 1.0 doc). |
+| `json` | `report.json` | Same structured shape (incl. the optional de-anonymized `scores`), `JSON.pretty_generate`. |
 | `dot` | `*.dot` | Graphviz digraph with de-anonymized labels. **Requires `--graph graph.yml`** (edge list source). |
 
 Unresolved ids (e.g. `ext_` sinks, ids absent from the id-map) render as graceful `<external …>`

@@ -32,6 +32,7 @@ module Archbuddy
     ].freeze
 
     autoload :Model,       "archbuddy/report/model"
+    autoload :Scores,      "archbuddy/report/scores"
     autoload :Reconnect,   "archbuddy/report/reconnect"
     autoload :Ranker,      "archbuddy/report/ranker"
     autoload :Explanation, "archbuddy/report/explanation"

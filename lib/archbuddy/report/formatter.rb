@@ -17,8 +17,10 @@ module Archbuddy
       # @param generator     [Hash] findings.yml generator metadata
       # @param graph         [Hash,nil] optional graph.yml (DOT edge list only)
       # @param resolver      [#resolve,nil] id → Model::Location (DOT label de-anon)
+      # @param scores        [Array<Scores::DimensionScore>,nil] project dimension
+      #                       scores (findings 1.1); nil for a 1.0 doc (back-compat)
       RenderContext = Struct.new(
-        :ranked, :class_rollups, :generator, :graph, :resolver, keyword_init: true
+        :ranked, :class_rollups, :generator, :graph, :resolver, :scores, keyword_init: true
       )
 
       # name => Formatter subclass. Open for extension (register), closed for

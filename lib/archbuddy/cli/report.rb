@@ -50,7 +50,8 @@ module Archbuddy
           class_rollups: ranker.class_rollups(top: top_n),
           generator:     result.findings_doc["generator"] || {},
           graph:         graph && Archbuddy::Report::Reconnect::Serializer.load(graph),
-          resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map)
+          resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
+          scores:        result.scores
         )
 
         puts formatter_class.new(context).render

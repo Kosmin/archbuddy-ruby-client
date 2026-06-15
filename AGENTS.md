@@ -71,6 +71,14 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
 8. **Empty-entrypoints warning (M3).** The default entrypoint strategy can find none in a non-Rails gem;
    `collect` then **WARNS on stderr** (never in graph content) and suggests `--entrypoints all_public`.
    It does NOT auto-switch strategies.
+9. **Project scores are verbatim + locally de-anonymized (findings 1.1, R-8).** The OPTIONAL `scores` block
+   (`reverse_traceability` + `forward_discoverability`) carries **project-level** `score`/`grade` — copied
+   **verbatim** (D17, never recomputed: they come straight from findings.yml) — plus **OPAQUE** `hotspots`
+   the reporter de-anonymizes via the SAME secret id-map as everything else (graceful `<external>` for
+   missing ids). A 1.0 findings doc has **no** scores block → the report renders exactly as before (additive
+   / back-compat, never crash). Scores are **separate** from the 8 per-node metrics — they do NOT touch
+   `METRIC_KEYS_FOR_DISPLAY` or the 4c lockstep. A hotspot is just the worst-RANKED node for that dimension
+   (a relative top contributor), NOT inherently a bug — render so the **grade leads**, not the hotspot.
 
 ## How to work in this codebase
 
@@ -131,7 +139,7 @@ verify the entries around it (and cross-references in the engine repo) haven't d
 ```bash
 # all commands on this machine are prefixed with the rbenv version selector:
 RBENV_VERSION=ruby-3.4.2 bundle install
-RBENV_VERSION=ruby-3.4.2 bundle exec rspec            # full suite (47 examples)
+RBENV_VERSION=ruby-3.4.2 bundle exec rspec            # full suite (65 examples)
 
 # Collector: capture a codebase → out/graph.yml + out/id-map.yml(SECRET)
 RBENV_VERSION=ruby-3.4.2 bundle exec exe/archbuddy collect PATH \

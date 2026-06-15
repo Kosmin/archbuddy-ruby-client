@@ -12,10 +12,40 @@ module Archbuddy
         module_function
 
         def build(context, metric_keys)
-          {
+          doc = {
             "generator"     => context.generator,
             "bottlenecks"   => context.ranked.map { |b| node_hash(b, metric_keys) },
             "class_rollups" => context.class_rollups.map { |r| rollup_hash(r) }
+          }
+          # findings 1.1: include the de-anonymized project dimension scores so
+          # machine consumers get them too. Omitted entirely for a 1.0 doc
+          # (context.scores nil) — back-compat with existing consumers.
+          doc["scores"] = scores_hash(context.scores) if context.scores && !context.scores.empty?
+          doc
+        end
+
+        # De-anonymized project scores keyed by dimension. score/grade VERBATIM;
+        # hotspots resolved to real {symbol, file:line} + their driving metrics.
+        def scores_hash(scores)
+          scores.each_with_object({}) do |dim, h|
+            h[dim.key] = {
+              "score"     => dim.score,
+              "grade"     => dim.grade,
+              "question"  => dim.question,
+              "na_reason" => dim.na_reason,
+              "hotspots"  => dim.hotspots.map { |hs| hotspot_hash(hs) }
+            }.compact
+          end
+        end
+
+        def hotspot_hash(hotspot)
+          loc = hotspot.location
+          {
+            "symbol"   => loc.symbol,
+            "file"     => loc.file,
+            "line"     => loc.line,
+            "resolved" => loc.resolved?,
+            "metrics"  => hotspot.metrics
           }
         end
 

@@ -1,0 +1,43 @@
+# Test fixture: findings 1.1 where forward_discoverability is N/A (the M3 case —
+# collection found no entrypoints, so path_length is null for every node and the
+# engine emits score:null / grade:"N/A" / hotspots:[]). reverse_traceability is
+# still scored (it never depends on entrypoints). Reuses id_map_fixture.yml ids.
+schema_version: "1.1"
+generator:
+  tool: architecture-auditor test
+  adapter: ruby
+  capture: static
+nodes:
+  n_e188e5adb49f:
+    metrics:
+      path_length: null
+      fan_in: 42
+      fan_out: 1
+      centrality: 0.90
+      instability: 0.25
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 8.0
+  n_4452f2ecaf84:
+    metrics:
+      path_length: null
+      fan_in: 2
+      fan_out: 1
+      centrality: 0.40
+      instability: 0.50
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 5.0
+findings: []
+scores:
+  reverse_traceability:
+    score: 81
+    grade: B
+    hotspots:
+      - n_e188e5adb49f
+  forward_discoverability:
+    score: null
+    grade: "N/A"
+    hotspots: []
