@@ -53,6 +53,17 @@ module Archbuddy
           warn "note: #{skipped} metaprogramming call site#{'s' if skipped != 1} skipped (no edges)"
         end
 
+        # M3: a run that finds NO entrypoints leaves the engine unable to
+        # compute reachability (dead, path_length). Surface that as a clear
+        # stderr WARNING — a diagnostic, never graph content — instead of
+        # silently emitting `entrypoints: []`. We do NOT auto-switch the
+        # strategy; we just tell the user how to get a useful surface.
+        if adapter_result.entrypoints.empty?
+          warn "warning: no entrypoints detected with strategy '#{entrypoints}'. " \
+               "Reachability metrics (dead, path_length) will be unavailable. " \
+               "For a non-Rails library, re-run with --entrypoints all_public."
+        end
+
         warn "wrote #{paths[:graph]}"
         warn "wrote #{paths[:id_map]} (SECRET — gitignored, never share)"
       end
