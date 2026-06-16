@@ -27,9 +27,10 @@ module Archbuddy
       # is the optional de-anonymized project-level dimension scores (findings
       # 1.1) — NIL for a 1.0 findings doc with no scores block (back-compat).
       Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, keyword_init: true) do
-        # Look up a (possibly missing) opaque id → Model::Location.
+        # Look up a (possibly missing) opaque id → Model::Location. Memoize the
+        # resolver so repeated lookups don't rebuild the id-map wrapper each call.
         def resolve(id)
-          IdMapResolver.new(id_map).resolve(id)
+          (@resolver ||= IdMapResolver.new(id_map)).resolve(id)
         end
       end
 
@@ -103,11 +104,13 @@ module Archbuddy
         findings_by_node = group_findings_by_node
 
         bottlenecks = nodes.map do |id, node_entry|
+          # Resolve once — kind/class_id are read off the same Location.
+          location = @resolver.resolve(id)
           Model::Bottleneck.new(
             id:            id,
-            location:      @resolver.resolve(id),
-            kind:          @resolver.resolve(id).kind,
-            class_id:      @resolver.resolve(id).class_id,
+            location:      location,
+            kind:          location.kind,
+            class_id:      location.class_id,
             # VERBATIM copy — never recomputed (D17). Whatever findings.yml says,
             # even if deliberately "wrong", is exactly what we carry/display.
             metrics:       node_entry["metrics"] || {},

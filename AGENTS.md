@@ -39,7 +39,7 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
 | Language / runtime | Ruby **>= 3.2**; on this machine use `RBENV_VERSION=ruby-3.4.2` for all ruby/bundle/rspec |
 | AST parser | `prism` (~> 1.0) — two-pass `Prism::Visitor` capture |
 | CLI framework | `dry-cli` (~> 1.4) — `Dry::CLI::Registry`, two commands: `collect`, `report` |
-| Shared contract | `architecture_auditor` gem — **path-sourced** from `../architecture-auditor` for local dev (M2); git source for distribution (D47) |
+| Shared contract | `architecture_auditor` gem — Gemfile defaults to the **git source** (distribution, D47); local dev overrides to the `../architecture-auditor` sibling via `ARCHITECTURE_AUDITOR_PATH` or `bundle config local.architecture_auditor` (M2). See [`.claude/docs/cross-repo.md`](.claude/docs/cross-repo.md) |
 | Tests | `rspec` (~> 3.13) |
 | Serialization | Always via the contract's `Serializer` (deterministic YAML, D30) — never raw `YAML.dump`/`Psych` |
 

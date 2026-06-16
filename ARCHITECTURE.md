@@ -35,8 +35,10 @@ This gem requires the `architecture_auditor` gem and uses exactly four things fr
 | `Analyze::METRIC_KEYS` | Canonical 8-key metric set (engine source of truth) | asserted == client constant in the metric-kernel spec |
 
 The contract is the language-neutral hub both halves depend on; it references no
-collector/processor/reporter concepts. Local dev path-sources it from `../architecture-auditor` (M2);
-distribution uses a git source (D47). See [`.claude/docs/cross-repo.md`](.claude/docs/cross-repo.md).
+collector/processor/reporter concepts. The Gemfile defaults to a **git source** (distribution, D47) so a
+fresh clone installs standalone; local dev overrides to the `../architecture-auditor` sibling via
+`ARCHITECTURE_AUDITOR_PATH` or `bundle config local.architecture_auditor` (M2). See
+[`.claude/docs/cross-repo.md`](.claude/docs/cross-repo.md).
 
 ---
 

@@ -12,6 +12,9 @@ module Archbuddy
           # D36 operator deny-list: these method names are dropped entirely (no
           # node, no edge). Arithmetic/comparison/indexing/coercion operators
           # carry no architectural signal and would only add noise.
+          # `call` is denied alongside the operators because it's the proc/lambda
+          # invocation `foo.()` / `foo.call` — dynamic dispatch with no static
+          # target, so it's noise here (not an architectural edge), NOT a bug.
           OPERATOR_DENY = %w[
             + - * / % ** == != < > <= >= <=> === =~ !~
             << >> & | ^ ~ ! [] []= +@ -@ call

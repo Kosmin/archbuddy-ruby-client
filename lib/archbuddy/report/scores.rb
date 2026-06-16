@@ -99,6 +99,10 @@ module Archbuddy
           score:     score,            # VERBATIM (D17) — 0-100 or nil
           grade:     dim["grade"],     # VERBATIM — "A".."F" or "N/A"
           hotspots:  build_hotspots(key, dim["hotspots"] || [], findings_doc, resolver),
+          # Intentional for the current two-dimension contract: only
+          # forward_discoverability can be N/A (no entrypoints, M3). reverse is
+          # always computable, so a null reverse score gets no reason string. If
+          # a future dimension becomes N/A-able, generalize this to a per-key map.
           na_reason: (score.nil? && key == "forward_discoverability" ? NA_REASON : nil)
         )
       end

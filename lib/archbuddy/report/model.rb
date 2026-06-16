@@ -16,6 +16,10 @@ module Archbuddy
         end
 
         # "symbol (file:line)" when resolved; the placeholder symbol otherwise.
+        # NOTE: currently unused on the hotspot/bottleneck render path — the
+        # terminal formatter composes `symbol` + `file_line` itself (the two share
+        # the same field set but differ in punctuation). Kept as the canonical
+        # single-string rendering of a Location for ad-hoc/future callers.
         def display
           return symbol unless resolved?
 

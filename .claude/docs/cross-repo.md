@@ -37,12 +37,38 @@ collector/processor/reporter concepts.
 This is the core safety property: the engine can analyze the graph **without ever seeing real code
 symbols**. De-anonymization happens only locally, in the client's `report`, against the local secret map.
 
-## Dependency wiring
+## Dependency wiring (M2 finalized — D47)
 
-- **Local dev (M2):** path source — `gem "architecture_auditor", path: "../architecture-auditor"` in the
-  `Gemfile`. The sibling repo must be checked out alongside this one.
-- **Distribution (D47):** git source for the contract gem.
-- The gemspec declares `add_dependency "architecture_auditor"`.
+The `Gemfile` is wired so a **fresh standalone clone installs cleanly** AND a sibling checkout keeps
+its local-dev ergonomics. The logic:
+
+```ruby
+if (engine_path = ENV["ARCHITECTURE_AUDITOR_PATH"].to_s.strip) && !engine_path.empty?
+  gem "architecture_auditor", path: engine_path           # local dev (env override)
+else
+  gem "architecture_auditor",                              # distribution default
+      git: "https://github.com/Kosmin/architecture-auditor.git", branch: "main"
+end
+```
+
+- **Distribution default (D47):** the **git source** above. A fresh clone with no sibling checkout
+  resolves the engine from git — no `Gemfile` edits required.
+- **Local dev — two override modes (both keep the sibling at `../architecture-auditor` "just working"):**
+  1. **Env override (one-off):** `ARCHITECTURE_AUDITOR_PATH=../architecture-auditor bundle install`
+     swaps the git source for a `path:` source. Blank/unset → falls through to git.
+  2. **Bundler local config (persistent):** `bundle config set --local local.architecture_auditor
+     ../architecture-auditor` makes bundler resolve the *git* gem from that local checkout
+     (it must be on the same branch — `main`).
+- The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.1"` (pessimistic bound; the
+  open-ended `>= 0` form was removed so `gem build` emits no warning).
+
+**Verified vs documented in this environment:** the env-override mode (Mode 1) and the bundler
+local-config mode (Mode 2, which resolves the *git* source from the sibling — proving the git line is
+syntactically valid and resolvable) both `bundle install` cleanly under `RBENV_VERSION=ruby-3.4.2`. A
+**true remote git fetch** (no sibling at all) could not be exercised here because
+`Kosmin/architecture-auditor` is a local-only repo not published over HTTPS — that line is the
+documented distribution default, verified resolvable via the local override but not fetched from the
+remote.
 
 ## The lockstep contract: metric kernel (D43/D39)
 
