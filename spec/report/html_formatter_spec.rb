@@ -209,6 +209,98 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     end
   end
 
+  # --- table: sortable headers + pagination controls --------------------------
+  context "ranked bottleneck table: sort + pagination controls" do
+    subject(:html) { render(findings: v11_yml, graph: graph_doc) }
+
+    it "renders sortable header cells with sort-key/type metadata + a click handler hook" do
+      # clutter_score + each metric + symbol/file/kind are sortable.
+      %w[clutter_score centrality fan_in fan_out path_length].each do |key|
+        expect(html).to include(%(data-sort-key="#{key}"))
+      end
+      expect(html).to include('data-sort-key="symbol"')
+      expect(html).to include('data-sort-key="file_line"')
+      expect(html).to include('data-sort-key="kind"')
+      expect(html).to include('class="sortable"')
+      # The JS wires a click handler onto every sortable header and toggles dir.
+      expect(html).to include("th.onclick")
+      expect(html).to include("sortDir === 'asc' ? '▼' : '▲'").or include("sortDir === 'asc' ? '▲' : '▼'")
+    end
+
+    it "defaults to clutter_score descending (current behavior) in the sort state" do
+      expect(html).to include("var sortKey = 'clutter_score'")
+      expect(html).to include("var sortDir = 'desc'")
+    end
+
+    it "renders a page-size selector (25/50/100/All, default 25) + Prev/Next + range indicator" do
+      expect(html).to include('id="sel-page-size"')
+      expect(html).to include('<option value="25">25</option>')
+      expect(html).to include('<option value="50">50</option>')
+      expect(html).to include('<option value="100">100</option>')
+      expect(html).to include('<option value="all">All</option>')
+      expect(html).to include('id="tbl-prev"')
+      expect(html).to include('id="tbl-next"')
+      expect(html).to include('id="tbl-range"')
+      expect(html).to include("var pageSize = 25")
+      # the "showing X–Y of Z" indicator text is produced by the JS
+      expect(html).to include("'showing '")
+    end
+
+    it "sorts null/N/A metric values LAST regardless of direction" do
+      # the comparator forces nulls last in both asc and desc
+      expect(html).to include("if (av === null) return 1;")
+      expect(html).to include("if (bv === null) return -1;")
+    end
+
+    it "renders the page client-side without dumping all rows visible at once" do
+      # render() detaches all rows then re-appends only the current page slice
+      expect(html).to include("tbody.appendChild(ordered[i])")
+      expect(html).to include("tr.parentNode.removeChild(tr)")
+    end
+  end
+
+  # --- graph: minimum clutter-score filter ------------------------------------
+  context "call graph: minimum clutter-score filter" do
+    subject(:html) { render(findings: v11_yml, graph: graph_doc) }
+
+    it "renders a range slider + synced number input + live count element" do
+      expect(html).to include('id="rng-minscore"')
+      expect(html).to include('type="range"')
+      expect(html).to include('id="num-minscore"')
+      expect(html).to include('type="number"')
+      expect(html).to include('id="minscore-count"')
+    end
+
+    it "shows a live 'showing N of M nodes' count" do
+      expect(html).to include("' of ' + totalNodes + ' nodes")
+    end
+
+    it "applies a focused default threshold heuristic (top ~120 by clutter)" do
+      expect(html).to include("DEFAULT_FOCUS_COUNT = 120")
+      expect(html).to include("var defaultThreshold")
+      # the slider/number input start AT the default threshold (focused view)
+      expect(html).to include("rng.value = defaultThreshold")
+      expect(html).to include("numIn.value = defaultThreshold")
+    end
+
+    it "hides below-threshold nodes and their incident edges (reversible)" do
+      expect(html).to include("addClass('filtered-out')")
+      expect(html).to include("removeClass('filtered-out')")
+      expect(html).to include("'display': 'none'")
+      # incident-edge hide
+      expect(html).to include("s.hasClass('filtered-out') || t.hasClass('filtered-out')")
+    end
+
+    it "debounces re-layout while dragging the slider" do
+      expect(html).to include("clearTimeout(layoutTimer)")
+      expect(html).to include("setTimeout(function")
+    end
+
+    it "handles a threshold above all scores gracefully (no nodes message, no crash)" do
+      expect(html).to include("no nodes ≥ ")
+    end
+  end
+
   # --- adversarial escaping (locks in injection-proof output) -----------------
   #
   # The output carries real symbols + paths. An adversarial symbol/path with

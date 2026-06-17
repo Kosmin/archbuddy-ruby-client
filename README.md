@@ -192,6 +192,19 @@ open .archbuddy/report.html   # macOS; or just open the file in any browser
   the local view), highlight each dimension's hotspots, switch built-in layout (cose/grid/breadthfirst/
   circle), recolor nodes by metric, and click a node (or a table row) to inspect its file:line, kind,
   all 8 metrics, clutter, and finding types in a side panel.
+- **Minimum clutter-score filter:** a range slider + synced number input hides graph nodes (and their
+  incident edges) below the chosen clutter score, with a live "showing N of M nodes" count. To avoid an
+  overwhelming hairball on load it **defaults to a focused view of the worst offenders** (roughly the top
+  ~120 nodes by clutter); drag the slider to **0** to reveal the full graph. Re-layout is debounced so
+  dragging stays smooth, and highlighting a hotspot or clicking a table row reveals its node even if the
+  filter had hidden it.
+- **Sortable, paginated bottleneck table:** click any header (clutter score, each metric, symbol, file,
+  kind) to sort — repeat-click toggles ascending/descending and the active column shows a ▲/▼ indicator.
+  Null/`N/A` metric values always sort last. The table is paginated (rows-per-page selector of 25 / 50 /
+  100 / All, default **25**, with Prev/Next and a "showing X–Y of Z" indicator); only the current page is
+  rendered. Sorting and pagination are pure presentation over the already-emitted findings — nothing is
+  recomputed — and they also work in the no-graph degradation path. A row click still centers and
+  highlights the node in the graph regardless of which page it is on.
 - The HTML carries **real symbols → SECRET/local-only.** Redirect it to a **gitignored** path (e.g.
   `.archbuddy/report.html` — the `.archbuddy/` workspace is ignored) and **never commit or share it.** The vendored
   `cytoscape.min.js` asset *is* committed (it's a runtime dependency, not a secret — see
