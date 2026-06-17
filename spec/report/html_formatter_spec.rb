@@ -4,6 +4,7 @@ require "archbuddy/report"
 require "archbuddy/report/reconnect"
 require "archbuddy/report/ranker"
 require "archbuddy/report/formatter"
+require "archbuddy/report/model"
 require "architecture_auditor"
 
 # R-6 (open/closed): the OFFLINE Cytoscape.js `html` formatter. A single
@@ -175,5 +176,112 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     expect(html).to include("Ranked Bottlenecks")
     expect(html).not_to include("Project Scores")
     expect(html).to include("Billing#charge")
+  end
+
+  # --- init-script source ordering (regression: blocking runtime JS bug) ------
+  #
+  # The node `background-color` style callback calls `byId(...)` during the
+  # INITIAL Cytoscape style pass. `var` hoists the declaration but not the
+  # assignment, so if `nodeIndex`/`byId` are defined AFTER the `cytoscape({...})`
+  # constructor, the callback throws `TypeError: Cannot read properties of
+  # undefined` on first paint and nodes never get a metric-driven fill until a
+  # control fires `recolor()`. This cheap string-index check fails if anyone
+  # reintroduces that ordering bug.
+  context "init script source ordering (no first-paint TypeError)" do
+    subject(:html) { render(findings: v11_yml, graph: graph_doc) }
+
+    it "defines nodeIndex/byId BEFORE the cytoscape({...}) constructor call" do
+      idx_pos    = html.index("var nodeIndex")
+      byid_pos   = html.index("function byId")
+      cyto_pos   = html.index("cytoscape({")
+      expect(idx_pos).not_to be_nil
+      expect(byid_pos).not_to be_nil
+      expect(cyto_pos).not_to be_nil
+      expect(idx_pos).to be < cyto_pos
+      expect(byid_pos).to be < cyto_pos
+    end
+
+    it "does not redeclare nodeIndex/byId after the constructor (no shadow)" do
+      cyto_pos = html.index("cytoscape({")
+      after    = html[cyto_pos..]
+      expect(after).not_to include("var nodeIndex")
+      expect(after).not_to include("function byId")
+    end
+  end
+
+  # --- adversarial escaping (locks in injection-proof output) -----------------
+  #
+  # The output carries real symbols + paths. An adversarial symbol/path with
+  # `< > & " '` and a literal `</script>` must NOT be able to break out of the
+  # table markup OR close the inlined <script type="application/json"> blob.
+  context "with an adversarial symbol/path (escaping is injection-proof)" do
+    # A literal </script> + angle brackets + entity chars + unicode. If escaping
+    # regressed, the raw </script> would prematurely close the JSON island and
+    # the <script>/<img onerror> would render as live markup.
+    let(:evil_symbol) { %(Evil</script><img src=x onerror=alert(1)>#hack & "q" 'q' ✓) }
+    let(:evil_path)   { %(app/<b>evil</b>.rb) }
+
+    let(:evil_location) do
+      Archbuddy::Report::Model::Location.new(
+        id: "n_evil", file: evil_path, line: 13, symbol: evil_symbol,
+        kind: "function", class_id: nil, resolved: true
+      )
+    end
+
+    let(:evil_bottleneck) do
+      Archbuddy::Report::Model::Bottleneck.new(
+        id: "n_evil", location: evil_location, kind: "function", class_id: nil,
+        metrics: { "fan_in" => 1, "fan_out" => 2, "centrality" => 0.5, "path_length" => 3 },
+        clutter_score: 7.0, findings: []
+      )
+    end
+
+    let(:evil_resolver) do
+      resolver = Object.new
+      loc = evil_location
+      resolver.define_singleton_method(:resolve) { |_id| loc }
+      resolver
+    end
+
+    let(:evil_graph) do
+      { "nodes" => [{ "id" => "n_evil", "kind" => "function" }], "edges" => [] }
+    end
+
+    subject(:html) do
+      context = Archbuddy::Report::Formatter::RenderContext.new(
+        ranked: [evil_bottleneck], class_rollups: [], generator: { "tool" => "x" },
+        graph: evil_graph, resolver: evil_resolver, scores: nil
+      )
+      Archbuddy::Report::Formatter.for("html").new(context).render
+    end
+
+    # Scope to the bottleneck table section: the symbol/path is interpolated as
+    # live HTML there, so it MUST be entity-escaped. (Inside the JSON island the
+    # same string is inert text guarded only by the `</` neutralization — tested
+    # separately below — so a raw `<img>` is expected and safe there.)
+    let(:table_section) { html[/<section id="table">(.*?)<\/section>/m, 1] }
+
+    it "HTML-escapes the symbol/path in the table (no live <script>/<img> markup)" do
+      expect(table_section).not_to be_nil
+      # The dangerous markup never appears raw in the live table…
+      expect(table_section).not_to include("<img src=x onerror=alert(1)>")
+      expect(table_section).not_to include("<b>evil</b>")
+      # …it appears entity-escaped instead.
+      expect(table_section).to include("&lt;img src=x onerror=alert(1)&gt;")
+      expect(table_section).to include("&lt;b&gt;evil&lt;/b&gt;")
+      expect(table_section).to include("&amp;").and include("&quot;").and include("&#39;")
+    end
+
+    it "neutralizes </script> inside the inlined JSON island (stays inert)" do
+      json_blob = html[/<script id="archbuddy-data"[^>]*>(.*?)<\/script>/m, 1]
+      expect(json_blob).not_to be_nil
+      # No raw `</` survives in the island — every one is written as `<\/`.
+      expect(json_blob).not_to include("</")
+      expect(json_blob).to include('<\/script>')
+      # And it's still valid JSON once the neutralization is reversed.
+      data = JSON.parse(json_blob.gsub('<\/', "</"))
+      node = data["nodes"].find { |n| n["id"] == "n_evil" }
+      expect(node["symbol"]).to eq(evil_symbol)
+    end
   end
 end

@@ -349,6 +349,14 @@ module Archbuddy
               var metric = data.default_metric || 'centrality';
               var range = metricRange(metric);
 
+              // Defined BEFORE cytoscape(...) so the node 'background-color' style
+              // callback can resolve byId() during the INITIAL style pass. `var`
+              // hoists the name but not the assignment, so declaring these after
+              // the constructor left nodeIndex undefined on first paint (TypeError;
+              // nodes got no metric-driven fill until a control triggered recolor).
+              var nodeIndex = {}; data.nodes.forEach(function (n) { nodeIndex[n.id] = n; });
+              function byId(id) { return nodeIndex[id] || {}; }
+
               var cy = cytoscape({
                 container: cyEl,
                 elements: elements,
@@ -370,9 +378,6 @@ module Archbuddy
                 ],
                 layout: { name: 'cose' }
               });
-
-              var nodeIndex = {}; data.nodes.forEach(function (n) { nodeIndex[n.id] = n; });
-              function byId(id) { return nodeIndex[id] || {}; }
 
               function relabel() {
                 cy.style().selector('node').style('label', useReal ? 'data(real)' : 'data(opaque)').update();
