@@ -134,26 +134,36 @@ Sole producer of `id-map.yml`. Builds a `Config`, gets the adapter via `Registry
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `PATH` (arg) | — | Codebase dir or single `.rb` file. |
-| `--out-dir` | `./out` | Output dir for `graph.yml` + `id-map.yml`. |
+| `--out-dir` | `.archbuddy/` (`DEFAULT_WORKSPACE_DIR`) | Output dir for `graph.yml` + `id-map.yml`. OPTIONAL — the shared workspace default makes `collect .` flag-free. |
 | `--language` | `ruby` | Adapter language (Registry key). |
 | `--entrypoints` | `default` | `default\|controllers\|all_public\|none`. |
 | `--entrypoint-pattern` | `[]` | Extra entrypoint fq-symbol regex(es) (repeatable). |
 
-Stderr diagnostics (never graph content): a metaprogramming-sites-skipped note when > 0; the **M3 zero-
-entrypoints warning** suggesting `--entrypoints all_public`; and the two `wrote …` lines (the id-map line is
-tagged `SECRET — gitignored, never share`).
+**Default-workspace secret safety (`ensure_default_workspace_excluded!`).** When `--out-dir` is omitted
+(the default `.archbuddy/`) AND CWD is inside a git repo, the command appends `.archbuddy/` to
+`.git/info/exclude` (a LOCAL ignore — never the tracked `.gitignore`) so the `Emitter`'s
+gitignore-before-secret guard passes without user action. Idempotent (no duplicate line; no-op if already
+ignored by any means), prints a one-line note, and no-ops outside a git repo. For an EXPLICIT `--out-dir` it
+touches no ignore file — the `Emitter` guard refuses a non-ignored user-chosen path (behavior unchanged).
+
+Stderr diagnostics (never graph content): the one-line `.git/info/exclude` note when it auto-excludes; a
+metaprogramming-sites-skipped note when > 0; the **M3 zero-entrypoints warning** suggesting
+`--entrypoints all_public`; and the two `wrote …` lines (the id-map line is tagged `SECRET — gitignored,
+never share`).
 
 ### `archbuddy report FINDINGS_YML` — `cli/report.rb`
 
-The other id-map reader. Resolves the formatter (`Formatter.for`, `exit 1` on unknown), runs
-`Reconnect.from_files`, builds a `Ranker`, assembles a `RenderContext`, and prints `formatter.render`.
+The other id-map reader. Defaults all inputs into the shared `.archbuddy/` workspace, then resolves the
+formatter (`Formatter.for`, `exit 1` on unknown), runs `Reconnect.from_files`, builds a `Ranker`, assembles a
+`RenderContext`, and prints `formatter.render`. A missing default findings/id-map produces a friendly
+`exit 1` error (`missing_input!`) naming the producing command — never a stack trace.
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `FINDINGS_YML` (arg) | — | Opaque findings.yml from `analyze`. |
-| `--id-map` | **required** | The SECRET id-map.yml from `collect`. |
+| `FINDINGS_YML` (arg) | `.archbuddy/findings.yml` | Opaque findings.yml from `analyze`. OPTIONAL — defaults into the workspace. |
+| `--id-map` | `.archbuddy/id-map.yml` | The SECRET id-map.yml from `collect`. |
 | `--format` | `terminal` | `terminal\|yaml\|json\|dot\|html`. |
-| `--graph` | — | Path to graph.yml; **required for `--format dot`**, and used by `--format html` to render the call graph (html degrades gracefully without it). |
+| `--graph` | `.archbuddy/graph.yml` **if present** | Path to graph.yml; **required for `--format dot`**, used by `--format html` (html degrades gracefully without it). Default only applies when the workspace file exists, so terminal/yaml/json don't warn about a missing graph. |
 | `--top` | — | Show only the top N bottlenecks. |
 
 ---
@@ -166,15 +176,18 @@ The other id-map reader. Resolves the formatter (`Formatter.for`, `exit 1` on un
 | `spec/collect/collector_spec.rb` | End-to-end capture on `spec/fixtures/sample`: schema validity, id minting via Contract::Ids, the AR implicit-self `where` gotcha, operator drop, single external sink, resolvable cross-class edge, endpoint marking, `cls_` rollups in id-map only, **null `loc` / zero-leak guard**, null timing. |
 | `spec/collect/emitter_spec.rb` | Validate-before-write + **gitignore-before-secret** guard. |
 | `spec/collect/cli_collect_warning_spec.rb` | M3 zero-entrypoint stderr warning + that it stays out of graph/id-map. |
+| `spec/collect/cli_collect_default_dir_spec.rb` | **`.archbuddy/` default workspace + secret safety**: no-`--out-dir` writes to `.archbuddy/` (non-git just writes; git repo auto-adds `.archbuddy/` to `.git/info/exclude`, id-map ends up `git check-ignore`d, idempotent on a 2nd run); an EXPLICIT non-ignored `--out-dir` still trips the Emitter refuse-guard and does NOT edit any ignore file. |
 | `spec/collect/capture_diagnostics_spec.rb` | `NoSourceError` cases + metaprogramming diagnostic count staying out of graph data. |
 | `spec/report/reporter_spec.rb` | Ranking, `--top`, three-site de-anon, graceful missing ids, class rollups, **verbatim metrics**, terminal/yaml/json/dot formatters, all 7 explanation types, formatter registry. |
+| `spec/report/cli_report_default_dir_spec.rb` | **`.archbuddy/` default workspace for `report`**: no-args reads `.archbuddy/{findings,id-map}.yml`; missing default findings/id-map → friendly `exit 1` error naming the producing command (no stack trace); explicit args override the workspace defaults. |
 | `spec/report/html_formatter_spec.rb` | **Offline `html` formatter**: registry, valid-ish self-contained HTML (cy container + inlined cytoscape lib >200KB + inlined data JSON), **ZERO external resource refs** (the offline guarantee), both dimension scores+grades, de-anonymized real symbols + file:line, **verbatim** bottleneck table, graph nodes/edges in the data JSON, hotspot ids per dimension, graceful `<external>` graph node, **no-graph degradation** (scores+table+notice), forward **N/A**, and **1.0 back-compat** (no scores header). |
 | `spec/report/scores_spec.rb` | **R-8 project dimension scores**: parse + verbatim score/grade, worst-first hotspot de-anon with driving metrics, graceful `<external>` for absent hotspot ids, **N/A forward** (null score → reason, not a number), terminal summary header (score/grade leads; hotspots framed as relative contributors, rendered BEFORE the bottleneck list), yaml/json exports include the scores, and **1.0 back-compat** (no header, no `scores` export key). |
 | `spec/report/metric_kernel_consistency_spec.rb` | **4c metric-kernel lockstep**: client constant == engine `METRIC_KEYS` (set + order). Unaffected by scores (scores are separate from the 8 per-node metrics). |
 | `spec/fixtures/sample/` | Tiny Rails-shaped fixture (`OrdersController`, `Billing::Invoice < ApplicationRecord`) exercising each resolver tier. |
 | `spec/fixtures/report/` | `findings_fixture.yml` (1.0, no scores; deliberately-absurd `fan_in=42` to prove no-recompute) + `id_map_fixture.yml` (with a deliberately-absent `ext_` id to prove graceful de-anon) + `findings_v11_fixture.yml` (1.1 with both dimensions scored + hotspots) + `findings_v11_forward_na_fixture.yml` (1.1 with forward N/A) + `graph_fixture.yml` (opaque graph.yml edge list — nodes/edges incl. the absent `ext_` sink — for the dot/html graph render). |
 
-Run all: `RBENV_VERSION=ruby-3.4.2 bundle exec rspec` (79 examples).
+Run all: `bundle exec rspec` (91 examples; prefix with `RBENV_VERSION=ruby-3.4.2` if your shell
+doesn't auto-switch from `.ruby-version`).
 
 ## Adding a new language adapter
 

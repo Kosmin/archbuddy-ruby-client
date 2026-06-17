@@ -12,5 +12,9 @@ module Archbuddy
   # The collector: static-AST capture of a codebase into the anonymized graph
   # contract plus the secret id-map.
   module Collect
+    # The shared `.archbuddy/` workspace convention (relative to CWD), mirrored
+    # by the engine: holds graph.yml + id-map.yml (collect) and findings.yml
+    # (analyze). This is the flag-free default for `collect`/`report`.
+    DEFAULT_WORKSPACE_DIR = ".archbuddy"
   end
 end

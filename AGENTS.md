@@ -36,7 +36,7 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
 
 | Concern | Choice |
 |---------|--------|
-| Language / runtime | Ruby **>= 3.2**; on this machine use `RBENV_VERSION=ruby-3.4.2` for all ruby/bundle/rspec |
+| Language / runtime | Ruby **>= 3.2**. Ruby 3.4.2 auto-selects via rbenv from `.ruby-version` in-repo; if your shell doesn't auto-switch, prefix ruby/bundle/rspec with `RBENV_VERSION=ruby-3.4.2` |
 | AST parser | `prism` (~> 1.0) — two-pass `Prism::Visitor` capture |
 | CLI framework | `dry-cli` (~> 1.4) — `Dry::CLI::Registry`, two commands: `collect`, `report` |
 | Shared contract | `architecture_auditor` gem — Gemfile defaults to the **git source** (distribution, D47); local dev overrides to the `../architecture-auditor` sibling via `ARCHITECTURE_AUDITOR_PATH` or `bundle config local.architecture_auditor` (M2). See [`.claude/docs/cross-repo.md`](.claude/docs/cross-repo.md) |
@@ -56,7 +56,11 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
 3. **Secret handling (D16/D21).** `id-map.yml` and every de-anonymized export (`report.yml`/`.json`/`.dot`/
    `report.html`) contain real symbols → **SECRET, local-only, gitignored.** Never commit, never send
    externally. Only `collect` and `report` read/produce the id-map; the engine's `analyze` never receives
-   it (no `--id-map` option exists there by construction). **Exception — the vendored
+   it (no `--id-map` option exists there by construction). The `Emitter` enforces **gitignore-before-secret**:
+   it refuses (`SecretNotIgnoredError`) to write the id-map unless its path is provably gitignored. **For the
+   DEFAULT `.archbuddy/` workspace (see invariant 10) the `collect` CLI keeps that invariant automatically**
+   by appending `.archbuddy/` to `.git/info/exclude` (a LOCAL ignore — NEVER the tracked `.gitignore`) before
+   emitting; for an EXPLICIT `--out-dir` it touches no ignore file and the Emitter guard still fires. **Exception — the vendored
    `lib/archbuddy/report/assets/cytoscape.min.js` is NOT a secret**: it is a version-pinned, MIT-licensed
    runtime library inlined by the `html` formatter to make the report offline, so it IS committed (the
    generated `report.html` is what stays gitignored). The `html` output must remain **fully offline** —
@@ -83,6 +87,15 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
    / back-compat, never crash). Scores are **separate** from the 8 per-node metrics — they do NOT touch
    `METRIC_KEYS_FOR_DISPLAY` or the 4c lockstep. A hotspot is just the worst-RANKED node for that dimension
    (a relative top contributor), NOT inherently a bug — render so the **grade leads**, not the hotspot.
+10. **Shared `.archbuddy/` workspace default (ergonomics).** Both CLI commands default their I/O to
+    `.archbuddy/` (relative to CWD; constant `Archbuddy::Collect::DEFAULT_WORKSPACE_DIR`), mirrored by the
+    engine: `collect` → `.archbuddy/{graph,id-map}.yml`, `analyze` → `.archbuddy/findings.yml`, `report`
+    reads `.archbuddy/{findings,id-map,graph}.yml`. So `archbuddy collect .` → `architecture-auditor analyze`
+    → `archbuddy report` needs **no flags**. `collect`'s `--out-dir` is OPTIONAL; `report`'s `FINDINGS` arg,
+    `--id-map`, and `--graph` all default into the workspace; **explicit args/flags override**. Missing default
+    inputs for `report` produce a friendly one-line error naming the producing command — never a stack trace.
+    This is **CLI-default + docs only**: collector/resolver/anonymizer/reporter behavior and the contract are
+    unchanged. The secret-safety story for the default dir is invariant 3 (auto `.git/info/exclude`).
 
 ## How to work in this codebase
 
@@ -140,23 +153,28 @@ verify the entries around it (and cross-references in the engine repo) haven't d
 
 ## How to run + test
 
-```bash
-# all commands on this machine are prefixed with the rbenv version selector:
-RBENV_VERSION=ruby-3.4.2 bundle install
-RBENV_VERSION=ruby-3.4.2 bundle exec rspec            # full suite (79 examples)
+Ruby 3.4.2 is auto-selected by rbenv from `.ruby-version` when you're in the repo; if your shell
+doesn't auto-switch, prefix the commands below with `RBENV_VERSION=ruby-3.4.2`.
 
-# Collector: capture a codebase → out/graph.yml + out/id-map.yml(SECRET)
-RBENV_VERSION=ruby-3.4.2 bundle exec exe/archbuddy collect PATH \
-  --out-dir ./out [--language ruby] \
-  [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...]
+```bash
+bundle install
+bundle exec rspec                                     # full suite
+
+# Collector: capture a codebase → .archbuddy/graph.yml + .archbuddy/id-map.yml(SECRET)
+bundle exec exe/archbuddy collect .                   # --out-dir defaults to .archbuddy/
+  # [--out-dir DIR] [--language ruby]
+  # [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...]
 
 # Reporter: de-anonymize + rank the engine's findings → clutter report
-RBENV_VERSION=ruby-3.4.2 bundle exec exe/archbuddy report FINDINGS_YML \
-  --id-map ./out/id-map.yml [--format terminal|yaml|json|dot|html] [--graph ./out/graph.yml] [--top N]
+bundle exec exe/archbuddy report                      # FINDINGS/--id-map/--graph default to .archbuddy/
+  # [FINDINGS_YML] [--id-map PATH] [--format terminal|yaml|json|dot|html] [--graph PATH] [--top N]
 ```
 
-`--graph` is required for `--format dot` and used by `--format html` to render the call graph (the edge
-list lives in `graph.yml`, not `findings.yml`; `html` degrades to scores + table without it).
+**The shared `.archbuddy/` workspace** (relative to CWD) is the flag-free default for both commands:
+`collect` writes `graph.yml` + `id-map.yml` there, `analyze` (engine) writes `findings.yml`, and
+`report` reads all three. `--graph` is required for `--format dot` and used by `--format html` to
+render the call graph (the edge list lives in `graph.yml`, not `findings.yml`; `html` degrades to
+scores + table without it).
 
 ## Architecture skills
 

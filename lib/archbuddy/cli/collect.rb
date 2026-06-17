@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "dry/cli"
+require "fileutils"
 require_relative "../collect"
 
 module Archbuddy
@@ -15,14 +16,29 @@ module Archbuddy
 
       argument :path, required: true, desc: "Path to the codebase (dir or .rb file)"
 
-      option :out_dir, default: "./out", desc: "Output directory for graph.yml + id-map.yml"
+      # The shared `.archbuddy/` workspace convention (mirrored by the engine):
+      # collect writes graph.yml + id-map.yml here so the flow needs no flags.
+      option :out_dir, desc: "Output directory for graph.yml + id-map.yml (default: #{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/)"
       option :language, default: "ruby", desc: "Adapter language"
       option :entrypoints, default: "default",
                            desc: "Entrypoint strategy: default|controllers|all_public|none"
       option :entrypoint_pattern, type: :array, default: [],
                                   desc: "Additional entrypoint fq-symbol regex(es)"
 
-      def call(path:, out_dir:, language:, entrypoints:, entrypoint_pattern:, **)
+      def call(path:, language:, entrypoints:, entrypoint_pattern:, out_dir: nil, **)
+        # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
+        # `archbuddy collect .` works with no flags. When we fall back to the
+        # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
+        # LOCALLY ignored (via .git/info/exclude — never the tracked .gitignore)
+        # so the existing gitignore-before-secret guard in the Emitter passes
+        # without the user thinking about it. For an EXPLICIT --out-dir we do NOT
+        # touch any ignore file: the guard refuses if the path the USER chose is
+        # not ignored (we never silently edit ignores for a user-chosen path).
+        using_default_out_dir = out_dir.nil?
+        out_dir ||= Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
+
+        ensure_default_workspace_excluded! if using_default_out_dir
+
         config = Archbuddy::Collect::Config.new(
           language:            language,
           entrypoint_strategy: entrypoints,
@@ -66,6 +82,61 @@ module Archbuddy
 
         warn "wrote #{paths[:graph]}"
         warn "wrote #{paths[:id_map]} (SECRET — gitignored, never share)"
+      end
+
+      private
+
+      # When the DEFAULT `.archbuddy/` workspace is used inside a git repo,
+      # ensure it is locally ignored so the secret id-map can be written safely.
+      # We append `.archbuddy/` to `.git/info/exclude` — a LOCAL ignore that does
+      # NOT modify the user's tracked `.gitignore`. Idempotent: never duplicates
+      # the line, and a no-op if `.archbuddy/` is already ignored by any means
+      # (e.g. the user's own .gitignore). Outside a git repo we do nothing (there
+      # is no commit risk; the Emitter's filename fallback still covers the secret).
+      def ensure_default_workspace_excluded!
+        dir = Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
+        return unless git_repo?
+        return if path_ignored?(dir)
+
+        exclude_file = File.join(git_dir, "info", "exclude")
+        FileUtils.mkdir_p(File.dirname(exclude_file))
+        line = "#{dir}/"
+
+        existing = File.exist?(exclude_file) ? File.read(exclude_file) : ""
+        return if existing.split("\n").map(&:strip).include?(line) # idempotent
+
+        File.open(exclude_file, "a") do |f|
+          f.print("\n") unless existing.empty? || existing.end_with?("\n")
+          f.puts(line)
+        end
+        warn "note: added '#{line}' to .git/info/exclude (local-only) so the SECRET id-map stays uncommitted"
+      end
+
+      def git_repo?
+        !git_dir.nil?
+      end
+
+      # Absolute path to the .git directory (handles worktrees/submodules where
+      # `git rev-parse --git-dir` may return a non-default location). nil when
+      # CWD is not inside a git repo.
+      def git_dir
+        return @git_dir if defined?(@git_dir)
+
+        out = `git rev-parse --absolute-git-dir 2>/dev/null`
+        @git_dir = ($?.success? && !out.strip.empty?) ? out.strip : nil
+      rescue StandardError
+        @git_dir = nil
+      end
+
+      def path_ignored?(path)
+        out = `git check-ignore #{shell_escape(path)} 2>/dev/null`
+        $?.success? && !out.strip.empty?
+      rescue StandardError
+        false
+      end
+
+      def shell_escape(str)
+        "'#{str.gsub("'", "'\\\\''")}'"
       end
     end
   end

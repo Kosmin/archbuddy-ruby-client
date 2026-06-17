@@ -12,6 +12,9 @@ report.json
 report.html
 *.report.html
 /out/
+# the shared `.archbuddy/` workspace holds captured graph.yml + the SECRET
+# id-map.yml + findings.yml — never stage it when dogfooding on this repo.
+.archbuddy/
 
 # Auditor I/O — captured graphs / findings from real repos
 *.graph.yml
