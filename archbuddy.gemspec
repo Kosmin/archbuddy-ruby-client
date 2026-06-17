@@ -21,6 +21,11 @@ Gem::Specification.new do |spec|
 
   spec.files = Dir[
     "lib/**/*.rb",
+    # Vendored, non-.rb runtime assets the html formatter reads at render time
+    # (see lib/archbuddy/report/formatters/html_formatter.rb). These MUST ship in
+    # the gem or `gem install`ed copies raise Errno::ENOENT. A spec guards this.
+    "lib/archbuddy/report/assets/cytoscape.min.js",
+    "lib/archbuddy/report/assets/CYTOSCAPE_LICENSE",
     "exe/*",
     "README.md"
   ]
