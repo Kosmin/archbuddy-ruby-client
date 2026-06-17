@@ -1,0 +1,63 @@
+# Test fixture mirroring the OPAQUE graph.yml shape (the edge list — NOT in
+# findings.yml). Node ids match findings_fixture.yml / id_map_fixture.yml so the
+# html formatter can de-anonymize them. Includes the ext_ sink that is ABSENT
+# from the id-map to exercise graceful <external …> rendering on a graph node.
+schema_version: "1.0"
+generator:
+  tool: architecture-auditor test
+  adapter: ruby
+  capture: static
+nodes:
+  - id: n_9806809c4b1f
+    kind: endpoint
+    class_id: null
+    loc: null
+    self_time_ms: null
+    total_time_ms: null
+    count: null
+  - id: n_4452f2ecaf84
+    kind: function
+    class_id: cls_7a9758b1a745
+    loc: null
+    self_time_ms: null
+    total_time_ms: null
+    count: null
+  - id: n_e188e5adb49f
+    kind: function
+    class_id: cls_e1303d65422d
+    loc: null
+    self_time_ms: null
+    total_time_ms: null
+    count: null
+  - id: n_b3db7d55c659
+    kind: function
+    class_id: cls_e1303d65422d
+    loc: null
+    self_time_ms: null
+    total_time_ms: null
+    count: null
+  - id: ext_e4c31576a772
+    kind: external
+    class_id: null
+    loc: null
+    self_time_ms: null
+    total_time_ms: null
+    count: null
+edges:
+  - from: n_9806809c4b1f
+    to: n_4452f2ecaf84
+    calls: 3
+    count: null
+    self_time_ms: null
+  - from: n_4452f2ecaf84
+    to: n_e188e5adb49f
+    calls: 1
+    count: null
+    self_time_ms: null
+  - from: n_e188e5adb49f
+    to: ext_e4c31576a772
+    calls: 2
+    count: null
+    self_time_ms: null
+entrypoints:
+  - n_9806809c4b1f

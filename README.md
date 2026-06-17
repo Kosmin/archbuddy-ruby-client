@@ -108,7 +108,7 @@ The engine **never** receives `id-map.yml` — it analyzes the graph without eve
 
 ```bash
 RBENV_VERSION=ruby-3.4.2 bundle exec archbuddy report ./out/findings.yml --id-map ./out/id-map.yml
-# add --format yaml|json|dot, --top N, or --graph ./out/graph.yml (required for dot)
+# add --format yaml|json|dot|html, --top N, or --graph ./out/graph.yml (required for dot, used by html)
 ```
 
 The report carries **real symbols** → treat it as SECRET/local-only (see below).
@@ -153,13 +153,40 @@ A **hotspot** is just the worst-*ranked* node for that dimension (a relative top
 clean project the top hotspots may be perfectly benign. Scores are copied **verbatim** from the
 engine; archbuddy never recomputes them.
 
+## Interactive HTML report (offline, self-contained)
+
+`--format html` renders the same data as a single, **fully self-contained, fully OFFLINE** HTML
+dashboard: the two dimension scores as headline grade cards, an interactive Cytoscape.js call graph,
+and the ranked bottleneck table. Cytoscape.js and all CSS/JS are **inlined** into the file — there are
+zero external/CDN references, so it opens with no network and no build step.
+
+```bash
+RBENV_VERSION=ruby-3.4.2 bundle exec archbuddy report ./out/findings.yml \
+  --id-map ./out/id-map.yml --format html --graph ./out/graph.yml > ./out/report.html
+open ./out/report.html   # macOS; or just open the file in any browser
+```
+
+- The graph nodes come from `graph.yml`, so pass `--graph` to render the network; **without `--graph`
+  the scores header + bottleneck table still render** (with a visible notice — no crash).
+- Graph controls: toggle labels between **real symbols ↔ opaque ids** (defaults to real, since this is
+  the local view), highlight each dimension's hotspots, switch built-in layout (cose/grid/breadthfirst/
+  circle), recolor nodes by metric, and click a node (or a table row) to inspect its file:line, kind,
+  all 8 metrics, clutter, and finding types in a side panel.
+- The HTML carries **real symbols → SECRET/local-only.** Redirect it to a **gitignored** path (e.g.
+  `out/report.html` — `/out/` is ignored) and **never commit or share it.** The vendored
+  `cytoscape.min.js` asset *is* committed (it's a runtime dependency, not a secret — see
+  `lib/archbuddy/report/assets/CYTOSCAPE_LICENSE`).
+
 ## SECRET: the id-map and de-anonymized reports
 
 `id-map.yml` is the **only** thing that can de-anonymize the opaque graph, and every de-anonymized
-report (`terminal` text, `report.yml`, `report.json`, `*.dot`) carries **real file/line/symbol** names.
+report (`terminal` text, `report.yml`, `report.json`, `*.dot`, `report.html`) carries **real
+file/line/symbol** names.
 
 - **Never commit** the id-map or any report. The repo `.gitignore` already covers `id-map.yml`,
-  `*.id-map.yml`, `/out/`, `report.yml/json`, `*.dot`, `graph.yml`, `findings.yml`.
+  `*.id-map.yml`, `/out/`, `report.yml/json`, `*.dot`, `*.report.html`, `graph.yml`, `findings.yml`.
+  (The vendored `cytoscape.min.js` library asset is intentionally NOT ignored — it is a runtime
+  dependency, not a secret.)
 - **Never share them externally.** They stay **local, on this machine**. `collect` even refuses to
   write the id-map unless its path is gitignored (gitignore-before-secret guard).
 
@@ -170,13 +197,13 @@ archbuddy collect PATH --out-dir ./out \
   [--language ruby] [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...]
 
 archbuddy report FINDINGS_YML --id-map ./out/id-map.yml \
-  [--format terminal|yaml|json|dot] [--graph ./out/graph.yml] [--top N]
+  [--format terminal|yaml|json|dot|html] [--graph ./out/graph.yml] [--top N]
 ```
 
 ## Development
 
 ```bash
-RBENV_VERSION=ruby-3.4.2 bundle exec rspec     # full suite (65 examples)
+RBENV_VERSION=ruby-3.4.2 bundle exec rspec     # full suite (79 examples)
 RBENV_VERSION=ruby-3.4.2 gem build archbuddy.gemspec   # installability check (delete the .gem after)
 ```
 

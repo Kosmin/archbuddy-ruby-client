@@ -43,6 +43,7 @@ module Archbuddy
       autoload :YamlFormatter,     "archbuddy/report/formatters/yaml_formatter"
       autoload :JsonFormatter,     "archbuddy/report/formatters/json_formatter"
       autoload :DotFormatter,      "archbuddy/report/formatters/dot_formatter"
+      autoload :HtmlFormatter,     "archbuddy/report/formatters/html_formatter"
     end
   end
 end

@@ -71,7 +71,8 @@ ids:
 
 `gitignore-before-secret`: `Collect::Emitter` refuses to write this unless the path is gitignored. The
 repo `.gitignore` already covers `id-map.yml`, `*.id-map.yml`, `/out/`, plus `report.yml/json`, `*.dot`,
-`graph.yml`, `findings.yml`.
+`*.report.html`, `graph.yml`, `findings.yml`. (The vendored `lib/.../assets/cytoscape.min.js` library is
+intentionally NOT ignored — a runtime dependency, not a secret.)
 
 ---
 
@@ -143,6 +144,7 @@ Rendered by the Formatter strategy; all carry real symbols → gitignored, never
 | `yaml` | `report.yml` | `{ generator, bottlenecks[ {id,symbol,file,line,kind,class_id,resolved,clutter_score,metrics{8},findings[]} ], class_rollups[ {class_id,symbol,file,line,resolved,clutter_score,member_count} ] }` via `StructuredExport`; plus, when present (1.1), `scores{ <dimension> => {score,grade,question,na_reason?,hotspots[ {symbol,file,line,resolved,metrics} ]} }` (de-anonymized; the key is omitted entirely for a 1.0 doc). |
 | `json` | `report.json` | Same structured shape (incl. the optional de-anonymized `scores`), `JSON.pretty_generate`. |
 | `dot` | `*.dot` | Graphviz digraph with de-anonymized labels. **Requires `--graph graph.yml`** (edge list source). |
+| `html` | `report.html` | A SINGLE, fully self-contained, fully **OFFLINE** Cytoscape.js dashboard: dimension-score grade cards + an interactive call graph + the ranked bottleneck table. Cytoscape.js + all CSS/JS are **inlined** (zero external/CDN refs). Uses `--graph graph.yml` for the call graph (degrades to scores + table without it). De-anonymized real symbols → **SECRET/local-only**; redirect to a gitignored path (e.g. `out/report.html`). |
 
 Unresolved ids (e.g. `ext_` sinks, ids absent from the id-map) render as graceful `<external …>`
 placeholders (`resolved: false`) — never an error.

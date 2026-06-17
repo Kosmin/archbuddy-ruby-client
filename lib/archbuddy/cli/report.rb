@@ -25,8 +25,8 @@ module Archbuddy
 
       option :id_map, required: true, desc: "Path to the SECRET id-map.yml (from `collect`)"
       option :format, default: "terminal",
-                      desc: "Output format: terminal|yaml|json|dot"
-      option :graph, desc: "Path to graph.yml (required only for --format dot — supplies the edge list)"
+                      desc: "Output format: terminal|yaml|json|dot|html"
+      option :graph, desc: "Path to graph.yml (the edge list; required for --format dot, used by --format html)"
       option :top, type: :integer, desc: "Show only the top N bottlenecks"
 
       def call(findings:, id_map:, format:, graph: nil, top: nil, **)

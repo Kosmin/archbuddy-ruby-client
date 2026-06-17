@@ -7,6 +7,10 @@ report.json
 *.report.yml
 *.report.json
 *.dot
+# de-anonymized OFFLINE html report (real symbols) — NOT the vendored
+# cytoscape.min.js library asset under lib/, which is a committed runtime dep.
+report.html
+*.report.html
 /out/
 
 # Auditor I/O — captured graphs / findings from real repos

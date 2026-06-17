@@ -1,0 +1,41 @@
+Vendored offline asset: Cytoscape.js
+=====================================
+
+Version:  3.30.3
+Source:   https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.3/cytoscape.min.js
+          (mirror: https://unpkg.com/cytoscape@3.30.3/dist/cytoscape.min.js)
+License:  MIT (Copyright (c) 2016-2024, The Cytoscape Consortium)
+Project:  https://js.cytoscape.org/
+
+Why it is committed here
+------------------------
+`Report::Formatters::HtmlFormatter` inlines this file verbatim into the single
+self-contained `--format html` report so the report works fully OFFLINE — no
+CDN, no <script src="http…">, no network at view time. It is a runtime
+dependency of the formatter, NOT a secret, so it IS committed (unlike the
+generated report.html, which contains real symbols and is gitignored).
+
+Upgrading
+---------
+Re-fetch the pinned minified build from the source URL above, re-add the one-
+line provenance header at the top of cytoscape.min.js, bump the version here,
+and confirm the file is the real library (size > 200 KB, contains "cytoscape").
+
+MIT License text
+----------------
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

@@ -99,7 +99,7 @@ Everything is **verbatim** (D17) — no metric is ever recomputed.
 
 | File / Class | Responsibility |
 |--------------|----------------|
-| `report.rb` (`Report`) | Defines `METRIC_KEYS_FOR_DISPLAY` — the 8 display metric keys as a **named constant** (D43), asserted == engine `Analyze::METRIC_KEYS`. Autoloads the model/reconnect/ranker/explanation/formatter + the four formatters. |
+| `report.rb` (`Report`) | Defines `METRIC_KEYS_FOR_DISPLAY` — the 8 display metric keys as a **named constant** (D43), asserted == engine `Analyze::METRIC_KEYS`. Autoloads the model/reconnect/ranker/explanation/formatter + the five formatters (terminal/yaml/json/dot/html). |
 | `model.rb` (`Model::Location/Bottleneck/Finding`) | Presentation-agnostic value objects (R-1). `Location` is a de-anonymized `{id,file,line,symbol,kind,class_id,resolved}` — `resolved?` false ⇒ a graceful `<external …>` placeholder (never raises). `Bottleneck` = one node + its verbatim 8 metrics + `clutter_score` + the findings touching it (`rollup?` true when `kind=="class_rollup"`). `Finding` = node-type (single `node`) or path-type (`path_refs` chain, `path?`/`chain`). |
 | `scores.rb` (`Scores`, `Scores::DimensionScore/Hotspot`) | **R-8: the de-anonymized presentation model for findings.yml's OPTIONAL project-level `scores` block (findings 1.1, additive).** `Scores.from_findings(doc, resolver)` parses the two dimensions (**reverse_traceability** always-computable + **forward_discoverability** which is **N/A when there are no entrypoints**), copies each dimension's `score`/`grade` **verbatim** (D17 — never recomputed; they come straight from findings.yml), and de-anonymizes each dimension's **worst-first OPAQUE `hotspots`** via the SAME `IdMapResolver` (graceful `<external …>` for missing/`ext_` ids). Each `Hotspot` carries the dimension's **driving-metric values** (`DRIVING_METRICS`: reverse ⇒ fan_in/centrality/in_cycle; forward ⇒ path_length/fan_out) pulled verbatim from the per-node `nodes.<id>.metrics`. **Returns `nil` for a 1.0 doc with no scores block** (back-compat). Scores/grades are **project-level**; a hotspot is just the worst-RANKED node for that dimension (relative top contributor), not inherently a bug. |
 | `reconnect.rb` (`Reconnect`, `IdMapResolver`) | **R-2 join engine.** `from_files` loads findings.yml + the SECRET id-map.yml via `Serializer`. De-anonymizes at the three contract join sites: `findings.nodes.<id>`, each `findings[].node`, each `findings[].path[]` element. Metrics/score copied **verbatim** (D17). `IdMapResolver.resolve(id)` → `Location`; ids absent from the map (e.g. `ext_` sinks, unknown ids) resolve to a graceful placeholder and **never raise**. Path findings attach to the first node on their path. Also builds the optional `Scores` model (R-8) and exposes it on `Result#scores` (`nil` for a 1.0 doc). |
@@ -110,12 +110,14 @@ Everything is **verbatim** (D17) — no metric is ever recomputed.
 
 | File / Class | Format | Responsibility |
 |--------------|--------|----------------|
-| `formatter.rb` (`Formatter`, `RenderContext`) | — | **R-6 strategy base + open/closed `FORMATS` registry.** `register(name, klass)` / `for(name)`. Receives an already-de-anonymized, already-ranked `RenderContext(ranked, class_rollups, generator, graph, resolver, scores)`; makes ZERO analytic decisions. `scores` is the optional R-8 dimension-scores model (`nil` for a 1.0 doc). Eager-requires the four built-ins so registration happens on load. |
+| `formatter.rb` (`Formatter`, `RenderContext`) | — | **R-6 strategy base + open/closed `FORMATS` registry.** `register(name, klass)` / `for(name)`. Receives an already-de-anonymized, already-ranked `RenderContext(ranked, class_rollups, generator, graph, resolver, scores)`; makes ZERO analytic decisions. `scores` is the optional R-8 dimension-scores model (`nil` for a 1.0 doc). Eager-requires the five built-ins so registration happens on load. |
 | `terminal_formatter.rb` (`TerminalFormatter`) | `terminal` (default) | **R-8 summary header FIRST** (when `context.scores` present): an eslint/rubocop-style `Architecture Scores` block that **LEADS with each dimension's `score/grade`** + framing question, then lists that dimension's de-anonymized hotspots as **"top contributors to this dimension (worst-ranked first)"** (relative, not "these are bugs") with real symbol + `file:line` + driving metric(s); an `N/A` dimension renders the reason (`no entrypoints — re-collect with --entrypoints all_public`) instead of a number. Then per bottleneck: real symbol, `file:line`, `clutter_score`, the **full 8-metric breakdown**, de-anonymized finding explanations (incl. `long_path`/`cycle` as real ordered chains `A → B`), and a class-rollups section. All values verbatim. **Output carries real symbols → SECRET/local-only.** |
 | `structured_export.rb` (`StructuredExport`) | — | Shared builder turning a `RenderContext` → plain-data Hash (bottlenecks + class_rollups + the optional **R-8 `scores`** block with de-anonymized hotspots; the `scores` key is omitted entirely for a 1.0 doc). Used by yaml + json. Verbatim. |
 | `yaml_formatter.rb` (`YamlFormatter`) | `yaml` | `Serializer.dump` of the structured export (deterministic, diffable). **SECRET/local-only.** |
 | `json_formatter.rb` (`JsonFormatter`) | `json` | `JSON.pretty_generate` of the structured export. **SECRET/local-only.** |
 | `dot_formatter.rb` (`DotFormatter`) | `dot` | Optional, non-contract graphviz. **Requires `--graph` (edge list lives in graph.yml, not findings.yml)**; without it returns a clear unavailable message. Node labels de-anonymized via the resolver. **SECRET/local-only.** |
+| `html_formatter.rb` (`HtmlFormatter`) | `html` | A SINGLE, fully self-contained, fully **OFFLINE** Cytoscape.js dashboard string: dimension-score grade cards (R-8) + an interactive call graph + the ranked bottleneck table. **Inlines** the vendored Cytoscape.js library + all CSS/JS — ZERO external/CDN references (asserted by spec). Like `dot` it uses `--graph` for the edge list; **without `--graph` the scores header + table still render** (visible notice, no graph). Embeds an inlined data JSON (de-anonymized nodes/edges + verbatim bottlenecks/scores via `StructuredExport`) consumed by a small vanilla-JS init script. Built-in layouts only (cose/grid/breadthfirst/circle). Carries real symbols → **SECRET/local-only.** |
+| `assets/cytoscape.min.js` + `assets/CYTOSCAPE_LICENSE` | — | Vendored, version-pinned (3.30.3) Cytoscape.js minified library (MIT) read at render time and inlined by `HtmlFormatter` to make the report offline. A **runtime dependency, not a secret** → committed (unlike generated reports). License/provenance in `CYTOSCAPE_LICENSE`. |
 
 ---
 
@@ -150,8 +152,8 @@ The other id-map reader. Resolves the formatter (`Formatter.for`, `exit 1` on un
 |--------|---------|---------|
 | `FINDINGS_YML` (arg) | — | Opaque findings.yml from `analyze`. |
 | `--id-map` | **required** | The SECRET id-map.yml from `collect`. |
-| `--format` | `terminal` | `terminal\|yaml\|json\|dot`. |
-| `--graph` | — | Path to graph.yml; **required only for `--format dot`**. |
+| `--format` | `terminal` | `terminal\|yaml\|json\|dot\|html`. |
+| `--graph` | — | Path to graph.yml; **required for `--format dot`**, and used by `--format html` to render the call graph (html degrades gracefully without it). |
 | `--top` | — | Show only the top N bottlenecks. |
 
 ---
@@ -166,12 +168,13 @@ The other id-map reader. Resolves the formatter (`Formatter.for`, `exit 1` on un
 | `spec/collect/cli_collect_warning_spec.rb` | M3 zero-entrypoint stderr warning + that it stays out of graph/id-map. |
 | `spec/collect/capture_diagnostics_spec.rb` | `NoSourceError` cases + metaprogramming diagnostic count staying out of graph data. |
 | `spec/report/reporter_spec.rb` | Ranking, `--top`, three-site de-anon, graceful missing ids, class rollups, **verbatim metrics**, terminal/yaml/json/dot formatters, all 7 explanation types, formatter registry. |
+| `spec/report/html_formatter_spec.rb` | **Offline `html` formatter**: registry, valid-ish self-contained HTML (cy container + inlined cytoscape lib >200KB + inlined data JSON), **ZERO external resource refs** (the offline guarantee), both dimension scores+grades, de-anonymized real symbols + file:line, **verbatim** bottleneck table, graph nodes/edges in the data JSON, hotspot ids per dimension, graceful `<external>` graph node, **no-graph degradation** (scores+table+notice), forward **N/A**, and **1.0 back-compat** (no scores header). |
 | `spec/report/scores_spec.rb` | **R-8 project dimension scores**: parse + verbatim score/grade, worst-first hotspot de-anon with driving metrics, graceful `<external>` for absent hotspot ids, **N/A forward** (null score → reason, not a number), terminal summary header (score/grade leads; hotspots framed as relative contributors, rendered BEFORE the bottleneck list), yaml/json exports include the scores, and **1.0 back-compat** (no header, no `scores` export key). |
 | `spec/report/metric_kernel_consistency_spec.rb` | **4c metric-kernel lockstep**: client constant == engine `METRIC_KEYS` (set + order). Unaffected by scores (scores are separate from the 8 per-node metrics). |
 | `spec/fixtures/sample/` | Tiny Rails-shaped fixture (`OrdersController`, `Billing::Invoice < ApplicationRecord`) exercising each resolver tier. |
-| `spec/fixtures/report/` | `findings_fixture.yml` (1.0, no scores; deliberately-absurd `fan_in=42` to prove no-recompute) + `id_map_fixture.yml` (with a deliberately-absent `ext_` id to prove graceful de-anon) + `findings_v11_fixture.yml` (1.1 with both dimensions scored + hotspots) + `findings_v11_forward_na_fixture.yml` (1.1 with forward N/A). |
+| `spec/fixtures/report/` | `findings_fixture.yml` (1.0, no scores; deliberately-absurd `fan_in=42` to prove no-recompute) + `id_map_fixture.yml` (with a deliberately-absent `ext_` id to prove graceful de-anon) + `findings_v11_fixture.yml` (1.1 with both dimensions scored + hotspots) + `findings_v11_forward_na_fixture.yml` (1.1 with forward N/A) + `graph_fixture.yml` (opaque graph.yml edge list — nodes/edges incl. the absent `ext_` sink — for the dot/html graph render). |
 
-Run all: `RBENV_VERSION=ruby-3.4.2 bundle exec rspec` (65 examples).
+Run all: `RBENV_VERSION=ruby-3.4.2 bundle exec rspec` (79 examples).
 
 ## Adding a new language adapter
 

@@ -53,10 +53,14 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
    node's `loc` is `nil`.
 2. **`cls_` ids appear ONLY in `id-map.yml` (D42)** — referenced by nodes via `class_id`, but never added
    as their own `graph.nodes[]` entry.
-3. **Secret handling (D16/D21).** `id-map.yml` and every de-anonymized export (`report.yml`/`.json`/`.dot`)
-   contain real symbols → **SECRET, local-only, gitignored.** Never commit, never send externally. Only
-   `collect` and `report` read/produce the id-map; the engine's `analyze` never receives it (no `--id-map`
-   option exists there by construction).
+3. **Secret handling (D16/D21).** `id-map.yml` and every de-anonymized export (`report.yml`/`.json`/`.dot`/
+   `report.html`) contain real symbols → **SECRET, local-only, gitignored.** Never commit, never send
+   externally. Only `collect` and `report` read/produce the id-map; the engine's `analyze` never receives
+   it (no `--id-map` option exists there by construction). **Exception — the vendored
+   `lib/archbuddy/report/assets/cytoscape.min.js` is NOT a secret**: it is a version-pinned, MIT-licensed
+   runtime library inlined by the `html` formatter to make the report offline, so it IS committed (the
+   generated `report.html` is what stays gitignored). The `html` output must remain **fully offline** —
+   zero external/CDN references (inline the lib + all CSS/JS); a spec asserts this.
 4. **Ids are minted ONLY via `ArchitectureAuditor::Contract::Ids` (D25/D41).** Never reimplement hashing.
    All ids match `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$`.
 5. **Reporter is verbatim-only (D17).** The reporter copies `metrics` + `clutter_score` **verbatim** from
@@ -139,7 +143,7 @@ verify the entries around it (and cross-references in the engine repo) haven't d
 ```bash
 # all commands on this machine are prefixed with the rbenv version selector:
 RBENV_VERSION=ruby-3.4.2 bundle install
-RBENV_VERSION=ruby-3.4.2 bundle exec rspec            # full suite (65 examples)
+RBENV_VERSION=ruby-3.4.2 bundle exec rspec            # full suite (79 examples)
 
 # Collector: capture a codebase → out/graph.yml + out/id-map.yml(SECRET)
 RBENV_VERSION=ruby-3.4.2 bundle exec exe/archbuddy collect PATH \
@@ -148,10 +152,11 @@ RBENV_VERSION=ruby-3.4.2 bundle exec exe/archbuddy collect PATH \
 
 # Reporter: de-anonymize + rank the engine's findings → clutter report
 RBENV_VERSION=ruby-3.4.2 bundle exec exe/archbuddy report FINDINGS_YML \
-  --id-map ./out/id-map.yml [--format terminal|yaml|json|dot] [--graph ./out/graph.yml] [--top N]
+  --id-map ./out/id-map.yml [--format terminal|yaml|json|dot|html] [--graph ./out/graph.yml] [--top N]
 ```
 
-`--graph` is required only for `--format dot` (the edge list lives in `graph.yml`, not `findings.yml`).
+`--graph` is required for `--format dot` and used by `--format html` to render the call graph (the edge
+list lives in `graph.yml`, not `findings.yml`; `html` degrades to scores + table without it).
 
 ## Architecture skills
 
