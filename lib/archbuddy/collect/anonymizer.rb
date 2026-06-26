@@ -51,7 +51,13 @@ module Archbuddy
             "loc"           => nil,
             "self_time_ms"  => nil,
             "total_time_ms" => nil,
-            "count"         => nil
+            "count"         => nil,
+            # Opaque path-cost integers (graph schema 1.1, P3+P9). These carry NO
+            # app semantics — just two counts — so they belong in the shareable
+            # graph node, NOT the secret id-map. branches=Π(arm-count) (≥1),
+            # decisions=raw decision-point count (≥0).
+            "branches"      => raw.branches,
+            "decisions"     => raw.decisions
           }
 
           @id_map_ids[node_id] = {

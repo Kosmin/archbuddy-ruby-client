@@ -2,7 +2,7 @@
 # findings.yml). Node ids match findings_fixture.yml / id_map_fixture.yml so the
 # html formatter can de-anonymize them. Includes the ext_ sink that is ABSENT
 # from the id-map to exercise graceful <external …> rendering on a graph node.
-schema_version: "1.0"
+schema_version: "1.1"
 generator:
   tool: architecture-auditor test
   adapter: ruby
@@ -15,6 +15,8 @@ nodes:
     self_time_ms: null
     total_time_ms: null
     count: null
+    branches: 2
+    decisions: 1
   - id: n_4452f2ecaf84
     kind: function
     class_id: cls_7a9758b1a745
@@ -22,6 +24,8 @@ nodes:
     self_time_ms: null
     total_time_ms: null
     count: null
+    branches: 1
+    decisions: 0
   - id: n_e188e5adb49f
     kind: function
     class_id: cls_e1303d65422d
@@ -29,6 +33,8 @@ nodes:
     self_time_ms: null
     total_time_ms: null
     count: null
+    branches: 4
+    decisions: 2
   - id: n_b3db7d55c659
     kind: function
     class_id: cls_e1303d65422d
@@ -36,6 +42,8 @@ nodes:
     self_time_ms: null
     total_time_ms: null
     count: null
+    branches: 1
+    decisions: 0
   - id: ext_e4c31576a772
     kind: external
     class_id: null
@@ -43,6 +51,8 @@ nodes:
     self_time_ms: null
     total_time_ms: null
     count: null
+    branches: 1
+    decisions: 0
 edges:
   - from: n_9806809c4b1f
     to: n_4452f2ecaf84

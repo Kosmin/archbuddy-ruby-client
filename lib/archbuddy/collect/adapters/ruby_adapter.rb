@@ -88,7 +88,11 @@ module Archbuddy
               kind:           endpoint?(table, m) ? "endpoint" : "function",
               class_rel_file: class_ref&.rel_file,
               class_line:     class_ref&.line,
-              class_symbol:   class_ref&.fq_name
+              class_symbol:   class_ref&.fq_name,
+              # Path-cost integers from the BranchCounter (P3+P9). db_op and
+              # external sinks omit these and rely on the RawNode defaults (1/0).
+              branches:       m.branches,
+              decisions:      m.decisions
             )
             nodes << node
             key_for_fq[m.fq_symbol] = node.real_key

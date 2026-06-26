@@ -26,8 +26,13 @@ module Archbuddy
 
           # A defined method. `singleton` distinguishes `Foo.x` (true) from
           # `Foo#x` (false). `owner_fq` is the enclosing class/module fq name.
+          # `branches`/`decisions` are the opaque per-method path-cost integers
+          # computed by the BranchCounter (P3+P9): branches = Π(arm-count) total
+          # execution paths (default 1), decisions = raw decision-point count
+          # (default 0).
           MethodEntry = Struct.new(
-            :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line, keyword_init: true
+            :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line,
+            :branches, :decisions, keyword_init: true
           )
 
           def initialize
