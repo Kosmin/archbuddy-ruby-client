@@ -35,7 +35,7 @@ Gem::Specification.new do |spec|
 
   # The shared contract (Ids, Serializer, Validator, bundled schemas) — D47.
   # Sourced via the Gemfile (git source by default; local override for dev).
-  spec.add_dependency "architecture_auditor", "~> 0.1"
+  spec.add_dependency "architecture_auditor", "~> 0.2"
   spec.add_dependency "prism", "~> 1.0"
   spec.add_dependency "dry-cli", "~> 1.4"
 

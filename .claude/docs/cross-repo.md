@@ -59,8 +59,8 @@ end
   2. **Bundler local config (persistent):** `bundle config set --local local.architecture_auditor
      ../architecture-auditor` makes bundler resolve the *git* gem from that local checkout
      (it must be on the same branch — `main`).
-- The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.1"` (pessimistic bound; the
-  open-ended `>= 0` form was removed so `gem build` emits no warning).
+- The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.2"` (pessimistic bound, updated
+  for the 0.2.0 release; the open-ended `>= 0` form was removed so `gem build` emits no warning).
 
 **Verified vs documented in this environment:** the env-override mode (Mode 1) and the bundler
 local-config mode (Mode 2, which resolves the *git* source from the sibling — proving the git line is
@@ -70,9 +70,15 @@ syntactically valid and resolvable) both `bundle install` cleanly under `RBENV_V
 documented distribution default, verified resolvable via the local override but not fetched from the
 remote.
 
+## Versions and release sequence
+
+Both gems are at **0.2.0**. The mandatory release sequence is **engine `main` first, then client**:
+the client's `metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS` constant at test time, so
+the engine must already carry 0.2.0 before the client suite can be verified green.
+
 ## The lockstep contract: metric kernel (D43/D39)
 
-The one place the two repos must stay in exact agreement at the code level is the metric set:
+The one place the two repos must stay in exact agreement at the code level is the **8-key metric set**:
 
 - engine: `ArchitectureAuditor::Analyze::METRIC_KEYS` (8 symbols, source of truth)
 - client: `Archbuddy::Report::METRIC_KEYS_FOR_DISPLAY` (8 strings)
@@ -82,10 +88,15 @@ The one place the two repos must stay in exact agreement at the code level is th
 order). If either side adds/removes/renames a metric without the other following, CI fails. **Any metric
 change is a two-repo change.**
 
+**Important:** the new `branches`/`decisions` fields introduced in graph schema 1.1 are **graph INPUT
+fields**, not metrics. They are NOT added to `METRIC_KEYS`; the kernel remains 8 keys. The
+`metric_kernel_consistency_spec` files in both repos are **untouched** and stay green without any edit.
+
 ## Working across both repos
 
-- Run the client suite with the engine path-sourced: `RBENV_VERSION=ruby-3.4.2 bundle exec rspec`.
+- Run the client suite with the engine path-sourced:
+  `RBENV_VERSION=ruby-3.4.2 ARCHITECTURE_AUDITOR_PATH=../architecture-auditor bundle exec rspec`.
 - A full dogfood run: `collect` this (or any) Ruby repo → run the engine's `analyze` on the resulting
   `graph.yml` → `report` the engine's `findings.yml` with `--id-map ./out/id-map.yml`.
-- Decision/rationale history (D1–D48, M1–M3) lives in `docs/IMPLEMENTATION_PLAN.md` (this repo's slice)
+- Decision/rationale history (D1–D48+, M1–M3) lives in `docs/IMPLEMENTATION_PLAN.md` (this repo's slice)
   and the engine repo's own plan.

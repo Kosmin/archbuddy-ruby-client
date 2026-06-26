@@ -141,8 +141,8 @@ archbuddy report — clutter ranking
 
 Architecture Scores
 ------------------------------------------------------------
-  Reverse Traceability    58/100  (D)    — can you tell where code is used?
-  Forward Discoverability 72/100  (C)    — can you follow where execution goes?
+  Reverse Traceability    27.1  (B)    — can you tell where code is used?
+  Forward Discoverability 48.3  (C)    — can you follow where execution goes?
 
   Reverse Traceability
     top contributors to this dimension (worst-ranked first):
@@ -160,8 +160,8 @@ Architecture Scores
 
 ## Reading the report: the two dimensions
 
-The engine scores two **project-level** dimensions (eslint/rubocop-style — the **grade is the
-headline**, not any single hotspot):
+The engine scores two **project-level** dimensions (eslint/rubocop-style). The **cost number is the
+headline**; the letter grade is a tentative secondary indicator:
 
 - **Reverse Traceability** — *"can you tell where code is used?"* Always computable. Driven by
   `fan_in` / `centrality` / `in_cycle` — heavily-depended-on, central, or cyclic nodes are hard to
@@ -169,6 +169,18 @@ headline**, not any single hotspot):
 - **Forward Discoverability** — *"can you follow where execution goes?"* Driven by `path_length` /
   `fan_out`. This is **N/A** when collection found **no entrypoints** (re-collect with
   `--entrypoints all_public`); it renders honestly as `N/A` with that reason, never a fake number.
+
+**Interpreting the cost:** the score is an **unbounded architectural cost** (≥ 0, no upper limit) —
+lower is better. A score **under 20 is great** (short routes with light branching). The letter grade
+is a ceiling-band indicator:
+
+| Grade | Cost |
+|-------|------|
+| A     | < 10 |
+| B     | 10–30 |
+| C     | 30–50 |
+| D     | 50–80 |
+| F     | ≥ 80 |
 
 A **hotspot** is just the worst-*ranked* node for that dimension (a relative top contributor) — on a
 clean project the top hotspots may be perfectly benign. Scores are copied **verbatim** from the
