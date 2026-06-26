@@ -85,10 +85,14 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     it "shows BOTH dimension scores and their grades" do
       expect(html).to include("Reverse Traceability")
       expect(html).to include("Forward Discoverability")
-      expect(html).to include("58/100")
+      expect(html).to include("cost 58.0")
       expect(html).to include(">D<")          # reverse grade
-      expect(html).to include("72/100")
+      expect(html).to include("cost 72.0")
       expect(html).to include(">C<")          # forward grade
+      # The score cards must not use "/100" — check the scores section only
+      # (the inlined Cytoscape.js vendor asset may contain "/100" in its math).
+      scores_section = html[/<section id="scores">(.*?)<\/section>/m, 1]
+      expect(scores_section).not_to include("/100")
     end
 
     it "de-anonymizes real symbols AND file:line" do

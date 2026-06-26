@@ -9,7 +9,7 @@ module Archbuddy
     # metric kernel).
     #
     # The engine produces two eslint/rubocop-style dimensions, each a project
-    # score (0-100 or null) + letter grade + OPAQUE worst-first hotspot ids:
+    # cost (unbounded, ≥0, or null) + letter grade + OPAQUE worst-first hotspot ids:
     #
     #   reverse_traceability    — "can you tell where code is USED?"
     #   forward_discoverability — "can you FOLLOW where execution goes?"
@@ -65,9 +65,9 @@ module Archbuddy
           score.nil?
         end
 
-        # "58/100  (D)" when scored; "N/A" when undeterminable.
+        # "58.0" (unbounded cost, 1 decimal) when scored; "N/A" when undeterminable.
         def display_score
-          na? ? "N/A" : "#{score}/100"
+          na? ? "N/A" : format("%.1f", score)
         end
       end
 
@@ -96,7 +96,7 @@ module Archbuddy
           key:       key,
           label:     label,
           question:  question,
-          score:     score,            # VERBATIM (D17) — 0-100 or nil
+          score:     score,            # VERBATIM (D17) — unbounded cost (≥0) or nil
           grade:     dim["grade"],     # VERBATIM — "A".."F" or "N/A"
           hotspots:  build_hotspots(key, dim["hotspots"] || [], findings_doc, resolver),
           # Intentional for the current two-dimension contract: only
