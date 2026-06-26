@@ -49,7 +49,7 @@ module Archbuddy
         end
 
         def score_row(dim)
-          score = dim.display_score.ljust(7)
+          score = dim.display_score.ljust(9)
           grade = "(#{dim.grade})"
           "  #{dim.label.ljust(24)}#{score} #{grade.ljust(6)} — #{dim.question}"
         end

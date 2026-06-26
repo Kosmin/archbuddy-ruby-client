@@ -191,4 +191,83 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
       expect(e["self_time_ms"]).to be_nil
     end
   end
+
+  # --- branch/decision path-cost integers (graph 1.1, P3+P9) ------------------
+
+  it "emits an integer branches(>=1)/decisions(>=0) on every graph node" do
+    expect(graph["nodes"]).not_to be_empty
+    graph["nodes"].each do |n|
+      expect(n).to have_key("branches")
+      expect(n).to have_key("decisions")
+      expect(n["branches"]).to be_a(Integer)
+      expect(n["decisions"]).to be_a(Integer)
+      expect(n["branches"]).to be >= 1
+      expect(n["decisions"]).to be >= 0
+    end
+  end
+
+  it "keeps branches/decisions OUT of the secret id-map (graph node only)" do
+    id_map["ids"].each_value do |desc|
+      expect(desc).not_to have_key("branches")
+      expect(desc).not_to have_key("decisions")
+    end
+  end
+
+  it "defaults the external sink and db_op sinks to branches:1/decisions:0" do
+    external = graph["nodes"].find { |n| n["kind"] == "external" }
+    expect(external["branches"]).to eq(1)
+    expect(external["decisions"]).to eq(0)
+
+    db_id, = id_map_entry_for_symbol("Billing::Invoice.where")
+    db_node = graph["nodes"].find { |n| n["id"] == db_id }
+    expect(db_node["branches"]).to eq(1)
+    expect(db_node["decisions"]).to eq(0)
+  end
+end
+
+RSpec.describe Archbuddy::Collect::Adapters::Ruby::BranchCounter do
+  # b(n) = Π over decision points of arm-count (TRUE total execution paths);
+  # d(n) = raw decision-point count. Worked snippets pin both. (P3+P9)
+  def counts_for(method_src)
+    body = Prism.parse(method_src).value.statements.body.first.body
+    c = described_class.count(body)
+    [c.branches, c.decisions]
+  end
+
+  {
+    "straight-line body => (1, 0)" => [
+      "def m\n  a = 1\n  b = a + 2\n  puts b\nend", [1, 0]
+    ],
+    "guard-if => (2, 1)" => [
+      "def m(a)\n  return 1 if a\nend", [2, 1]
+    ],
+    "5-way case, no else => (5, 1)" => [
+      "def m(a)\n  case a\n  when 1 then 1\n  when 2 then 2\n" \
+      "  when 3 then 3\n  when 4 then 4\n  when 5 then 5\n  end\nend", [5, 1]
+    ],
+    "5-way case + else => (6, 1)" => [
+      "def m(a)\n  case a\n  when 1 then 1\n  when 2 then 2\n" \
+      "  when 3 then 3\n  when 4 then 4\n  when 5 then 5\n  else 0\n  end\nend", [6, 1]
+    ],
+    "||= + if + nested modifier-if + safe-nav => (16, 4)" => [
+      "def m(a, b)\n  x ||= 5\n  if a\n    y = 1 if b\n  end\n  a&.foo\nend", [16, 4]
+    ],
+    "begin + 2 rescue + else => (4, 1)" => [
+      "def m\n  begin\n    x\n  rescue A\n    y\n  rescue B\n    z\n  else\n    w\n  end\nend", [4, 1]
+    ],
+    "empty def => (1, 0)" => [
+      "def m\nend", [1, 0]
+    ],
+    "nested def: outer excludes inner => (2, 1)" => [
+      "def outer(a, b)\n  z if a\n  def inner\n    return if b\n  end\nend", [2, 1]
+    ]
+  }.each do |label, (src, expected)|
+    it "counts #{label}" do
+      expect(counts_for(src)).to eq(expected)
+    end
+  end
+
+  it "multiplies arm-counts across independent decision points (two binary ifs => 4)" do
+    expect(counts_for("def m(a, b)\n  x if a\n  y if b\nend")).to eq([4, 2])
+  end
 end

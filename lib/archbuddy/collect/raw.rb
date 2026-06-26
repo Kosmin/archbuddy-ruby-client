@@ -23,11 +23,22 @@ module Archbuddy
       # - class_rel_file / class_line / class_symbol: the owning class's def site,
       #              used to mint the cls_ class rollup id (id-map only, D42).
       #              All nil when the node has no owning app class.
+      # - branches:  b(n) = Π(arm-count), the multiplicative path factor the cost
+      #              model consumes (P3+P9). Defaults to 1 so non-method sinks
+      #              (db_op / external) contribute a single path.
+      # - decisions: d(n) = raw decision-point count. Defaults to 0.
       RawNode = Struct.new(
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
+        :branches, :decisions,
         keyword_init: true
       ) do
+        def initialize(*)
+          super
+          self.branches  ||= 1
+          self.decisions ||= 0
+        end
+
         def class_rollup?
           !class_symbol.nil?
         end

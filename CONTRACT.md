@@ -7,7 +7,8 @@ All three shapes are owned canonically by the **engine Contract** (`Architecture
 authoritative JSON schemas live in the sibling repo at
 `../architecture-auditor/lib/architecture_auditor/contract/schemas/{graph,findings}.v1.schema.json`.
 This doc summarizes those shapes for quick reference — **the schemas are the source of truth; do not let
-this doc drift from them.** `schema_version` is `"1.0"` (`Contract::SCHEMA_VERSION`).
+this doc drift from them.** Graph schema is `"1.1"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
+is `"1.2"` (`Contract::FINDINGS_SCHEMA_VERSION`). Both are MINOR / additive; old 1.0 docs still validate.
 
 Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minted only by `Contract::Ids`).
 
@@ -18,9 +19,9 @@ Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minte
 Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `Collect::Anonymizer`.
 
 ```yaml
-schema_version: "1.0"
+schema_version: "1.1"
 generator:               # all 3 keys required
-  tool: "archbuddy 0.1.0"
+  tool: "archbuddy 0.2.0"
   adapter: "ruby"
   capture: "static"      # static capture ⇒ all timing fields below are null (D4)
 nodes:                    # array; each node:
@@ -31,6 +32,8 @@ nodes:                    # array; each node:
     self_time_ms: null    # static ⇒ null
     total_time_ms: null   # static ⇒ null
     count: null           # static ⇒ null
+    branches: 1           # OPTIONAL (graph 1.1+); integer ≥ 1; b(n)=Π(arm-counts) per method body
+    decisions: 0          # OPTIONAL (graph 1.1+); integer ≥ 0; raw decision-point count
 edges:                    # array; each edge:
   - from: "n_…"
     to: "n_…"             # unresolved calls all point at the single shared ext_ sink
@@ -83,7 +86,7 @@ intentionally NOT ignored — a runtime dependency, not a secret.)
 are copied **verbatim** (D17); the reporter never recomputes.
 
 ```yaml
-schema_version: "1.0"
+schema_version: "1.2"
 generator: { tool, adapter, capture }     # same shape as graph
 nodes:                                      # map: opaque_id => entry
   "n_…":
@@ -106,30 +109,45 @@ findings:                                   # array; EXACTLY 7 types (D38), oneO
 == `ArchitectureAuditor::Analyze::METRIC_KEYS`. Asserted by `spec/report/metric_kernel_consistency_spec.rb`.
 Changing the metric set requires changing **both repos** together.
 
-### Optional `scores` block (findings 1.1 — additive, back-compat)
+### Optional `scores` block (findings 1.2 — additive, back-compat)
 
-`findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1; a 1.0 doc without it
-still validates and `report` still works unchanged). The block is **owned canonically by the engine** —
-`findings.v1.schema.json` `#/properties/scores` → `#/definitions/dimension_score` is the source of truth;
-this is a quick-reference summary only. It carries two **project-level** dimension scores:
+`findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1, extended in 1.2; a
+1.0 or 1.1 doc without the newer fields still validates and `report` still works unchanged). The block is
+**owned canonically by the engine** — `findings.v1.schema.json` `#/properties/scores` →
+`#/definitions/dimension_score` is the source of truth; this is a quick-reference summary only. It carries
+two **project-level** dimension scores:
 
 ```yaml
 scores:                                # OPTIONAL; absent in 1.0 docs
   reverse_traceability:                # "can you tell where code is USED?" — always computable
-    score: 58                          # 0-100, OR null when undeterminable
-    grade: "D"                         # A|B|C|D|F|N/A
-    hotspots: ["n_…", "ext_…", …]      # OPAQUE node-ids, worst-first by this dimension's penalty
+    score: 27.1                        # UNBOUNDED cost (≥ 0, no maximum), OR null when undeterminable
+    grade: "B"                         # A|B|C|D|F|N/A (ceiling bands: A<10, B<30, C<50, D<80, F≥80)
+    hotspots: ["n_…", "ext_…", …]      # OPAQUE node-ids, worst-first by this dimension's cost
+    raw_value: 27.1                    # OPTIONAL (1.2+); raw per-dimension cost before any clamping
+    overflow: false                    # OPTIONAL (1.2+); true when the route product overflowed Float
   forward_discoverability:             # "can you FOLLOW where execution goes?"
     score: null                        # null/"N/A" when collection found NO entrypoints (M3)
     grade: "N/A"
     hotspots: []
 ```
 
+**Score semantics (findings 1.2):** `score` is an **unbounded architectural cost** (≥ 0, no upper limit) —
+lower is better. The grade uses **inverted ceiling bands** (lower cost = better grade):
+
+| Grade | Cost ceiling |
+|-------|-------------|
+| A     | < 10         |
+| B     | < 30         |
+| C     | < 50         |
+| D     | < 80         |
+| F     | ≥ 80         |
+
 `report` **consumes** this block (R-8): `score`/`grade` are project-level and copied **verbatim** (D17 — the
 client NEVER recomputes them); `hotspots` are **OPAQUE** ids de-anonymized locally via the SAME secret id-map
-as everything else (graceful `<external …>` for missing/`ext_` ids). A hotspot is just the worst-RANKED node
-for that dimension — on a clean/high-scoring project the top hotspots may be benign; the **grade is the
-headline**, not the hotspot. A null/`N/A` forward score renders honestly as `N/A` with a one-line reason
+as everything else (graceful `<external …>` for missing/`ext_` ids). The optional `raw_value`/`overflow`
+fields are passed through verbatim if present. A hotspot is just the worst-RANKED node for that dimension —
+on a low-cost project the top hotspots may be benign; the **cost number is the headline** and the grade is
+a tentative secondary indicator. A null/`N/A` forward score renders honestly as `N/A` with a one-line reason
 (`no entrypoints — re-collect with --entrypoints all_public`), never a fabricated number.
 
 ---

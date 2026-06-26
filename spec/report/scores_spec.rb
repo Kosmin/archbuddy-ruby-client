@@ -94,6 +94,21 @@ RSpec.describe "Reporter dimension scores (R-8)" do
       expect(forward.na_reason).to include("no entrypoints")
       expect(forward.na_reason).to include("--entrypoints all_public")
     end
+
+    it "display_score formats a scored dimension as '58.0' (%.1f, no /100)" do
+      reverse = scores.find { |d| d.key == "reverse_traceability" }
+      expect(reverse.display_score).to eq("58.0")
+      expect(reverse.display_score).not_to include("/100")
+    end
+
+    it "display_score tolerates an unbounded cost above 100 (e.g. 137.4 -> '137.4')" do
+      dim = Archbuddy::Report::Scores::DimensionScore.new(
+        key: "reverse_traceability", label: "Test", question: "?",
+        score: 137.4, grade: "F", hotspots: [], na_reason: nil
+      )
+      expect(dim.display_score).to eq("137.4")
+      expect(dim.display_score).not_to include("/100")
+    end
   end
 
   # --- terminal formatter: eslint/rubocop-style summary header ----------------
@@ -103,8 +118,8 @@ RSpec.describe "Reporter dimension scores (R-8)" do
 
     it "renders the Architecture Scores header with both scores + grades" do
       expect(output).to include("Architecture Scores")
-      expect(output).to match(/Reverse Traceability\s+58\/100\s+\(D\)/)
-      expect(output).to match(/Forward Discoverability\s+72\/100\s+\(C\)/)
+      expect(output).to match(/Reverse Traceability\s+58\.0\s+\(D\)/)
+      expect(output).to match(/Forward Discoverability\s+72\.0\s+\(C\)/)
     end
 
     it "leads with the framing questions (score is the headline, not 'bug')" do
@@ -138,7 +153,7 @@ RSpec.describe "Reporter dimension scores (R-8)" do
         expect(na_output).to match(/Forward Discoverability\s+N\/A\s+\(N\/A\)/)
         expect(na_output).to include("no entrypoints — re-collect with --entrypoints all_public")
         # reverse still scored
-        expect(na_output).to match(/Reverse Traceability\s+81\/100\s+\(B\)/)
+        expect(na_output).to match(/Reverse Traceability\s+81\.0\s+\(B\)/)
       end
     end
 

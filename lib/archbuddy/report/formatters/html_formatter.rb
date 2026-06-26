@@ -160,7 +160,7 @@ module Archbuddy
               <div class="card">
                 <div class="label">#{escape(dim.label)}</div>
                 <div class="grade grade-#{escape(grade)}">#{escape(grade)}</div>
-                <div class="score">#{escape(dim.score)}/100</div>
+                <div class="score">cost #{escape(format("%.1f", dim.score))}</div>
                 <div class="q">#{escape(dim.question)}</div>
               </div>
             HTML
