@@ -8,6 +8,8 @@ require_relative "ruby/symbol_table"
 require_relative "ruby/definition_pass"
 require_relative "ruby/resolution_pass"
 require_relative "ruby/entrypoint_detector"
+require_relative "ruby/probe_registry"
+require_relative "ruby/route_catalogue"
 
 module Archbuddy
   module Collect
@@ -32,6 +34,7 @@ module Archbuddy
 
           table = Ruby::SymbolTable.new
           run_definition_pass(parsed, table)
+          run_route_catalogue(parsed, table)  # W4: seed routed actions before entrypoints
 
           acc = Ruby::Accumulator.new
           run_resolution_pass(parsed, table, acc)
@@ -54,7 +57,13 @@ module Archbuddy
             # sites were detected but produce no edges (we cannot statically
             # resolve their targets). Surfaced as a diagnostic count only —
             # never as graph content.
-            diagnostics: { meta_sites_skipped: acc.meta_sites.length }
+            diagnostics: {
+              meta_sites_skipped: acc.meta_sites.length,
+              # Per-probe-name tally of framework-probe-resolved call sites
+              # (L5/P4). CLI/diagnostics-only — NEVER serialized into graph.yml.
+              # {} when no probes are selected / none resolve a call.
+              probe_edges: acc.probe_edges
+            }
           )
         end
 
@@ -72,9 +81,22 @@ module Archbuddy
           end
         end
 
-        def run_resolution_pass(parsed, table, acc)
+        # W4: Run the RouteCatalogue over every parsed file. The catalogue self-
+        # selects (only acts on files containing routes.draw blocks) and seeds
+        # (controller_fq, action) pairs into the SymbolTable only when the method
+        # already exists there (L2 never-fabricate gate inside the catalogue).
+        def run_route_catalogue(parsed, table)
           parsed.each do |entry|
-            entry[:value].accept(Ruby::ResolutionPass.new(table, acc))
+            entry[:value].accept(Ruby::RouteCatalogue.new(table, entry[:rel_file]))
+          end
+        end
+
+        def run_resolution_pass(parsed, table, acc)
+          # Build the config-selected probes ONCE (stateless; reused per file).
+          # Empty in the seam wave (ProbeRegistry::PROBES == []) -> [] -> no-op.
+          probes = Ruby::ProbeRegistry.for(config)
+          parsed.each do |entry|
+            entry[:value].accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
           end
         end
 
@@ -158,6 +180,11 @@ module Archbuddy
         end
 
         def endpoint?(table, method_entry)
+          # A synthetic Grape endpoint handler block is an endpoint by
+          # construction (F3); a controller action is an endpoint via the
+          # existing controller-class check. Either makes kind:"endpoint".
+          return true if method_entry.endpoint
+
           !method_entry.singleton &&
             method_entry.owner_fq &&
             table.controller_class?(method_entry.owner_fq)

@@ -121,6 +121,9 @@ RSpec.describe "Capture diagnostics & fail-clear behavior" do
       serialized = ArchitectureAuditor::Contract::Serializer.dump(anon.graph)
       expect(serialized).not_to include("meta_sites")
       expect(serialized).not_to include("metaprogramming")
+      # The probe-edge tally (W1/P1) is equally CLI/diagnostics-only — it must
+      # NEVER leak into the serialized graph.
+      expect(serialized).not_to include("probe_edges")
       # Graph hash itself never carries the diagnostic key.
       expect(anon.graph).not_to have_key("diagnostics")
     end

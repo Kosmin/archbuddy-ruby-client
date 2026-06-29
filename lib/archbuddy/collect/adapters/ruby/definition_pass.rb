@@ -2,6 +2,7 @@
 
 require "prism"
 require_relative "symbol_table"
+require_relative "grape_dsl"
 
 module Archbuddy
   module Collect
@@ -19,6 +20,14 @@ module Archbuddy
             @table     = symbol_table
             @rel_file  = rel_file
             @namespace = [] # stack of constant name segments (e.g. ["Billing", "Invoice"])
+            # Grape endpoint discovery (W2). Tracks whether we are lexically
+            # inside a Grape::API subclass, and a PER-PASS-INSTANCE (per-file)
+            # source-order ordinal per (class_fq, verb) so the minted endpoint FQ
+            # is stable and matches the FQ Pass 2 pushes (F5 ordinal parity). The
+            # adapter news a fresh DefinitionPass per file, so per-file reset is
+            # symmetric with ResolutionPass.
+            @grape_stack    = [] # class_fq strings of enclosing Grape::API classes
+            @verb_ordinals  = Hash.new(0) # [class_fq, verb] => next ordinal
             super()
           end
 
@@ -31,11 +40,31 @@ module Archbuddy
           end
 
           def visit_class_node(node)
-            name = constant_name(node.constant_path)
+            name       = constant_name(node.constant_path)
+            superclass = node.superclass && constant_name(node.superclass)
             push_namespace(name) do
-              register_class(node, superclass: node.superclass && constant_name(node.superclass))
-              super
+              register_class(node, superclass: superclass)
+              if GrapeDsl.grape_api_superclass?(superclass)
+                @grape_stack.push(current_namespace)
+                begin
+                  super # walk nested resource/namespace blocks + helper defs
+                ensure
+                  @grape_stack.pop
+                end
+              else
+                super
+              end
             end
+          end
+
+          # Grape endpoint NODE discovery (W2). While inside a Grape::API
+          # subclass, each `get/post/... do ... end` verb-block declares an
+          # endpoint handler that has no DefNode — mint a synthetic endpoint
+          # MethodEntry for it. Always `super` so calls nested inside
+          # resource/namespace blocks (and helper defs) are still walked.
+          def visit_call_node(node)
+            mint_endpoint(node) if @grape_stack.last && GrapeDsl.endpoint_verb_call?(node)
+            super
           end
 
           def visit_def_node(node)
@@ -69,6 +98,35 @@ module Archbuddy
           end
 
           private
+
+          # Mint one synthetic endpoint MethodEntry for a Grape verb-block. The
+          # FQ is stamped with a per-(class,verb) source-order ordinal so it is
+          # stable and IDENTICAL to the FQ ResolutionPass pushes for the same
+          # block (F5). branches/decisions come from the BranchCounter over the
+          # block body — the handler's path cost, same as a def body.
+          def mint_endpoint(node)
+            class_fq = @grape_stack.last
+            verb     = node.name.to_s
+            ordinal  = @verb_ordinals[[class_fq, verb]]
+            @verb_ordinals[[class_fq, verb]] += 1
+
+            fq_symbol = GrapeDsl.endpoint_fq(class_fq, verb, ordinal)
+            counter   = BranchCounter.count(node.block&.body)
+
+            @table.add_method(
+              SymbolTable::MethodEntry.new(
+                fq_symbol: fq_symbol,
+                owner_fq:  class_fq,
+                name:      "#{verb.upcase}[#{ordinal}]",
+                singleton: false,
+                rel_file:  @rel_file,
+                line:      node.block&.location&.start_line || node.location.start_line,
+                branches:  counter.branches,
+                decisions: counter.decisions,
+                endpoint:  true
+              )
+            )
+          end
 
           def register_class(node, superclass:)
             fq = current_namespace

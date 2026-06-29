@@ -47,7 +47,7 @@ fresh clone installs standalone; local dev overrides to the `../architecture-aud
 | File | Responsibility |
 |------|----------------|
 | `lib/archbuddy.rb` | Entry require: loads the contract, `collect`, `report`; defines `Archbuddy::Error`. |
-| `lib/archbuddy/version.rb` | `Archbuddy::VERSION` (`"0.2.0"`). |
+| `lib/archbuddy/version.rb` | `Archbuddy::VERSION` (`"0.3.0"`). |
 | `lib/archbuddy/cli.rb` | `Archbuddy::CLI` — `Dry::CLI::Registry` registering `collect` + `report` (D48). |
 | `lib/archbuddy/cli/collect.rb` | `collect` command — see [CLI](#cli). Sole producer of id-map.yml. |
 | `lib/archbuddy/cli/report.rb` | `report` command — see [CLI](#cli). Other consumer of id-map.yml. |
@@ -81,14 +81,48 @@ Only the Anonymizer mints ids; everything before it lives in real-symbol space.
 
 | File / Class | Responsibility |
 |--------------|----------------|
-| `ruby_adapter.rb` (`Adapters::RubyAdapter`) | Orchestrates Ruby capture (K-6): enumerate `.rb` → parse all via `Prism.parse` → Pass 1 into a shared `SymbolTable` → Pass 2 into a shared `Accumulator` → assemble `Raw*` (method nodes with `class_id` refs, synthesized `db_op` nodes, ONE shared `external` sink at `EXTERNAL_SINK_SYMBOL = "<external>"`), edges (collapsing duplicate `(from,to)` pairs into `calls >= 1`), and entrypoints. `endpoint?` = non-singleton method on a controller class. Reports `meta_sites_skipped` as a diagnostic. **No id minting here.** |
+| `ruby_adapter.rb` (`Adapters::RubyAdapter`) | Orchestrates Ruby capture (K-6): enumerate `.rb` → parse all via `Prism.parse` → Pass 1 (`DefinitionPass`) into a shared `SymbolTable` → Pass 1b `RouteCatalogue` (seeds routed actions) → Pass 2 (`ResolutionPass`) with config-selected probes into a shared `Accumulator` → assemble `Raw*` (method nodes with `class_id` refs, synthesized `db_op` nodes, ONE shared `external` sink at `EXTERNAL_SINK_SYMBOL = "<external>"`), edges (collapsing duplicate `(from,to)` pairs into `calls >= 1`), and entrypoints. `endpoint?` = Grape endpoint handler block (`method_entry.endpoint`) OR non-singleton method on a controller class. Reports `meta_sites_skipped` and `probe_edges` as diagnostics. **No id minting here.** |
 | `ruby/file_enumerator.rb` (`FileEnumerator`) | Enumerates `.rb` files under a root honoring the ignore list, deterministically sorted (D30). Matches ignore patterns as contiguous path-segment subsequences. Raises `NoSourceError` if the path is missing, a non-`.rb` single file, or yields zero `.rb` files (fail loud, never emit a near-empty graph). |
-| `ruby/definition_pass.rb` (`DefinitionPass < Prism::Visitor`) | **Pass 1 (D23).** Walks class/module/def building the `SymbolTable` (fq symbols, class superclass/controller?/AR? metadata). Tracks a namespace stack; classifies a `def` as singleton (`Foo.x`, receiver present) vs instance (`Foo#x`). Top-level defs are owner-less (bare name). |
-| `ruby/symbol_table.rb` (`SymbolTable`, `ClassEntry`, `MethodEntry`) | Catalogue of discovered classes + methods (first definition wins, so reopened classes keep a stable def site). `ClassEntry#active_record?`/`#controller?` test superclass vocab + the `*Controller` name convention. `chain_any?` walks the superclass chain so subclasses of intermediate AR/controller bases still count (`active_record_class?`, `controller_class?`). |
-| `ruby/resolution_pass.rb` (`ResolutionPass < Prism::Visitor`, `Accumulator`) | **Pass 2 (D23).** Walks call sites inside method bodies; tracks enclosing class fq + current method fq so the resolver gets class context and each edge has a real `from`. Routes each `Resolution` into the `Accumulator` (`add_method_edge` / `add_db_op_edge` / `add_external_edge` / `flag_metaprogramming`). Calls at class-body/top-level (no caller method) are NOT edges. |
-| `ruby/resolver.rb` (`RubyResolver`, `CallContext`, `Resolution`) | **Pure tiered decision logic (D24).** See the [resolver tier table](.claude/docs/resolver.md). Decides `:edge` / `:drop` / `:metaprogramming` / `:external` (with `kind` `db_op`/`external`) WITHOUT touching the AST walk. **Never fabricates an edge.** |
+| `ruby/definition_pass.rb` (`DefinitionPass < Prism::Visitor`) | **Pass 1 (D23).** Walks class/module/def building the `SymbolTable` (fq symbols, class superclass/controller?/AR?/grape_api? metadata). Tracks a namespace stack + a Grape-class stack; classifies a `def` as singleton (`Foo.x`, receiver present) vs instance (`Foo#x`). Top-level defs are owner-less (bare name). Mints one `MethodEntry` with `endpoint: true` per Grape HTTP verb-block (stable FQ via `GrapeDsl.endpoint_fq`). |
+| `ruby/symbol_table.rb` (`SymbolTable`, `ClassEntry`, `MethodEntry`) | Catalogue of discovered classes + methods (first definition wins, so reopened classes keep a stable def site). `ClassEntry#active_record?`/`#controller?`/`#grape_api?` test superclass vocab + name convention. `chain_any?` walks the superclass chain so subclasses of intermediate AR/controller/Grape bases still count. `MethodEntry#endpoint` marks Grape endpoint handler nodes (default `false`). `add_routed_action`/`routed_action?` support the rails-routes entrypoint seeder. |
+| `ruby/grape_dsl.rb` (`GrapeDsl`) | **Shared, pure Grape recognizer (W2).** Single source of truth for byte-identical detection in Pass 1 and Pass 2: `endpoint_verb_call?`, `grape_api_superclass?`, `mount_call?`, `helpers_block_call?`, and `endpoint_fq(class_fq, verb, ordinal)`. No state, no AST walk, no app boot. Ordinal-parity invariant (F5): both passes use this module to ensure the minted FQ (Pass 1) == the pushed FQ (Pass 2). |
+| `ruby/route_catalogue.rb` (`RouteCatalogue < Prism::Visitor`) | **Pass 1b Rails-routes entrypoint seeder (W4).** Walks files looking for `Rails.application.routes.draw` blocks. Collects `to: "controller#action"` explicit routes and `resources`/`resource` RESTful expansions (honouring `only:`/`except:`), with one level of `namespace`/`scope module:` nesting. Seeds `(controller_fq, action)` pairs into the SymbolTable ONLY when `table.method?` is true (L2 never-fabricate). NOT a `Probe`; emits no edges and is not in `ProbeRegistry`. |
+| `ruby/resolution_pass.rb` (`ResolutionPass < Prism::Visitor`, `Accumulator`) | **Pass 2 (D23).** Walks call sites inside method bodies; tracks enclosing class fq + current method fq so the resolver gets class context and each edge has a real `from`. For Grape endpoint verb-blocks, opens a synthetic method scope (pushing the endpoint FQ from `GrapeDsl.endpoint_fq`) so handler-body calls are attributed to that endpoint. Passes the raw Prism `node:` to `CallContext` and threads configured probes through to `RubyResolver`. Routes each `Resolution` into the `Accumulator` (`add_method_edge` / `add_db_op_edge` / `add_external_edge` / `flag_metaprogramming`); tallies probe-resolved resolutions into `@probe_edges` (per-probe-name count). Calls at class-body/top-level (no caller method) are NOT edges. |
+| `ruby/resolver.rb` (`RubyResolver`, `CallContext`, `Resolution`) | **Pure tiered decision logic (D24).** See the [resolver tier table](.claude/docs/resolver.md) and the [probe seam](#probe-registry--r5-tier) below. `CallContext` carries an optional `node:` (the raw Prism `CallNode`) for probe inspection. `Resolution` carries an optional `provenance:` (the probe's `#name` Symbol, diagnostics-only). `RubyResolver.new(table, probes: [])` — `probes:` defaults to empty (backward-compat). **Never fabricates an edge.** |
+| `ruby/probe.rb` (`Probe`) | **Abstract base for a framework probe (P1 / L4, W1).** Subclasses implement `#name` (stable Symbol) and `#resolve(ctx) -> Resolution\|nil`. Declining returns `nil` so the call falls through to the next probe or R9 `<external>`. A non-nil `Resolution` REPLACES the `<external>` fallthrough (P6). Subclasses SHOULD also define `self.probe_name` for cheap registry filtering. |
+| `ruby/probe_registry.rb` (`ProbeRegistry`) | **Ordered, config-selected probe registry (P1 / L4, W1/W3).** `PROBES` = `[GrapeProbe, DispatchProbe]` (priority order). `ProbeRegistry.for(config)` returns instantiated selected probes. `config.probes` can be `:all` (default), `:none`/`[]`, or an explicit `Array<Symbol>` of probe names. Unknown names are silently skipped (F2 — never raises). |
+| `ruby/probes/grape_probe.rb` (`GrapeProbe < Probe`) | **Grape mount-tree probe (R5, W3).** `name: :grape`. Resolves `mount Const` calls inside a `Grape::API` to that API's representative endpoint node (the first declared endpoint of the first available verb). Declines on dynamic mounts, unknown constants, unknown classes, or an empty API (no minted endpoints). |
+| `ruby/probes/dispatch_probe.rb` (`DispatchProbe < Probe`) | **Sidekiq/ActiveJob dispatch probe (R5, W3).** `name: :sidekiq_dispatch`. Resolves `Const.perform_async/later/in/at` (and a single `.set(...)` hop) to a `Const#perform` edge IFF `table.method?("Const#perform")`. Declines on non-constant receivers, deeper chains, and missing `#perform`. Deliberately excludes bare `perform`/`perform_now` (handled by R4). |
 | `ruby/vocab.rb` (`Vocab`) | Pure static vocabularies the resolver consults: `OPERATOR_DENY` (D36), `METAPROGRAMMING`, `ACTIVE_RECORD` query/persistence methods, `ACTIVE_RECORD_BASES`, `CONTROLLER_BASES`. |
-| `ruby/entrypoint_detector.rb` (`EntrypointDetector`) | Pluggable entrypoint strategy (K-4/D4). `default` = controller actions + top-level defs; `controllers` = controller actions; `all_public` = every instance method; `none` = []. Optional regex patterns are additively unioned. May return `[]` (→ the M3 warning in the CLI). |
+| `ruby/entrypoint_detector.rb` (`EntrypointDetector`) | Pluggable entrypoint strategy (K-4/D4). `default` = controller actions ∪ Grape endpoints ∪ routed actions ∪ top-level defs; `controllers` = controller actions ∪ Grape endpoints ∪ routed actions; `all_public` = every instance method; `none` = []. Optional regex patterns are additively unioned. May return `[]` (→ the M3 warning in the CLI). |
+
+### Probe registry / R5 tier
+
+The resolver's tier sequence is: **R0** operator deny → **R1** metaprogramming → **R2** db_op (class
+context) → **R3** self call → **R4** const-receiver → **R5 probe tier** → **R9** `<external>`.
+
+The R5 tier iterates `@probes` (config-selected, instantiated by `ProbeRegistry.for(config)`); the
+first non-nil `Resolution` wins and **replaces** the `<external>` fallthrough (P6 — a probe never
+stacks a second edge). The probe loop runs AFTER all base tiers so it never shadows a known app edge.
+
+### EDGE-vs-NODE split (static probe architecture)
+
+Two collaborating mechanisms add framework-aware topology:
+
+- **NODE side — Pass-1 discovery:** `DefinitionPass` mints one `MethodEntry` with `endpoint: true` per
+  Grape HTTP verb-block. `RouteCatalogue` seeds `(controller_fq, action)` pairs as routed entrypoints.
+  Both feed `EntrypointDetector` so framework endpoints appear in `entrypoints[]`.
+
+- **EDGE side — R5 probe tier:** `GrapeProbe` (mount tree) and `DispatchProbe` (Sidekiq/ActiveJob) are
+  resolver-tier probes that recover call edges the base AST resolver can't see. A probe is selected by
+  `ProbeRegistry`, receives a `CallContext` (with the raw Prism `node:`), and either claims the call
+  (returns a `Resolution` with `provenance:`) or declines (`nil`).
+
+Rails routes is a **SEEDER**, not a probe — it emits no edges and is not in `ProbeRegistry`.
+
+`GrapeDsl` is the **single recognizer module** used by both sides: `endpoint_fq(class_fq, verb, ord)`
+is the only function that mints and pushes the synthetic endpoint FQ, ensuring ordinal parity (F5) so
+no edges are silently lost.
 
 ---
 
@@ -173,11 +207,17 @@ formatter (`Formatter.for`, `exit 1` on unknown), runs `Reconnect.from_files`, b
 | Spec | Covers |
 |------|--------|
 | `spec/spec_helper.rb` | Loads `archbuddy` + `archbuddy/collect`; random order. |
-| `spec/collect/collector_spec.rb` | End-to-end capture on `spec/fixtures/sample`: schema validity, id minting via Contract::Ids, the AR implicit-self `where` gotcha, operator drop, single external sink, resolvable cross-class edge, endpoint marking, `cls_` rollups in id-map only, **null `loc` / zero-leak guard**, null timing. |
+| `spec/collect/collector_spec.rb` | End-to-end capture on `spec/fixtures/sample`: schema validity, id minting via Contract::Ids, the AR implicit-self `where` gotcha, operator drop, single external sink, resolvable cross-class edge, endpoint marking, `cls_` rollups in id-map only, **null `loc` / zero-leak guard**, null timing, **`probe_edges == {}`** diagnostic assert. |
 | `spec/collect/emitter_spec.rb` | Validate-before-write + **gitignore-before-secret** guard. |
 | `spec/collect/cli_collect_warning_spec.rb` | M3 zero-entrypoint stderr warning + that it stays out of graph/id-map. |
 | `spec/collect/cli_collect_default_dir_spec.rb` | **`.archbuddy/` default workspace + secret safety**: no-`--out-dir` writes to `.archbuddy/` (non-git just writes; git repo auto-adds `.archbuddy/` to `.git/info/exclude`, id-map ends up `git check-ignore`d, idempotent on a 2nd run); an EXPLICIT non-ignored `--out-dir` still trips the Emitter refuse-guard and does NOT edit any ignore file. |
-| `spec/collect/capture_diagnostics_spec.rb` | `NoSourceError` cases + metaprogramming diagnostic count staying out of graph data. |
+| `spec/collect/capture_diagnostics_spec.rb` | `NoSourceError` cases + metaprogramming diagnostic count staying out of graph data + **`"probe_edges"` absent from serialized graph** (provenance diagnostics-only guard). |
+| `spec/collect/probe_seam_spec.rb` | **W1 probe seam unit spec**: fake probe, R5-after-R4 ordering, decline → R9, REPLACE-not-stack, provenance stamp, `ProbeRegistry` selection, `ResolutionPass` `probe_edges` tally, 1-arg / 2-arg backward-compat. |
+| `spec/collect/grape_dsl_spec.rb` | **W2 `GrapeDsl` unit spec**: `endpoint_verb_call?`, `grape_api_superclass?`, `mount_call?`, `endpoint_fq` correctness. |
+| `spec/collect/definition_grape_spec.rb` | **W2 `DefinitionPass` Grape unit spec**: endpoint node minting (FQ, `endpoint:true`, ordinals, `BranchCounter`, empty class / empty block). |
+| `spec/collect/grape_probe_spec.rb` | **W2 e2e Grape fixture + W3 mount-probe**: endpoint nodes emitting `kind:"endpoint"`; entrypoints; 0→N edge regression guard; mount edge to a known API; decline on dynamic / unknown / empty API. |
+| `spec/collect/dispatch_probe_spec.rb` | **W3 dispatch-probe e2e**: `perform_async/later/in/at` + `.set` chain → `Const#perform` edge; decline → `<external>` when target absent / non-const; `probe_edges` tally; serialized graph does not carry provenance. |
+| `spec/collect/route_catalogue_spec.rb` | **W4 routes-seeder e2e**: `to:` seeds entrypoint; `resources`/`resource` expansion; `only:`/`except:`; missing-controller no-fabricate; empty-routes no-op; heuristic-missed action caught. |
 | `spec/report/reporter_spec.rb` | Ranking, `--top`, three-site de-anon, graceful missing ids, class rollups, **verbatim metrics**, terminal/yaml/json/dot formatters, all 7 explanation types, formatter registry. |
 | `spec/report/cli_report_default_dir_spec.rb` | **`.archbuddy/` default workspace for `report`**: no-args reads `.archbuddy/{findings,id-map}.yml`; missing default findings/id-map → friendly `exit 1` error naming the producing command (no stack trace); explicit args override the workspace defaults. |
 | `spec/report/html_formatter_spec.rb` | **Offline `html` formatter**: registry, valid-ish self-contained HTML (cy container + inlined cytoscape lib >200KB + inlined data JSON), **ZERO external resource refs** (the offline guarantee), both dimension scores+grades, de-anonymized real symbols + file:line, **verbatim** bottleneck table, graph nodes/edges in the data JSON, hotspot ids per dimension, graceful `<external>` graph node, **no-graph degradation** (scores+table+notice), forward **N/A**, **1.0 back-compat** (no scores header), **table sort/pagination controls** (sortable headers w/ keys+handler, default clutter desc, page-size 25/50/100/All, Prev/Next, null-last sort), and the **graph min-score filter** (slider+number, focused-default heuristic, incident-edge hide, debounced re-layout, graceful empty-threshold). Headless-verified with Playwright. |
@@ -186,7 +226,7 @@ formatter (`Formatter.for`, `exit 1` on unknown), runs `Reconnect.from_files`, b
 | `spec/fixtures/sample/` | Tiny Rails-shaped fixture (`OrdersController`, `Billing::Invoice < ApplicationRecord`) exercising each resolver tier. |
 | `spec/fixtures/report/` | `findings_fixture.yml` (1.0, no scores; deliberately-absurd `fan_in=42` to prove no-recompute) + `id_map_fixture.yml` (with a deliberately-absent `ext_` id to prove graceful de-anon) + `findings_v11_fixture.yml` (1.1 with both dimensions scored + hotspots) + `findings_v11_forward_na_fixture.yml` (1.1 with forward N/A) + `graph_fixture.yml` (opaque graph.yml edge list — nodes/edges incl. the absent `ext_` sink — for the dot/html graph render). |
 
-Run all: `bundle exec rspec` (91 examples; prefix with `RBENV_VERSION=ruby-3.4.2` if your shell
+Run all: `bundle exec rspec` (187 examples; prefix with `RBENV_VERSION=ruby-3.4.2` if your shell
 doesn't auto-switch from `.ruby-version`).
 
 ## Adding a new language adapter

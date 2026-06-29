@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require "set"
 require_relative "vocab"
+require_relative "grape_dsl"
 
 module Archbuddy
   module Collect
@@ -22,6 +24,13 @@ module Archbuddy
               Vocab::CONTROLLER_BASES.include?(superclass.to_s) ||
                 fq_name.to_s.end_with?("Controller")
             end
+
+            # True when this class is a Grape API (`class Foo < Grape::API`).
+            # Grape endpoint verb-blocks live directly inside such a class; the
+            # DefinitionPass mints a synthetic endpoint MethodEntry per block.
+            def grape_api?
+              GrapeDsl.grape_api_superclass?(superclass)
+            end
           end
 
           # A defined method. `singleton` distinguishes `Foo.x` (true) from
@@ -30,14 +39,27 @@ module Archbuddy
           # computed by the BranchCounter (P3+P9): branches = Π(arm-count) total
           # execution paths (default 1), decisions = raw decision-point count
           # (default 0).
+          # `endpoint` (default false) marks a synthetic Grape endpoint handler
+          # block minted by the DefinitionPass — it has no DefNode of its own but
+          # IS an addressable node (kind:"endpoint") and an entrypoint, and its
+          # block body resolves to real edges in Pass 2.
           MethodEntry = Struct.new(
             :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line,
-            :branches, :decisions, keyword_init: true
-          )
+            :branches, :decisions, :endpoint, keyword_init: true
+          ) do
+            def initialize(*)
+              super
+              self.endpoint = false if endpoint.nil?
+            end
+          end
 
           def initialize
             @classes = {}  # fq_name => ClassEntry
             @methods = {}  # fq_symbol => MethodEntry
+            # Routed-action pairs seeded by RouteCatalogue (W4). Stored as a Set
+            # of "ControllerFq#action" strings; gated on table.method? before
+            # insertion so only provably-defined pairs land here.
+            @routed_actions = Set.new
           end
 
           attr_reader :classes, :methods
@@ -62,6 +84,18 @@ module Archbuddy
 
           def method?(fq_symbol)
             @methods.key?(fq_symbol)
+          end
+
+          # Routed-action accessors (W4 — RouteCatalogue seeder). Records a
+          # (controller_fq, action) pair that the RouteCatalogue confirmed is
+          # provably wired AND whose method exists in the table (L2 gate applied
+          # by the catalogue before calling here).
+          def add_routed_action(controller_fq, action)
+            @routed_actions << "#{controller_fq}##{action}"
+          end
+
+          def routed_action?(fq_symbol)
+            @routed_actions.include?(fq_symbol)
           end
 
           # Walk the superclass chain (within known app classes) testing a

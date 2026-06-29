@@ -2,6 +2,7 @@
 
 require "prism"
 require_relative "resolver"
+require_relative "grape_dsl"
 
 module Archbuddy
   module Collect
@@ -20,12 +21,17 @@ module Archbuddy
           # db_op / external targets discovered, keyed by their real symbol.
           #   db_ops:   { "Invoice.where" => {class_fq:, name:} }
           #   externals flagged via the single sink (no per-target node).
-          attr_reader :calls, :db_ops, :meta_sites
+          attr_reader :calls, :db_ops, :meta_sites, :probe_edges
 
           def initialize
-            @calls      = []  # [{from_fq:, to:{type:, ...}}]
-            @db_ops     = {}  # real_symbol => {class_fq:}
-            @meta_sites = []  # [{from_fq:, name:, line:}] (flagged, no edge)
+            @calls       = []          # [{from_fq:, to:{type:, ...}}]
+            @db_ops      = {}          # real_symbol => {class_fq:}
+            @meta_sites  = []          # [{from_fq:, name:, line:}] (flagged, no edge)
+            @probe_edges = Hash.new(0) # { probe_name(Symbol) => count } (diagnostics-only)
+          end
+
+          def tally_probe_edge(probe_name)
+            @probe_edges[probe_name] += 1
           end
 
           def add_method_edge(from_fq, to_fq)
@@ -47,12 +53,18 @@ module Archbuddy
         end
 
         class ResolutionPass < Prism::Visitor
-          def initialize(symbol_table, accumulator)
+          def initialize(symbol_table, accumulator, probes: [])
             @table     = symbol_table
             @acc       = accumulator
-            @resolver  = RubyResolver.new(symbol_table)
+            @resolver  = RubyResolver.new(symbol_table, probes: probes)
             @namespace = []
             @method_stack = [] # fq symbols of enclosing methods
+            # Grape handler-context tracking (W2) — MIRRORS DefinitionPass so the
+            # endpoint FQ pushed here is byte-identical to the FQ minted there
+            # (F5 ordinal parity): per-Pass-instance (per-file) state, same
+            # source-order ordinals over the same parsed array in the same order.
+            @grape_stack   = [] # class_fq strings of enclosing Grape::API classes
+            @verb_ordinals = Hash.new(0) # [class_fq, verb] => next ordinal
             super()
           end
 
@@ -61,7 +73,19 @@ module Archbuddy
           end
 
           def visit_class_node(node)
-            push_namespace(node.constant_path.slice) { super }
+            superclass = node.superclass && node.superclass.slice
+            push_namespace(node.constant_path.slice) do
+              if GrapeDsl.grape_api_superclass?(superclass)
+                @grape_stack.push(current_namespace)
+                begin
+                  super
+                ensure
+                  @grape_stack.pop
+                end
+              else
+                super
+              end
+            end
           end
 
           def visit_def_node(node)
@@ -77,6 +101,29 @@ module Archbuddy
           end
 
           def visit_call_node(node)
+            # Grape handler context (W2 — the 277→0 fix). A Grape endpoint
+            # verb-block has no DefNode, so without this its body calls would be
+            # attributed to no caller and dropped. Open a synthetic method scope
+            # for the block: push the SAME endpoint FQ DefinitionPass minted (F5
+            # parity — identical per-(class,verb) source-order ordinal), walk the
+            # block body so its calls record through the existing R2/R3/R4 tiers
+            # via the generic path below, then pop. Returns early (the verb call
+            # itself is the endpoint declaration, not an edge).
+            if @grape_stack.last && GrapeDsl.endpoint_verb_call?(node)
+              class_fq = @grape_stack.last
+              verb     = node.name.to_s
+              ordinal  = @verb_ordinals[[class_fq, verb]]
+              @verb_ordinals[[class_fq, verb]] += 1
+
+              @method_stack.push(GrapeDsl.endpoint_fq(class_fq, verb, ordinal))
+              begin
+                super # walk the handler block body; its calls record as edges
+              ensure
+                @method_stack.pop
+              end
+              return
+            end
+
             from_fq = @method_stack.last
             # Only attribute calls that occur inside a known method body; calls at
             # class body / top level are not edges from a node (no caller node).
@@ -85,7 +132,8 @@ module Archbuddy
                 name:            node.name,
                 receiver:        node.receiver,
                 enclosing_class: current_namespace.empty? ? nil : current_namespace,
-                table:           @table
+                table:           @table,
+                node:            node
               )
               record(@resolver.resolve(ctx), from_fq, node)
             end
@@ -95,6 +143,11 @@ module Archbuddy
           private
 
           def record(resolution, from_fq, node)
+            # Provenance tally is orthogonal to action dispatch: a probe-resolved
+            # call is counted by probe name regardless of whether it emitted a
+            # method edge or a db_op. Base-tier resolutions have provenance == nil
+            # and are NOT tallied. Diagnostics-only — never reaches graph.yml.
+            @acc.tally_probe_edge(resolution.provenance) if resolution.provenance
             case resolution.action
             when :drop
               # operator: nothing.

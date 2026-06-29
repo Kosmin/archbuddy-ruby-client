@@ -24,8 +24,10 @@ module Archbuddy
                            desc: "Entrypoint strategy: default|controllers|all_public|none"
       option :entrypoint_pattern, type: :array, default: [],
                                   desc: "Additional entrypoint fq-symbol regex(es)"
+      option :probes, default: "all",
+                      desc: "Framework probe selection: all|none|comma,list (e.g. grape,sidekiq_dispatch)"
 
-      def call(path:, language:, entrypoints:, entrypoint_pattern:, out_dir: nil, **)
+      def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all", out_dir: nil, **)
         # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
         # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
@@ -42,7 +44,8 @@ module Archbuddy
         config = Archbuddy::Collect::Config.new(
           language:            language,
           entrypoint_strategy: entrypoints,
-          entrypoint_patterns: entrypoint_pattern
+          entrypoint_patterns: entrypoint_pattern,
+          probes:              probes
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)
@@ -67,6 +70,16 @@ module Archbuddy
         skipped = adapter_result.diagnostics[:meta_sites_skipped].to_i
         if skipped.positive?
           warn "note: #{skipped} metaprogramming call site#{'s' if skipped != 1} skipped (no edges)"
+        end
+
+        # Framework-probe provenance (W3 / L5 / P4). The per-probe-name tally
+        # rides the diagnostics channel ONLY (never graph.yml). Mirror the
+        # meta-sites note: print only when at least one probe resolved an edge.
+        probe_edges = adapter_result.diagnostics[:probe_edges] || {}
+        probe_total = probe_edges.values.sum
+        if probe_total.positive?
+          breakdown = probe_edges.map { |probe, count| "#{probe}=#{count}" }.join(" ")
+          warn "note: #{probe_total} edge#{'s' if probe_total != 1} recovered by framework probes (#{breakdown})"
         end
 
         # M3: a run that finds NO entrypoints leaves the engine unable to
