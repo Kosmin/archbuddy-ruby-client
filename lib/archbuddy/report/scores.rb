@@ -71,7 +71,71 @@ module Archbuddy
         end
       end
 
+      # A project-level connectivity scalar (findings 1.3) — engine-emitted (D17).
+      # NOT a dimension, NOT a metric kernel key. Surfaces an unrepresentative
+      # sample (e.g. nexus 5/1672 nodes scored) instead of silently scoring "great".
+      # Parallel to DimensionScore; explicitly NOT inside DIMENSIONS.map.
+      #
+      # Sub-fields conform to the four-field contract schema shape (CR-1):
+      #   forward       — |reachable-from-entrypoints| / |nodes| (0..1 ratio or nil)
+      #   reverse       — |connected-to-a-db_op-sink| / |nodes| (0..1 ratio or nil)
+      #   scored_nodes  — integer ≥ 0
+      #   total_nodes   — integer ≥ 1
+      #
+      # nil-tolerant: a 1.0/1.1/1.2 findings doc without the field → connectivity
+      # is nil → no banner rendered, every existing assertion still passes.
+      Connectivity = Struct.new(
+        :forward, :reverse, :scored_nodes, :total_nodes,
+        keyword_init: true
+      ) do
+        # "0.3%" from an engine-emitted ratio (0..1); "N/A" when the engine
+        # emitted nil (e.g. a direction with no entrypoints, N1). Client only
+        # FORMATS — D17. Never derives the percentage itself.
+        def forward_pct_display
+          pct_display(forward)
+        end
+
+        def reverse_pct_display
+          pct_display(reverse)
+        end
+
+        # "5/1672" verbatim from engine counts; nil-safe.
+        def scored_ratio
+          return nil if scored_nodes.nil? || total_nodes.nil?
+
+          "#{scored_nodes}/#{total_nodes}"
+        end
+
+        private
+
+        def pct_display(ratio)
+          return "N/A" if ratio.nil?
+
+          format("%.1f%%", ratio * 100)
+        end
+      end
+
       module_function
+
+      # Parse the OPTIONAL top-level scores.connectivity object. Returns a
+      # Connectivity, or NIL when absent (1.0/1.1/1.2 docs) — graceful back-compat.
+      #
+      # @param findings_doc [Hash] parsed findings.yml (string keys)
+      # @return [Connectivity, nil]
+      def connectivity_from_findings(findings_doc)
+        block = (findings_doc || {})["scores"]
+        return nil if block.nil? || block.empty?
+
+        conn = block["connectivity"]
+        return nil if conn.nil? || conn.empty?
+
+        Connectivity.new(
+          forward:      conn["forward"],
+          reverse:      conn["reverse"],
+          scored_nodes: conn["scored_nodes"],
+          total_nodes:  conn["total_nodes"]
+        )
+      end
 
       # Parse + de-anonymize the `scores` block. Returns an ordered Array of
       # DimensionScore (reverse first), or NIL when the findings doc carries no

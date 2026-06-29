@@ -19,6 +19,8 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
 
   # 1.1 findings (has the project `scores` block + hotspots).
   let(:v11_yml) { File.join(fixtures, "findings_v11_fixture.yml") }
+  # 1.3 findings (scores + connectivity block, four-field CR-1 shape).
+  let(:v13_yml) { File.join(fixtures, "findings_v13_connectivity_fixture.yml") }
   # 1.0 findings (no scores block) for back-compat coverage.
   let(:v10_yml) { File.join(fixtures, "findings_fixture.yml") }
   # forward N/A (null forward score → honest N/A render).
@@ -39,7 +41,8 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       generator:     result.findings_doc["generator"],
       graph:         graph,
       resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
-      scores:        result.scores
+      scores:        result.scores,
+      connectivity:  result.connectivity
     )
     Archbuddy::Report::Formatter.for("html").new(context).render
   end
@@ -180,6 +183,54 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     expect(html).to include("Ranked Bottlenecks")
     expect(html).not_to include("Project Scores")
     expect(html).to include("Billing#charge")
+  end
+
+  # --- connectivity banner (findings 1.3, CR-1 four-field schema) -------------
+
+  context "with a 1.3 connectivity block" do
+    subject(:html) { render(findings: v13_yml, graph: nil) }
+
+    it "renders a <div class='connectivity'> inside the scores section" do
+      expect(html).to include('<div class="connectivity">')
+    end
+
+    it "contains the connectivity banner text with scored_nodes/total_nodes and percent" do
+      expect(html).to include("Connectivity: 5/1672 nodes scored (0.3%)")
+    end
+
+    it "positions the connectivity banner BEFORE the dimension cards" do
+      conn_pos  = html.index('<div class="connectivity">')
+      cards_pos = html.index('<div class="cards">')
+      expect(conn_pos).not_to be_nil
+      expect(cards_pos).not_to be_nil
+      expect(conn_pos).to be < cards_pos
+    end
+
+    it "does NOT render a connectivity div for a 1.1 doc (no connectivity key)" do
+      html_v11 = render(findings: v11_yml, graph: nil)
+      expect(html_v11).not_to include('<div class="connectivity">')
+    end
+
+    it "HTML-escapes the connectivity banner text (trust boundary)" do
+      # Verify via a synthetic Connectivity with adversarial text
+      evil_conn = Archbuddy::Report::Scores::Connectivity.new(
+        forward: 0.5, reverse: nil, scored_nodes: 1, total_nodes: 2
+      )
+      result = result_for(v11_yml)
+      ranker = Archbuddy::Report::Ranker.new(result)
+      context = Archbuddy::Report::Formatter::RenderContext.new(
+        ranked: ranker.ranked, class_rollups: ranker.class_rollups,
+        generator: result.findings_doc["generator"], graph: nil,
+        resolver: Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
+        scores: result.scores, connectivity: evil_conn
+      )
+      rendered = Archbuddy::Report::Formatter.for("html").new(context).render
+      expect(rendered).to include('<div class="connectivity">')
+      # The banner text is escape()d — no raw < or > may appear inside it
+      conn_section = rendered[/<div class="connectivity">(.*?)<\/div>/m, 1]
+      expect(conn_section).not_to include("<")
+      expect(conn_section).not_to include(">")
+    end
   end
 
   # --- init-script source ordering (regression: blocking runtime JS bug) ------
@@ -346,7 +397,7 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     subject(:html) do
       context = Archbuddy::Report::Formatter::RenderContext.new(
         ranked: [evil_bottleneck], class_rollups: [], generator: { "tool" => "x" },
-        graph: evil_graph, resolver: evil_resolver, scores: nil
+        graph: evil_graph, resolver: evil_resolver, scores: nil, connectivity: nil
       )
       Archbuddy::Report::Formatter.for("html").new(context).render
     end

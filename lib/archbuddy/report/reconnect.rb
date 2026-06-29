@@ -26,7 +26,9 @@ module Archbuddy
       # Ranker can de-anonymize cls_ rollups against the same id-map. `scores`
       # is the optional de-anonymized project-level dimension scores (findings
       # 1.1) — NIL for a 1.0 findings doc with no scores block (back-compat).
-      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, keyword_init: true) do
+      # `connectivity` is the optional project-level connectivity scalar (findings
+      # 1.3) — NIL when absent; no resolver needed (counts/ratios only, no opaque ids).
+      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, :connectivity, keyword_init: true) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
         # resolver so repeated lookups don't rebuild the id-map wrapper each call.
         def resolve(id)
@@ -125,7 +127,10 @@ module Archbuddy
           findings_doc: @findings_doc,
           # Optional findings-1.1 project scores, de-anonymized via the SAME
           # resolver. NIL when absent (1.0 doc) — graceful, no header rendered.
-          scores:       Scores.from_findings(@findings_doc, @resolver)
+          scores:        Scores.from_findings(@findings_doc, @resolver),
+          # Optional findings-1.3 connectivity scalar. NIL when absent (1.0/1.1/1.2
+          # doc) — back-compat; no resolver needed (counts/ratios only, no opaque ids).
+          connectivity:  Scores.connectivity_from_findings(@findings_doc)
         )
       end
 

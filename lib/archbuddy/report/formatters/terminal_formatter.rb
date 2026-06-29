@@ -41,11 +41,29 @@ module Archbuddy
         # contributors may be entirely benign; the grade is the headline.
         def scores_section
           lines = ["", "Architecture Scores", "-" * 60]
+          lines.concat(connectivity_lines)  # V8 banner ABOVE the dimension rows
           # Summary rows first, score/grade leading.
           context.scores.each { |dim| lines << score_row(dim) }
           # Then per-dimension top contributors.
           context.scores.each { |dim| lines.concat(dimension_detail(dim)) }
           lines
+        end
+
+        # One-line connectivity banner (V8). Engine-emitted figures, printed
+        # VERBATIM (D17 — client only formats counts/ratios the engine already
+        # computed). Empty Array when connectivity is absent (1.0/1.1/1.2 doc)
+        # ⇒ nothing rendered. nil forward ratio ⇒ "N/A" (not "0.0%", N1).
+        def connectivity_lines
+          conn = context.connectivity
+          return [] if conn.nil?
+
+          ratio = conn.scored_ratio          # "5/1672" | nil
+          pct   = conn.forward_pct_display   # "0.3%" | "N/A"
+          parts = []
+          parts << ratio if ratio
+          parts << "nodes scored (#{pct})"
+          banner = "Connectivity: #{parts.join(' ')}"
+          ["  #{banner}", ""]  # trailing "" separates banner from dimension rows
         end
 
         def score_row(dim)
