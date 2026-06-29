@@ -63,6 +63,7 @@ module Archbuddy
               collect_resources(node)
             elsif namespace_or_scope_call?(node)
               collect_namespaced(node)
+              return # collect_namespaced already walked the body with the namespace segment pushed; do NOT double-walk via super (would re-seed nested routes with an empty namespace stack)
             end
 
             super
