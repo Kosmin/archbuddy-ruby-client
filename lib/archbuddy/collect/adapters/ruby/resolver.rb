@@ -2,6 +2,7 @@
 
 require "prism"
 require_relative "vocab"
+require_relative "probe"
 
 module Archbuddy
   module Collect
@@ -21,22 +22,29 @@ module Archbuddy
           #   receiver          => the Prism receiver node (or nil for implicit self)
           #   enclosing_class   => fq name of the class the call lexically sits in (or nil)
           #   table             => SymbolTable
+          #   node              => the raw Prism::CallNode for this call site (or
+          #                        nil); probes read node.arguments / node.block.
+          #                        Base tiers ignore it.
           CallContext = Struct.new(
-            :name, :receiver, :enclosing_class, :table, keyword_init: true
+            :name, :receiver, :enclosing_class, :table, :node, keyword_init: true
           )
 
           # A resolution outcome.
-          #   tier      => Symbol describing which rule fired (for debugging/tests)
-          #   action    => :edge | :drop | :metaprogramming | :external
-          #   target_fq => fq symbol of the resolved app target (for :edge to a known method)
-          #   kind      => contract node kind for the *target* when synthesizing it
-          #                (:db_op / :external); nil when target is an existing method node
+          #   tier       => Symbol describing which rule fired (for debugging/tests)
+          #   action     => :edge | :drop | :metaprogramming | :external
+          #   target_fq  => fq symbol of the resolved app target (for :edge to a known method)
+          #   kind       => contract node kind for the *target* when synthesizing it
+          #                 (:db_op / :external); nil when target is an existing method node
+          #   provenance => Symbol naming the probe that produced this resolution
+          #                 (e.g. :grape), or nil for base tiers. Trust/diagnostics
+          #                 ONLY — never reaches graph.yml.
           Resolution = Struct.new(
-            :tier, :action, :target_fq, :kind, keyword_init: true
+            :tier, :action, :target_fq, :kind, :provenance, keyword_init: true
           )
 
-          def initialize(table)
-            @table = table
+          def initialize(table, probes: [])
+            @table  = table
+            @probes = probes
           end
 
           # @param ctx [CallContext]
@@ -87,6 +95,21 @@ module Archbuddy
 
               return edge(:const_singleton, singleton_fq) if @table.method?(singleton_fq)
               return edge(:const_instance, instance_fq)    if @table.method?(instance_fq)
+            end
+
+            # R5: framework probes (P1). Recognized framework dynamic-dispatch
+            # DSLs resolve to REAL edges the framework PROVABLY wires. Run AFTER
+            # all base tiers (never shadow a known app edge) and BEFORE <external>
+            # (so a recognized route/job resolves instead of dead-ending). Each
+            # probe claims (returns a Resolution, which REPLACES the <external>
+            # fallthrough for this call — never stacks a 2nd edge, P6) or declines
+            # (nil -> next probe / R9). First non-nil wins (same discipline as R2-R4).
+            @probes.each do |probe|
+              resolution = probe.resolve(ctx)
+              if resolution
+                resolution.provenance ||= probe.name # provenance carry (L5/P4)
+                return resolution
+              end
             end
 
             # R9: everything unresolved -> the single shared external sink.

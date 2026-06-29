@@ -24,8 +24,10 @@ module Archbuddy
                            desc: "Entrypoint strategy: default|controllers|all_public|none"
       option :entrypoint_pattern, type: :array, default: [],
                                   desc: "Additional entrypoint fq-symbol regex(es)"
+      option :probes, default: "all",
+                      desc: "Framework probe selection: all|none|comma,list (e.g. grape,sidekiq_dispatch)"
 
-      def call(path:, language:, entrypoints:, entrypoint_pattern:, out_dir: nil, **)
+      def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all", out_dir: nil, **)
         # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
         # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
@@ -42,7 +44,8 @@ module Archbuddy
         config = Archbuddy::Collect::Config.new(
           language:            language,
           entrypoint_strategy: entrypoints,
-          entrypoint_patterns: entrypoint_pattern
+          entrypoint_patterns: entrypoint_pattern,
+          probes:              probes
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)

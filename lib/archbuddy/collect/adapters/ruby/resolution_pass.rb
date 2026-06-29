@@ -20,12 +20,17 @@ module Archbuddy
           # db_op / external targets discovered, keyed by their real symbol.
           #   db_ops:   { "Invoice.where" => {class_fq:, name:} }
           #   externals flagged via the single sink (no per-target node).
-          attr_reader :calls, :db_ops, :meta_sites
+          attr_reader :calls, :db_ops, :meta_sites, :probe_edges
 
           def initialize
-            @calls      = []  # [{from_fq:, to:{type:, ...}}]
-            @db_ops     = {}  # real_symbol => {class_fq:}
-            @meta_sites = []  # [{from_fq:, name:, line:}] (flagged, no edge)
+            @calls       = []          # [{from_fq:, to:{type:, ...}}]
+            @db_ops      = {}          # real_symbol => {class_fq:}
+            @meta_sites  = []          # [{from_fq:, name:, line:}] (flagged, no edge)
+            @probe_edges = Hash.new(0) # { probe_name(Symbol) => count } (diagnostics-only)
+          end
+
+          def tally_probe_edge(probe_name)
+            @probe_edges[probe_name] += 1
           end
 
           def add_method_edge(from_fq, to_fq)
@@ -47,10 +52,10 @@ module Archbuddy
         end
 
         class ResolutionPass < Prism::Visitor
-          def initialize(symbol_table, accumulator)
+          def initialize(symbol_table, accumulator, probes: [])
             @table     = symbol_table
             @acc       = accumulator
-            @resolver  = RubyResolver.new(symbol_table)
+            @resolver  = RubyResolver.new(symbol_table, probes: probes)
             @namespace = []
             @method_stack = [] # fq symbols of enclosing methods
             super()
@@ -85,7 +90,8 @@ module Archbuddy
                 name:            node.name,
                 receiver:        node.receiver,
                 enclosing_class: current_namespace.empty? ? nil : current_namespace,
-                table:           @table
+                table:           @table,
+                node:            node
               )
               record(@resolver.resolve(ctx), from_fq, node)
             end
@@ -95,6 +101,11 @@ module Archbuddy
           private
 
           def record(resolution, from_fq, node)
+            # Provenance tally is orthogonal to action dispatch: a probe-resolved
+            # call is counted by probe name regardless of whether it emitted a
+            # method edge or a db_op. Base-tier resolutions have provenance == nil
+            # and are NOT tallied. Diagnostics-only — never reaches graph.yml.
+            @acc.tally_probe_edge(resolution.provenance) if resolution.provenance
             case resolution.action
             when :drop
               # operator: nothing.

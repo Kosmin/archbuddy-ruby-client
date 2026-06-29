@@ -13,6 +13,11 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
     ).call
   end
 
+  # Pre-anonymization adapter result (carries the diagnostics channel).
+  def collect_raw
+    Archbuddy::Collect::Registry.for("ruby").new(fixture_root, config).collect
+  end
+
   let(:result) { anonymize }
   let(:graph)  { result.graph }
   let(:id_map) { result.id_map }
@@ -113,6 +118,14 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
   it "marks controller actions as endpoint nodes" do
     node = node_for_symbol("OrdersController#index")
     expect(node["kind"]).to eq("endpoint")
+  end
+
+  # --- probe seam diagnostic (W1 / P1) ----------------------------------------
+
+  it "exposes a probe_edges diagnostic (empty until a probe is registered)" do
+    diagnostics = collect_raw.diagnostics
+    expect(diagnostics).to have_key(:probe_edges)
+    expect(diagnostics[:probe_edges]).to eq({})
   end
 
   # --- id-map secret content + class rollups (D42) ----------------------------

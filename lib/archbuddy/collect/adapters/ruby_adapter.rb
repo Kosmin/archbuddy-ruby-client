@@ -8,6 +8,7 @@ require_relative "ruby/symbol_table"
 require_relative "ruby/definition_pass"
 require_relative "ruby/resolution_pass"
 require_relative "ruby/entrypoint_detector"
+require_relative "ruby/probe_registry"
 
 module Archbuddy
   module Collect
@@ -54,7 +55,13 @@ module Archbuddy
             # sites were detected but produce no edges (we cannot statically
             # resolve their targets). Surfaced as a diagnostic count only —
             # never as graph content.
-            diagnostics: { meta_sites_skipped: acc.meta_sites.length }
+            diagnostics: {
+              meta_sites_skipped: acc.meta_sites.length,
+              # Per-probe-name tally of framework-probe-resolved call sites
+              # (L5/P4). CLI/diagnostics-only — NEVER serialized into graph.yml.
+              # {} when no probes are selected / none resolve a call.
+              probe_edges: acc.probe_edges
+            }
           )
         end
 
@@ -73,8 +80,11 @@ module Archbuddy
         end
 
         def run_resolution_pass(parsed, table, acc)
+          # Build the config-selected probes ONCE (stateless; reused per file).
+          # Empty in the seam wave (ProbeRegistry::PROBES == []) -> [] -> no-op.
+          probes = Ruby::ProbeRegistry.for(config)
           parsed.each do |entry|
-            entry[:value].accept(Ruby::ResolutionPass.new(table, acc))
+            entry[:value].accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
           end
         end
 
