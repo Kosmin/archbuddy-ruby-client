@@ -39,7 +39,7 @@ module Archbuddy
 
           @id_for_key[raw.real_key] = node_id
 
-          graph_nodes << {
+          node_hash = {
             "id"            => node_id,
             "kind"          => raw.kind,
             "class_id"      => class_id,
@@ -59,6 +59,15 @@ module Archbuddy
             "branches"      => raw.branches,
             "decisions"     => raw.decisions
           }
+
+          # V4/P4 (graph 1.2): the db_op-sink customizability proxy `sink_open`
+          # is OPTIONAL and emitted ONLY on db_op nodes (function/endpoint/
+          # external nodes have no sink semantics → key absent). An opaque
+          # boolean — no app semantics — so it belongs in the shareable graph
+          # node, NOT the secret id-map.
+          node_hash["sink_open"] = raw.sink_open ? true : false if raw.kind == "db_op"
+
+          graph_nodes << node_hash
 
           @id_map_ids[node_id] = {
             "file"     => raw.rel_file,

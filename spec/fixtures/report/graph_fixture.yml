@@ -2,7 +2,7 @@
 # findings.yml). Node ids match findings_fixture.yml / id_map_fixture.yml so the
 # html formatter can de-anonymize them. Includes the ext_ sink that is ABSENT
 # from the id-map to exercise graceful <external …> rendering on a graph node.
-schema_version: "1.1"
+schema_version: "1.2"
 generator:
   tool: architecture-auditor test
   adapter: ruby
@@ -53,6 +53,18 @@ nodes:
     count: null
     branches: 1
     decisions: 0
+  # graph 1.2 (V4/P4): a db_op write sink carrying the OPTIONAL sink_open proxy
+  # (true => open-ended write). Only db_op nodes carry sink_open.
+  - id: n_d150ce11ab02
+    kind: db_op
+    class_id: cls_e1303d65422d
+    loc: null
+    self_time_ms: null
+    total_time_ms: null
+    count: null
+    branches: 1
+    decisions: 0
+    sink_open: true
 edges:
   - from: n_9806809c4b1f
     to: n_4452f2ecaf84

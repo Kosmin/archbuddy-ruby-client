@@ -176,13 +176,24 @@ module Archbuddy
         # into blocks (do..end / {}) but STOPS at a nested DefNode — an inner def
         # gets its own counts. An empty/nil body yields b=1, d=0.
         #
+        # De-idiomatization (V7/P5): only BUSINESS control flow multiplies into
+        # the `branches` product. Defensive/idiomatic constructs (`&&`/`||`,
+        # safe-nav `&.`, the `||=`/`&&=` operator-write family, modifier+begin
+        # `rescue`, pattern-match predicates) are still COUNTED in `decisions`
+        # but DO NOT inflate `branches` — they pass `business: false` to `record`.
+        #
         # Arm-counts per construct:
-        #   if/unless/while/until/for, &&/||, rescue-modifier, match-predicate
-        #     (`x in Pat`), match-required (`x => Pat`)  ............ factor 2
-        #   the `||=`/`&&=` operator-write family (8 target shapes ×2) factor 2
-        #   safe navigation `x&.y` (CallNode#safe_navigation?)  ..... factor 2
+        #   if/unless/while/until/for  ..... factor 2 (BUSINESS — multiplies b)
         #   case / case-in  .... conditions.length (+1 when an else is present)
+        #                        (BUSINESS — multiplies b)
+        #   &&/||, rescue-modifier, match-predicate (`x in Pat`), match-required
+        #     (`x => Pat`)  ................. factor 2 (IDIOM — decisions only)
+        #   the `||=`/`&&=` operator-write family (8 target shapes ×2)
+        #                                     factor 2 (IDIOM — decisions only)
+        #   safe navigation `x&.y` (CallNode#safe_navigation?)
+        #                                     factor 2 (IDIOM — decisions only)
         #   begin/rescue  ...... 1 + (#rescue clauses) (+1 when an else present)
+        #                        (IDIOM — decisions only)
         class BranchCounter < Prism::Visitor
           # Operator-write nodes whose `||=`/`&&=` semantics introduce a binary
           # decision (assign-if-unset). The full family across target shapes:
@@ -229,13 +240,12 @@ module Archbuddy
             @product
           end
 
-          # --- single-factor (binary) decision points ---------------------------
+          # --- single-factor (binary) BUSINESS decision points -------------------
           # Each adds one decision and doubles the path count, then descends so
           # nested decision points inside the construct are also counted.
           %i[
             visit_if_node visit_unless_node visit_while_node visit_until_node
-            visit_for_node visit_and_node visit_or_node visit_rescue_modifier_node
-            visit_match_predicate_node visit_match_required_node
+            visit_for_node
           ].each do |meth|
             define_method(meth) do |node|
               record(2)
@@ -243,17 +253,35 @@ module Archbuddy
             end
           end
 
-          BINARY_OP_WRITE.each do |klass|
-            define_method(:"visit_#{snake_case(klass)}") do |node|
-              record(2)
+          # --- single-factor (binary) IDIOM decision points (V7/P5) --------------
+          # `&&`/`||` short-circuit guards, modifier `rescue`, and pattern-match
+          # predicates are idioms: counted in `decisions` but NOT multiplied into
+          # `branches`. Still descend so any nested business decision inside the
+          # idiom (e.g. `x && (if d; …; end)`) still multiplies b.
+          %i[
+            visit_and_node visit_or_node visit_rescue_modifier_node
+            visit_match_predicate_node visit_match_required_node
+          ].each do |meth|
+            define_method(meth) do |node|
+              record(2, business: false)
               super(node)
             end
           end
 
-          # `x&.y` — a safe-navigation call is a binary decision (short-circuits
-          # on nil). A plain `x.y` call is not. Either way, descend.
+          # The `||=`/`&&=` operator-write family is an idiom (assign-if-unset):
+          # counted in `decisions`, NOT multiplied into `branches` (V7/P5).
+          BINARY_OP_WRITE.each do |klass|
+            define_method(:"visit_#{snake_case(klass)}") do |node|
+              record(2, business: false)
+              super(node)
+            end
+          end
+
+          # `x&.y` — a safe-navigation call short-circuits on nil. An IDIOM under
+          # V7/P5: counted in `decisions`, NOT multiplied into `branches`. A plain
+          # `x.y` call is not a decision. Either way, descend.
           def visit_call_node(node)
-            record(2) if node.safe_navigation?
+            record(2, business: false) if node.safe_navigation?
             super
           end
 
@@ -271,10 +299,12 @@ module Archbuddy
           end
 
           # `begin/rescue/else`: one decision; arms = 1 (the happy path) + one per
-          # rescue clause, plus one for an else fall-through if present.
+          # rescue clause, plus one for an else fall-through if present. Defensive
+          # `rescue` handling is an IDIOM under V7/P5: counted in `decisions`, NOT
+          # multiplied into `branches`.
           def visit_begin_node(node)
             arms = 1 + rescue_count(node) + (node.else_clause.nil? ? 0 : 1)
-            record(arms)
+            record(arms, business: false)
             super
           end
 
@@ -284,9 +314,14 @@ module Archbuddy
 
           private
 
-          def record(arm_count)
+          # The single mutation choke point (V7/P5). Every decision point bumps
+          # `@decisions` (diagnostic count of ALL constructs); only BUSINESS
+          # control flow (`business: true`, the default) multiplies the
+          # `branches` product. Idiom constructs pass `business: false` so they
+          # count toward `decisions` but never inflate `branches`.
+          def record(arm_count, business: true)
             @decisions += 1
-            @product   *= arm_count
+            @product   *= arm_count if business
           end
 
           def arm_count(case_node)
