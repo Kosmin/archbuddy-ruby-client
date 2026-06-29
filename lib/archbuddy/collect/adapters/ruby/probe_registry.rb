@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "probe"
+require_relative "probes/grape_probe"
+require_relative "probes/dispatch_probe"
 
 module Archbuddy
   module Collect
@@ -11,14 +13,18 @@ module Archbuddy
         # probes in priority order until one claims it (first non-nil wins) — and
         # config-selected (mirroring EntrypointDetector's config-driven selection).
         #
-        # PROBES ships EMPTY in the seam wave so behavior is byte-identical to
-        # today: `for(config)` returns [] for every config value until a concrete
-        # probe is appended (W3 adds `grape` + `sidekiq_dispatch`). Routes-dispatch
-        # is a SEEDER, not a probe, and is NOT in this map.
+        # The single ordered KNOWN map holds the concrete probes (W3): the Grape
+        # mount-tree probe (`grape`) and the Sidekiq/ActiveJob dispatch probe
+        # (`sidekiq_dispatch`). Each call site is offered to them in this order;
+        # the two never claim the same call shape (mount vs perform_* dispatch),
+        # so order is incidental — first non-nil still wins. Rails-routes is a
+        # SEEDER, not a probe, and is deliberately NOT in this map.
         module ProbeRegistry
-          # Ordered probe classes in priority order. EMPTY in the seam wave —
-          # W3 appends the concrete probe classes here (one line each).
-          PROBES = [].freeze
+          # Ordered probe classes in priority order (P3: Grape before dispatch).
+          PROBES = [
+            Probes::GrapeProbe,
+            Probes::DispatchProbe
+          ].freeze
 
           module_function
 

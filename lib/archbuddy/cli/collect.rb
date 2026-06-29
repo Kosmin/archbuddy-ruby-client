@@ -72,6 +72,16 @@ module Archbuddy
           warn "note: #{skipped} metaprogramming call site#{'s' if skipped != 1} skipped (no edges)"
         end
 
+        # Framework-probe provenance (W3 / L5 / P4). The per-probe-name tally
+        # rides the diagnostics channel ONLY (never graph.yml). Mirror the
+        # meta-sites note: print only when at least one probe resolved an edge.
+        probe_edges = adapter_result.diagnostics[:probe_edges] || {}
+        probe_total = probe_edges.values.sum
+        if probe_total.positive?
+          breakdown = probe_edges.map { |probe, count| "#{probe}=#{count}" }.join(" ")
+          warn "note: #{probe_total} edge#{'s' if probe_total != 1} recovered by framework probes (#{breakdown})"
+        end
+
         # M3: a run that finds NO entrypoints leaves the engine unable to
         # compute reachability (dead, path_length). Surface that as a clear
         # stderr WARNING — a diagnostic, never graph content — instead of

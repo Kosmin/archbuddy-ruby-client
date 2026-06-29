@@ -151,3 +151,152 @@ RSpec.describe "Grape endpoint discovery + handler context (W2 e2e)" do
     end
   end
 end
+
+# Grape MOUNT-tree probe (W3 — CONSUMES the seam). A `mount Const` provably
+# composes the mounted Grape::API. When it appears in a context with a real
+# caller (an endpoint handler body / a helper method) and the mounted const is
+# a KNOWN Grape::API with at least one minted endpoint node, the probe emits a
+# single edge to that API's representative (first-declared) endpoint node.
+# Otherwise it DECLINES (unknown/non-Grape const, dynamic mount, empty API) so
+# the call falls through to <external>. Never fabricates a class-target edge.
+RSpec.describe "Grape mount-tree probe (W3)" do
+  let(:config) { Archbuddy::Collect::Config.new(language: "ruby") }
+
+  def in_repo(source)
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "api.rb"), source)
+      yield dir
+    end
+  end
+
+  def anonymize(dir)
+    Archbuddy::Collect::Anonymizer.new(
+      Archbuddy::Collect::Registry.for("ruby").new(dir, config).collect,
+      tool: "archbuddy test", adapter: "ruby"
+    ).call
+  end
+
+  def id_for(result, sym)
+    result.id_map["ids"].find { |_i, d| d["symbol"] == sym }&.first
+  end
+
+  def edge?(result, from_sym, to_sym)
+    from_id = id_for(result, from_sym)
+    to_id   = id_for(result, to_sym)
+    return false if from_id.nil? || to_id.nil?
+
+    result.graph["edges"].any? { |e| e["from"] == from_id && e["to"] == to_id }
+  end
+
+  it "resolves a mount of a known Grape::API to its representative endpoint node" do
+    # The mount sits inside an endpoint handler body so it has a real caller FQ.
+    source = <<~RUBY
+      class SubApi < Grape::API
+        get "/things" do
+          1
+        end
+      end
+
+      class Api < Grape::API
+        get "/compose" do
+          mount SubApi
+        end
+      end
+    RUBY
+    in_repo(source) do |dir|
+      result = anonymize(dir)
+      # SubApi's first endpoint (GET ordinal 0) is the representative node.
+      expect(id_for(result, "SubApi#GET[0]")).not_to be_nil
+      expect(edge?(result, "Api#GET[0]", "SubApi#GET[0]")).to be(true)
+    end
+  end
+
+  it "tallies the mount edge under diagnostics[:probe_edges][:grape]" do
+    source = <<~RUBY
+      class SubApi < Grape::API
+        get "/things" do
+          1
+        end
+      end
+
+      class Api < Grape::API
+        get "/compose" do
+          mount SubApi
+        end
+      end
+    RUBY
+    in_repo(source) do |dir|
+      result = Archbuddy::Collect::Registry.for("ruby").new(dir, config).collect
+      expect(result.diagnostics[:probe_edges][:grape]).to be >= 1
+    end
+  end
+
+  it "declines a mount of an UNKNOWN constant (-> no probe edge)" do
+    source = <<~RUBY
+      class Api < Grape::API
+        get "/compose" do
+          mount NotDefinedAnywhere
+        end
+      end
+    RUBY
+    in_repo(source) do |dir|
+      result = anonymize(dir)
+      expect(id_for(result, "NotDefinedAnywhere#GET[0]")).to be_nil
+      # The mount site resolves to <external>, not a fabricated edge.
+      go_id  = id_for(result, "Api#GET[0]")
+      ext_id = id_for(result, "<external>")
+      expect(result.graph["edges"].any? { |e| e["from"] == go_id && e["to"] == ext_id }).to be(true)
+    end
+  end
+
+  it "declines a mount of a NON-Grape constant" do
+    source = <<~RUBY
+      class PlainThing
+        def go
+          1
+        end
+      end
+
+      class Api < Grape::API
+        get "/compose" do
+          mount PlainThing
+        end
+      end
+    RUBY
+    in_repo(source) do |dir|
+      result = Archbuddy::Collect::Registry.for("ruby").new(dir, config).collect
+      expect(result.diagnostics[:probe_edges].fetch(:grape, 0)).to eq(0)
+    end
+  end
+
+  it "declines a DYNAMIC mount (non-constant argument)" do
+    source = <<~RUBY
+      class Api < Grape::API
+        get "/compose" do
+          mount build_api
+        end
+      end
+    RUBY
+    in_repo(source) do |dir|
+      result = Archbuddy::Collect::Registry.for("ruby").new(dir, config).collect
+      expect(result.diagnostics[:probe_edges].fetch(:grape, 0)).to eq(0)
+    end
+  end
+
+  it "declines a mount of a Grape::API with ZERO endpoint nodes (no fabricated edge)" do
+    source = <<~RUBY
+      class EmptySub < Grape::API
+      end
+
+      class Api < Grape::API
+        get "/compose" do
+          mount EmptySub
+        end
+      end
+    RUBY
+    in_repo(source) do |dir|
+      result = Archbuddy::Collect::Registry.for("ruby").new(dir, config).collect
+      expect(result.diagnostics[:probe_edges].fetch(:grape, 0)).to eq(0)
+    end
+  end
+end

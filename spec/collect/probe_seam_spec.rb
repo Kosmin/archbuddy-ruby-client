@@ -220,15 +220,22 @@ RSpec.describe "Probe seam (W1 / P1)" do
 
   # --- ProbeRegistry selection -------------------------------------------------
 
-  it "ships an empty, frozen PROBES list (byte-identical seam)" do
-    expect(M::ProbeRegistry::PROBES).to eq([])
+  it "ships a frozen PROBES list holding the W3 concrete probes" do
+    expect(M::ProbeRegistry::PROBES).to eq([M::Probes::GrapeProbe, M::Probes::DispatchProbe])
     expect(M::ProbeRegistry::PROBES).to be_frozen
   end
 
-  it "returns [] from for(config) regardless of selection while PROBES is empty" do
-    expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new)).to eq([])
+  it "selects from the real PROBES map by config (W3 registry populated)" do
+    # :all selects every registered probe in order.
+    expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new).map(&:name))
+      .to eq(%i[grape sidekiq_dispatch])
+    # an unknown name selects nothing (F2 — lenient, no raise).
     expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new(probes: %i[fake]))).to eq([])
+    # :none selects nothing.
     expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new(probes: :none))).to eq([])
+    # a named subset selects only that probe.
+    expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new(probes: %i[grape])).map(&:name))
+      .to eq([:grape])
   end
 
   it "selects and instantiates only the named probes (proven via a stubbed PROBES)" do
