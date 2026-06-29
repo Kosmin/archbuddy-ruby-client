@@ -59,8 +59,10 @@ end
   2. **Bundler local config (persistent):** `bundle config set --local local.architecture_auditor
      ../architecture-auditor` makes bundler resolve the *git* gem from that local checkout
      (it must be on the same branch — `main`).
-- The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.2"` (pessimistic bound, updated
-  for the 0.2.0 release; the open-ended `>= 0` form was removed so `gem build` emits no warning).
+- The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.2"` (pessimistic bound,
+  maintained at the 0.2.x floor; the engine is already at 0.3.0 in development but the gemspec bound
+  has not been bumped since the client's `metric_kernel_consistency_spec` verifies compatibility at
+  test time rather than via a hard version pin).
 
 **Verified vs documented in this environment:** the env-override mode (Mode 1) and the bundler
 local-config mode (Mode 2, which resolves the *git* source from the sibling — proving the git line is
@@ -72,18 +74,42 @@ remote.
 
 ## Versions and release sequence
 
-The client is at **0.3.0**; the engine is at **0.2.0** (UNCHANGED). The mandatory release sequence is
-**engine `main` first, then client**: the client's `metric_kernel_consistency_spec` loads the live
-engine `METRIC_KEYS` constant at test time, so the engine must already carry a matching version before
-the client suite can be verified green.
+The client is at **0.4.0**; the engine is at **0.3.0**. The mandatory release sequence is **engine
+`main` first, then client**: the client's `metric_kernel_consistency_spec` loads the live engine
+`METRIC_KEYS` constant at test time, so the engine must already carry a matching version before the
+client suite can be verified green.
 
-### v0.3.0 client bump — engine UNCHANGED
+### v0.4.0 client bump (W4+W5) — engine 0.3.0
 
-The client v0.3.0 adds the framework-probe seam and concrete probes (`grape`, `sidekiq_dispatch`) plus
-the Rails-routes entrypoint seeder. This is **entirely collector-side**: the engine is UNCHANGED and
-there is **NO contract/schema change** (graph `"1.1"` / findings `"1.2"` / `SUPPORTED_VERSIONS`
-untouched; the `endpoint` node kind pre-exists). The engine gemspec dep `~> 0.2` is UNCHANGED because
-the engine remains at 0.2.0. No engine release is required.
+The client v0.4.0 adds the v0.3 sink-concentrated scoring support on top of the v0.3.0 framework-probe
+release. Two waves, both committed on the `feat/sink-concentrated-cost` branch:
+
+**W4 (collector):** De-idiomatizes `BranchCounter` (V7/P5) — only business control flow
+(`if`/`unless`/`case`/`while`/`until`/`for`) multiplies into `branches`; idioms (`&&`/`||`, `&.`,
+`||=`/`&&=`, `rescue`, pattern-match predicates) counted in `decisions` only. Adds `sink_open` capture
+(V4/P4): classifies each AR call site's op-kind via `Vocab::AR_WRITE`/`AR_DESTROY`/`ar_op_kind`, with
+`DbOpSpec` write-specificity (symbol-keyed literal = specific; variable/splat/string-SQL = open_ended,
+the SAFE default), aggregated least-specific-wins, emitting ONLY `sink_open: bool` on `db_op` graph
+nodes (graph 1.2). No `sink_op`/`sink_fields` field; engine derives U from topology (`in_degree`).
+
+**W5 (reporter):** Adds `Scores::Connectivity` struct (CR-1 four-field shape: `forward`/`reverse`/
+`scored_nodes`/`total_nodes`, no `verdict`) parsed from findings 1.3 `scores.connectivity`. Threads
+connectivity through `Reconnect::Result` → `RenderContext`. Terminal formatter renders a one-line
+`Connectivity: N/total nodes scored (P%)` banner ABOVE the dimension rows (nil → no banner, back-compat).
+HTML formatter renders `<div class="connectivity">` before `.cards` (nil → `""`, HTML-escaped). All
+figures are engine-emitted and formatted verbatim (D17 — client never recomputes ratios/counts).
+
+The engine was released at 0.3.0 (engine-main-first) before these client waves. The gemspec dep
+`~> 0.2` is UNCHANGED at the gem level — the client remains compatible with engine 0.2.x — but the
+sibling checkout used in development is engine 0.3.0.
+
+### v0.3.0 client bump — engine UNCHANGED at that step
+
+The client v0.3.0 added the framework-probe seam and concrete probes (`grape`, `sidekiq_dispatch`) plus
+the Rails-routes entrypoint seeder. This was **entirely collector-side**: the engine was UNCHANGED and
+there was **NO contract/schema change** (graph `"1.1"` / findings `"1.2"` / `SUPPORTED_VERSIONS`
+untouched; the `endpoint` node kind pre-exists). The engine gemspec dep `~> 0.2` was UNCHANGED because
+the engine remained at 0.2.0. No engine release was required.
 
 **Agnostic boundary preserved — even for a future dynamic pass.** The static probe seam (v0.3.0) reads
 only the Prism AST — it never executes or loads the audited app. This preserves the engine's core
@@ -104,9 +130,13 @@ The one place the two repos must stay in exact agreement at the code level is th
 order). If either side adds/removes/renames a metric without the other following, CI fails. **Any metric
 change is a two-repo change.**
 
-**Important:** the new `branches`/`decisions` fields introduced in graph schema 1.1 are **graph INPUT
-fields**, not metrics. They are NOT added to `METRIC_KEYS`; the kernel remains 8 keys. The
-`metric_kernel_consistency_spec` files in both repos are **untouched** and stay green without any edit.
+**Important:** `branches`/`decisions` (graph 1.1), `sink_open` (graph 1.2), and the `connectivity`
+object in `scores` (findings 1.3) are all **graph/findings INPUT fields**, not metric-kernel keys.
+They are NOT added to `METRIC_KEYS`; the kernel remains 8 keys. The `metric_kernel_consistency_spec`
+files in both repos are **untouched** and stay green without any edit. `sink_open` is the engine's
+INPUT for deriving U (undifferentiated sink paths via `in_degree`); the engine never emits it back as
+a metric. `connectivity` is a project-level summary object computed by the engine in `finish`; it is
+not per-node and not part of the metric kernel.
 
 ## Working across both repos
 

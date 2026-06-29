@@ -68,7 +68,8 @@ module Archbuddy
           generator:     result.findings_doc["generator"] || {},
           graph:         graph && Archbuddy::Report::Reconnect::Serializer.load(graph),
           resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
-          scores:        result.scores
+          scores:        result.scores,
+          connectivity:  result.connectivity
         )
 
         puts formatter_class.new(context).render

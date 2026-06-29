@@ -9,6 +9,17 @@ module Billing
       where(state: "late")
     end
 
+    # V4/P4 write sinks. `mark_paid!` writes a symbol-keyed literal hash =>
+    # SPECIFIC (sink_open false). `bulk_update` writes a variable hash =>
+    # OPEN_ENDED (sink_open true). Distinct db_op nodes (distinct Class.method).
+    def self.mark_paid!
+      update_all(state: "paid")
+    end
+
+    def self.bulk_update(attrs)
+      update(attrs)
+    end
+
     def total
       subtotal + tax            # operator `+` must be dropped (D36)
     end

@@ -13,6 +13,7 @@ RSpec.describe "Reporter dimension scores (R-8)" do
   let(:fixtures)    { File.expand_path("../fixtures/report", __dir__) }
   let(:id_map_yml)  { File.join(fixtures, "id_map_fixture.yml") }
   let(:v11_yml)     { File.join(fixtures, "findings_v11_fixture.yml") }
+  let(:v13_yml)     { File.join(fixtures, "findings_v13_connectivity_fixture.yml") }
   let(:forward_na)  { File.join(fixtures, "findings_v11_forward_na_fixture.yml") }
   let(:v10_yml)     { File.join(fixtures, "findings_fixture.yml") } # 1.0, NO scores
 
@@ -31,7 +32,8 @@ RSpec.describe "Reporter dimension scores (R-8)" do
       generator:     result.findings_doc["generator"],
       graph:         nil,
       resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
-      scores:        result.scores
+      scores:        result.scores,
+      connectivity:  result.connectivity
     )
   end
 
@@ -164,6 +166,69 @@ RSpec.describe "Reporter dimension scores (R-8)" do
         expect(plain).not_to include("Architecture Scores")
         expect(plain).to include("Billing#charge") # normal report still works
       end
+    end
+  end
+
+  # --- Connectivity model (findings 1.3, CR-1 four-field schema) -------------
+
+  describe "Connectivity model" do
+    let(:conn) { result_for(v13_yml).connectivity }
+
+    it "parses the four-field connectivity object from a 1.3 findings doc" do
+      expect(conn).not_to be_nil
+      expect(conn).to be_a(Archbuddy::Report::Scores::Connectivity)
+      expect(conn.forward).to eq(0.003)
+      expect(conn.reverse).to eq(0.003)
+      expect(conn.scored_nodes).to eq(5)
+      expect(conn.total_nodes).to eq(1672)
+    end
+
+    it "formats forward ratio as a percent string (engine-emitted, client only formats)" do
+      expect(conn.forward_pct_display).to eq("0.3%")
+    end
+
+    it "returns the scored_ratio as 'N/M' string" do
+      expect(conn.scored_ratio).to eq("5/1672")
+    end
+
+    it "returns nil for a 1.1 findings doc (no connectivity key) — back-compat" do
+      expect(result_for(v11_yml).connectivity).to be_nil
+    end
+
+    it "returns nil for a 1.0 findings doc (no scores block) — back-compat" do
+      expect(result_for(v10_yml).connectivity).to be_nil
+    end
+
+    it "returns nil from connectivity_from_findings({}) — back-compat" do
+      expect(Archbuddy::Report::Scores.connectivity_from_findings({})).to be_nil
+    end
+
+    it "returns nil from connectivity_from_findings({'scores'=>{}}) — back-compat" do
+      expect(Archbuddy::Report::Scores.connectivity_from_findings({ "scores" => {} })).to be_nil
+    end
+
+    it "renders an engine-nil forward ratio as 'N/A' (not '0.0%', N1)" do
+      c = Archbuddy::Report::Scores::Connectivity.new(
+        forward: nil, reverse: 0.5,
+        scored_nodes: 10, total_nodes: 100
+      )
+      expect(c.forward_pct_display).to eq("N/A")
+      expect(c.reverse_pct_display).to eq("50.0%")
+    end
+  end
+
+  # --- terminal connectivity banner -------------------------------------------
+
+  describe "terminal connectivity banner" do
+    it "renders the banner ABOVE the dimension rows when connectivity is present" do
+      output = render(v13_yml, "terminal")
+      expect(output).to include("Connectivity: 5/1672 nodes scored (0.3%)")
+      expect(output.index("Connectivity:")).to be < output.index("Reverse Traceability")
+    end
+
+    it "renders NO Connectivity: line for a 1.1 doc (no connectivity key)" do
+      output = render(v11_yml, "terminal")
+      expect(output).not_to include("Connectivity:")
     end
   end
 

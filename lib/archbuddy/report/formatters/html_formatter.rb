@@ -138,9 +138,24 @@ module Archbuddy
           <<~HTML
             <section id="scores">
               <h2>Project Scores</h2>
+              #{connectivity_banner_html}
               <div class="cards">#{cards}</div>
             </section>
           HTML
+        end
+
+        # Connectivity banner (V8) ABOVE the dimension cards. Engine-emitted
+        # figures rendered VERBATIM (D17); the verdict string is `escape`d
+        # (trust-boundary text). "" when connectivity is absent (1.0/1.1/1.2
+        # doc) ⇒ nothing rendered. nil ratio ⇒ "(N/A)", never "(0.0%)", N1.
+        def connectivity_banner_html
+          conn = context.connectivity
+          return "" if conn.nil?
+
+          ratio = conn.scored_ratio
+          pct   = conn.forward_pct_display
+          text  = "Connectivity: #{[ratio, "nodes scored (#{pct})"].compact.join(' ')}"
+          %(<div class="connectivity">#{escape(text)}</div>)
         end
 
         def score_card(dim)

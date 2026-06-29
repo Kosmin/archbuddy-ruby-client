@@ -7,8 +7,9 @@ All three shapes are owned canonically by the **engine Contract** (`Architecture
 authoritative JSON schemas live in the sibling repo at
 `../architecture-auditor/lib/architecture_auditor/contract/schemas/{graph,findings}.v1.schema.json`.
 This doc summarizes those shapes for quick reference — **the schemas are the source of truth; do not let
-this doc drift from them.** Graph schema is `"1.1"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
-is `"1.2"` (`Contract::FINDINGS_SCHEMA_VERSION`). Both are MINOR / additive; old 1.0 docs still validate.
+this doc drift from them.** Graph schema is `"1.2"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
+is `"1.3"` (`Contract::FINDINGS_SCHEMA_VERSION`). Both are MINOR / additive; old 1.0/1.1/1.2 docs still
+validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3]` (explicit retain-list, never derived).
 
 Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minted only by `Contract::Ids`).
 
@@ -19,9 +20,9 @@ Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minte
 Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `Collect::Anonymizer`.
 
 ```yaml
-schema_version: "1.1"
+schema_version: "1.2"
 generator:               # all 3 keys required
-  tool: "archbuddy 0.2.0"
+  tool: "archbuddy 0.4.0"
   adapter: "ruby"
   capture: "static"      # static capture ⇒ all timing fields below are null (D4)
 nodes:                    # array; each node:
@@ -33,7 +34,14 @@ nodes:                    # array; each node:
     total_time_ms: null   # static ⇒ null
     count: null           # static ⇒ null
     branches: 1           # OPTIONAL (graph 1.1+); integer ≥ 1; b(n)=Π(arm-counts) per method body
-    decisions: 0          # OPTIONAL (graph 1.1+); integer ≥ 0; raw decision-point count
+                          # V7/P5 de-idiomatized: only business control flow (if/unless/case/while/
+                          # until/for) multiplies into branches; idioms (&&/||, &., ||=/&&=, rescue,
+                          # pattern-match) are counted in decisions only.
+    decisions: 0          # OPTIONAL (graph 1.1+); integer ≥ 0; raw decision-point count (all constructs)
+    sink_open: true       # OPTIONAL (graph 1.2+, db_op nodes ONLY); true when the db_op is an
+                          # open-ended write sink (variable/splat/string-SQL attrs → engine charges ×U);
+                          # false when the write uses symbol-keyed literal attrs or is a read/destroy;
+                          # absent on function/endpoint/external nodes. Engine derives U from topology.
 edges:                    # array; each edge:
   - from: "n_…"
     to: "n_…"             # unresolved calls all point at the single shared ext_ sink
@@ -44,13 +52,32 @@ entrypoints:              # array of node_id (may be EMPTY → M3 warning)
   - "n_…"
 ```
 
-### v0.3.0 framework probes — NO schema change
+### v0.4.0 (W4): de-idiomatized `branches` + `sink_open` (graph 1.2)
 
-v0.3.0 adds a **pluggable framework-probe seam** to the collector. The graph and findings schemas are
-**UNCHANGED**: graph stays `"1.1"`, findings stays `"1.2"`, `SUPPORTED_VERSIONS` is untouched, and the
-engine is not re-released.
+The collector emits graph schema `"1.2"` (additive MINOR; old 1.0/1.1 graphs still validate).
+Two behavioural changes, zero schema-incompatible edits:
 
-Why no schema change is needed:
+- **De-idiomatized `b(n)` (V7/P5):** `BranchCounter` now splits business vs idiom visitors. Only
+  business control flow (`if`/`unless`/`case`/`while`/`until`/`for`) multiplies into `branches`.
+  Idioms (`&&`/`||`, `&.`, `||=`/`&&=`, `rescue`, pattern-match predicates) are counted in
+  `decisions` only. A `decoded_token`-class method with 30 idiom branches + 1 `unless` previously
+  emitted `branches=32`; now it emits `branches=2`. `decisions` still counts every construct
+  (diagnostic breadth unchanged).
+- **`sink_open` (V4/P4):** a new OPTIONAL boolean emitted ONLY on `db_op` nodes. The collector
+  classifies each AR call's op-kind (read/write/destroy via `Vocab::AR_WRITE`/`AR_DESTROY`) and
+  write specificity (symbol-keyed literal hash / bare symbols = specific; variable/splat/
+  string-SQL = open_ended, the SAFE default). The least-specific call-site result wins per
+  `Class.method` accumulator entry. `sink_open: true` on the graph node is the engine's INPUT to
+  charge ×U (undifferentiated fan-in via `in_degree`); no `sink_op`/`sink_fields` graph field is
+  ever emitted. Non-db_op nodes have no `sink_*` key.
+
+### v0.3.0 (W1–W3): framework probes — NO schema change at that step
+
+v0.3.0 added a **pluggable framework-probe seam** to the collector. The graph and findings schemas were
+**UNCHANGED** by those waves: graph stayed `"1.1"`, findings stayed `"1.2"`, `SUPPORTED_VERSIONS`
+untouched, engine not re-released at that step.
+
+Why no schema change was needed:
 
 - **Edges are framework-neutral topology.** Every probe-resolved call is emitted as a plain `(from, to)`
   edge — the same shape as any other edge. The framework that wired it is not recorded in graph.yml.
@@ -103,7 +130,7 @@ intentionally NOT ignored — a runtime dependency, not a secret.)
 are copied **verbatim** (D17); the reporter never recomputes.
 
 ```yaml
-schema_version: "1.2"
+schema_version: "1.3"
 generator: { tool, adapter, capture }     # same shape as graph
 nodes:                                      # map: opaque_id => entry
   "n_…":
@@ -126,38 +153,48 @@ findings:                                   # array; EXACTLY 7 types (D38), oneO
 == `ArchitectureAuditor::Analyze::METRIC_KEYS`. Asserted by `spec/report/metric_kernel_consistency_spec.rb`.
 Changing the metric set requires changing **both repos** together.
 
-### Optional `scores` block (findings 1.2 — additive, back-compat)
+### Optional `scores` block (findings 1.3 — additive, back-compat)
 
-`findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1, extended in 1.2; a
-1.0 or 1.1 doc without the newer fields still validates and `report` still works unchanged). The block is
-**owned canonically by the engine** — `findings.v1.schema.json` `#/properties/scores` →
+`findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1, extended in 1.2
+and 1.3; a 1.0/1.1/1.2 doc without the newer fields still validates and `report` still works unchanged).
+The block is **owned canonically by the engine** — `findings.v1.schema.json` `#/properties/scores` →
 `#/definitions/dimension_score` is the source of truth; this is a quick-reference summary only. It carries
-two **project-level** dimension scores:
+two **project-level** dimension scores plus the connectivity object (findings 1.3):
 
 ```yaml
 scores:                                # OPTIONAL; absent in 1.0 docs
   reverse_traceability:                # "can you tell where code is USED?" — always computable
     score: 27.1                        # UNBOUNDED cost (≥ 0, no maximum), OR null when undeterminable
-    grade: "B"                         # A|B|C|D|F|N/A (ceiling bands: A<10, B<30, C<50, D<80, F≥80)
+    grade: "B"                         # A|B|C|D|F|N/A (ceiling bands — PROVISIONAL, see N3)
     hotspots: ["n_…", "ext_…", …]      # OPAQUE node-ids, worst-first by this dimension's cost
     raw_value: 27.1                    # OPTIONAL (1.2+); raw per-dimension cost before any clamping
     overflow: false                    # OPTIONAL (1.2+); true when the route product overflowed Float
   forward_discoverability:             # "can you FOLLOW where execution goes?"
-    score: null                        # null/"N/A" when collection found NO entrypoints (M3)
+    score: null                        # null/"N/A" when collection found NO entrypoints (N1/M3)
     grade: "N/A"
     hotspots: []
+  connectivity:                        # OPTIONAL (1.3+); absent in 1.0/1.1/1.2 docs
+    forward: 0.003                     # |reachable-from-entrypoints| / |total nodes| (0..1 ratio or null)
+    reverse: 0.003                     # |connected-to-a-db_op-sink| / |total nodes| (0..1 ratio or null)
+    scored_nodes: 5                    # integer ≥ 0: nodes that contributed to the score mean
+    total_nodes: 1672                  # integer ≥ 1: total graph nodes (excluding <external>)
 ```
 
-**Score semantics (findings 1.2):** `score` is an **unbounded architectural cost** (≥ 0, no upper limit) —
-lower is better. The grade uses **inverted ceiling bands** (lower cost = better grade):
+**Score semantics (findings 1.3):** `score` is the **arithmetic mean over controller entrypoints** of each
+entrypoint's branch-product round-trip cost to a `db_op` terminal — an **unbounded architectural cost**
+(≥ 0, no upper limit), lower is better. The score is computed in **real space** (no logarithm, no K
+multiplier, no `/100` normalization). Alternative reaching paths into a node are combined with **MAX**
+(fan-in into a plain function adds nothing; only undifferentiated fan-in into an open-ended write sink
+is charged ×U via `in_degree`). The grade uses **inverted ceiling bands** (lower cost = better grade,
+PROVISIONAL — confirmed/tuned empirically, may be refined):
 
 | Grade | Cost ceiling |
 |-------|-------------|
 | A     | < 10         |
 | B     | < 30         |
-| C     | < 50         |
-| D     | < 80         |
-| F     | ≥ 80         |
+| C     | < 60         |
+| D     | < 125        |
+| F     | ≥ 125        |
 
 `report` **consumes** this block (R-8): `score`/`grade` are project-level and copied **verbatim** (D17 — the
 client NEVER recomputes them); `hotspots` are **OPAQUE** ids de-anonymized locally via the SAME secret id-map
@@ -165,7 +202,15 @@ as everything else (graceful `<external …>` for missing/`ext_` ids). The optio
 fields are passed through verbatim if present. A hotspot is just the worst-RANKED node for that dimension —
 on a low-cost project the top hotspots may be benign; the **cost number is the headline** and the grade is
 a tentative secondary indicator. A null/`N/A` forward score renders honestly as `N/A` with a one-line reason
-(`no entrypoints — re-collect with --entrypoints all_public`), never a fabricated number.
+(`no entrypoints — re-collect with --entrypoints all_public`), never a fabricated number (N1).
+
+**Connectivity object (findings 1.3, CR-1):** the OPTIONAL `scores.connectivity` block carries four
+engine-computed fields — `{forward, reverse, scored_nodes, total_nodes}` — with `additionalProperties:false`.
+There is **no `verdict` field** (the client decides no band; D17). The reporter renders the four fields
+verbatim as a one-line banner ABOVE the dimension rows: `Connectivity: 5/1672 nodes scored (0.3%)`.
+Absent on 1.0/1.1/1.2 docs → no banner rendered (back-compat). A nil `forward` ratio renders as "N/A"
+(e.g. when there are no entrypoints — N1). `sink_open` (graph 1.2) and `connectivity` (findings 1.3) are
+graph INPUT fields, NOT metric-kernel keys; `METRIC_KEYS` stays at 8.
 
 ---
 

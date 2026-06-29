@@ -236,6 +236,42 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
     expect(db_node["branches"]).to eq(1)
     expect(db_node["decisions"]).to eq(0)
   end
+
+  # --- db_op sink_open customizability proxy (graph 1.2, V4/P4) ----------------
+
+  it "emits sink_open=false on a READ db_op node (Invoice.where)" do
+    db_id, = id_map_entry_for_symbol("Billing::Invoice.where")
+    db_node = graph["nodes"].find { |n| n["id"] == db_id }
+    expect(db_node).to have_key("sink_open")
+    expect(db_node["sink_open"]).to be(false)
+  end
+
+  it "emits sink_open=false on a SPECIFIC write (update_all(state: \"paid\"))" do
+    db_id, = id_map_entry_for_symbol("Billing::Invoice.update_all")
+    db_node = graph["nodes"].find { |n| n["id"] == db_id }
+    expect(db_node).not_to be_nil, "expected an Invoice.update_all db_op node"
+    expect(db_node["sink_open"]).to be(false)
+  end
+
+  it "emits sink_open=true on an OPEN_ENDED write (update(attrs))" do
+    db_id, = id_map_entry_for_symbol("Billing::Invoice.update")
+    db_node = graph["nodes"].find { |n| n["id"] == db_id }
+    expect(db_node).not_to be_nil, "expected an Invoice.update db_op node"
+    expect(db_node["sink_open"]).to be(true)
+  end
+
+  it "emits sink_open ONLY on db_op nodes (absent on function/endpoint/external)" do
+    graph["nodes"].reject { |n| n["kind"] == "db_op" }.each do |n|
+      expect(n).not_to have_key("sink_open"),
+        "non-db_op node #{n['id']} (#{n['kind']}) carried sink_open"
+    end
+  end
+
+  it "keeps sink_open OUT of the secret id-map (graph node only)" do
+    id_map["ids"].each_value do |desc|
+      expect(desc).not_to have_key("sink_open")
+    end
+  end
 end
 
 RSpec.describe Archbuddy::Collect::Adapters::Ruby::BranchCounter do
@@ -262,11 +298,16 @@ RSpec.describe Archbuddy::Collect::Adapters::Ruby::BranchCounter do
       "def m(a)\n  case a\n  when 1 then 1\n  when 2 then 2\n" \
       "  when 3 then 3\n  when 4 then 4\n  when 5 then 5\n  else 0\n  end\nend", [6, 1]
     ],
-    "||= + if + nested modifier-if + safe-nav => (16, 4)" => [
-      "def m(a, b)\n  x ||= 5\n  if a\n    y = 1 if b\n  end\n  a&.foo\nend", [16, 4]
+    # V7/P5 de-idiomatized: only the business `if a` (×2) and the nested
+    # modifier-`if b` (×2) multiply b => 4. The `||=` and `&.` idioms still
+    # COUNT in decisions (4 total) but no longer inflate branches.
+    "||= + if + nested modifier-if + safe-nav => (4, 4)" => [
+      "def m(a, b)\n  x ||= 5\n  if a\n    y = 1 if b\n  end\n  a&.foo\nend", [4, 4]
     ],
-    "begin + 2 rescue + else => (4, 1)" => [
-      "def m\n  begin\n    x\n  rescue A\n    y\n  rescue B\n    z\n  else\n    w\n  end\nend", [4, 1]
+    # V7/P5: begin/rescue is a defensive idiom — counted in decisions (1) but
+    # no longer multiplies branches (was 4 = happy+2 rescue+else arms).
+    "begin + 2 rescue + else => (1, 1)" => [
+      "def m\n  begin\n    x\n  rescue A\n    y\n  rescue B\n    z\n  else\n    w\n  end\nend", [1, 1]
     ],
     "empty def => (1, 0)" => [
       "def m\nend", [1, 0]

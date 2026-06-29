@@ -141,8 +141,10 @@ archbuddy report — clutter ranking
 
 Architecture Scores
 ------------------------------------------------------------
+  Connectivity: 5/1672 nodes scored (0.3%)
+
   Reverse Traceability    27.1  (B)    — can you tell where code is used?
-  Forward Discoverability 48.3  (C)    — can you follow where execution goes?
+  Forward Discoverability 32.5  (C)    — can you follow where execution goes?
 
   Reverse Traceability
     top contributors to this dimension (worst-ranked first):
@@ -163,28 +165,38 @@ Architecture Scores
 The engine scores two **project-level** dimensions (eslint/rubocop-style). The **cost number is the
 headline**; the letter grade is a tentative secondary indicator:
 
-- **Reverse Traceability** — *"can you tell where code is used?"* Always computable. Driven by
-  `fan_in` / `centrality` / `in_cycle` — heavily-depended-on, central, or cyclic nodes are hard to
-  trace backward and risky to change.
+- **Reverse Traceability** — *"can you tell where code is used?"* Always computable. Driven by the
+  branch-product round-trip cost to `db_op` terminals (reuse-is-cheap: fan-in into a plain function
+  adds nothing; undifferentiated fan-in into an open-ended write sink is charged ×U).
 - **Forward Discoverability** — *"can you follow where execution goes?"* Driven by `path_length` /
   `fan_out`. This is **N/A** when collection found **no entrypoints** (re-collect with
   `--entrypoints all_public`); it renders honestly as `N/A` with that reason, never a fake number.
+- **Connectivity banner** — printed *above* the dimension rows when findings carry a `connectivity`
+  block (findings 1.3): `Connectivity: N/total nodes scored (P%)`. A low percentage (e.g. 5/1672,
+  0.3%) flags that only a small sample of the graph was reachable from entrypoints — treat the
+  dimension scores as indicative, not representative.
 
-**Interpreting the cost:** the score is an **unbounded architectural cost** (≥ 0, no upper limit) —
-lower is better. A score **under 20 is great** (short routes with light branching). The letter grade
-is a ceiling-band indicator:
+**Interpreting the cost:** the score is the **arithmetic mean over controller entrypoints** of each
+entrypoint's branch-product round-trip cost — an **unbounded architectural cost** (≥ 0, no upper
+limit), lower is better. The score is computed in real space (no logarithm, no `/100` normalization);
+reusing a simple sink-free function scores ≈ 1. The letter grade is a PROVISIONAL ceiling-band
+indicator (tuned empirically, may be adjusted in a later release):
 
 | Grade | Cost |
 |-------|------|
 | A     | < 10 |
-| B     | 10–30 |
-| C     | 30–50 |
-| D     | 50–80 |
-| F     | ≥ 80 |
+| B     | < 30 |
+| C     | < 60 |
+| D     | < 125 |
+| F     | ≥ 125 |
 
 A **hotspot** is just the worst-*ranked* node for that dimension (a relative top contributor) — on a
 clean project the top hotspots may be perfectly benign. Scores are copied **verbatim** from the
 engine; archbuddy never recomputes them.
+
+> **Note:** The end-to-end validation runbook (W7 in the implementation plan) is not yet complete.
+> Band ceilings and sample report numbers above are derived from the scoring model; real-repo
+> calibration (W7.5) may refine them in a subsequent release.
 
 ## Interactive HTML report (offline, self-contained)
 
