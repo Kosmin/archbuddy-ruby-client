@@ -12,12 +12,17 @@ module Archbuddy
           # D36 operator deny-list: these method names are dropped entirely (no
           # node, no edge). Arithmetic/comparison/indexing/coercion operators
           # carry no architectural signal and would only add noise.
-          # `call` is denied alongside the operators because it's the proc/lambda
-          # invocation `foo.()` / `foo.call` — dynamic dispatch with no static
-          # target, so it's noise here (not an architectural edge), NOT a bug.
+          # NOTE: `call`/`call!` are deliberately NOT denied here. The proc/lambda
+          # case (`foo.()` / `foo.call`) has a *variable* receiver, so it never
+          # matches R4's constant-receiver tier and falls through to <external> —
+          # no fabricated edge. A *constant* receiver whose `#call` is a captured
+          # method node (interactors, service/command objects: `SomeInteractor.call`)
+          # resolves via R4's const-instance fallback to `<Const>#call` — a real,
+          # provable edge. So denying `call` would only blind us to genuine
+          # service-object dispatch while the operator gate already kept the noise out.
           OPERATOR_DENY = %w[
             + - * / % ** == != < > <= >= <=> === =~ !~
-            << >> & | ^ ~ ! [] []= +@ -@ call
+            << >> & | ^ ~ ! [] []= +@ -@
           ].to_set.freeze
 
           # Metaprogramming methods: flagged (so the capture is honest about a
