@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "set"
 require_relative "vocab"
 require_relative "grape_dsl"
 
@@ -55,6 +56,10 @@ module Archbuddy
           def initialize
             @classes = {}  # fq_name => ClassEntry
             @methods = {}  # fq_symbol => MethodEntry
+            # Routed-action pairs seeded by RouteCatalogue (W4). Stored as a Set
+            # of "ControllerFq#action" strings; gated on table.method? before
+            # insertion so only provably-defined pairs land here.
+            @routed_actions = Set.new
           end
 
           attr_reader :classes, :methods
@@ -79,6 +84,18 @@ module Archbuddy
 
           def method?(fq_symbol)
             @methods.key?(fq_symbol)
+          end
+
+          # Routed-action accessors (W4 — RouteCatalogue seeder). Records a
+          # (controller_fq, action) pair that the RouteCatalogue confirmed is
+          # provably wired AND whose method exists in the table (L2 gate applied
+          # by the catalogue before calling here).
+          def add_routed_action(controller_fq, action)
+            @routed_actions << "#{controller_fq}##{action}"
+          end
+
+          def routed_action?(fq_symbol)
+            @routed_actions.include?(fq_symbol)
           end
 
           # Walk the superclass chain (within known app classes) testing a

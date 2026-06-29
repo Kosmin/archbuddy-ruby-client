@@ -9,6 +9,7 @@ require_relative "ruby/definition_pass"
 require_relative "ruby/resolution_pass"
 require_relative "ruby/entrypoint_detector"
 require_relative "ruby/probe_registry"
+require_relative "ruby/route_catalogue"
 
 module Archbuddy
   module Collect
@@ -33,6 +34,7 @@ module Archbuddy
 
           table = Ruby::SymbolTable.new
           run_definition_pass(parsed, table)
+          run_route_catalogue(parsed, table)  # W4: seed routed actions before entrypoints
 
           acc = Ruby::Accumulator.new
           run_resolution_pass(parsed, table, acc)
@@ -76,6 +78,16 @@ module Archbuddy
         def run_definition_pass(parsed, table)
           parsed.each do |entry|
             entry[:value].accept(Ruby::DefinitionPass.new(table, entry[:rel_file]))
+          end
+        end
+
+        # W4: Run the RouteCatalogue over every parsed file. The catalogue self-
+        # selects (only acts on files containing routes.draw blocks) and seeds
+        # (controller_fq, action) pairs into the SymbolTable only when the method
+        # already exists there (L2 never-fabricate gate inside the catalogue).
+        def run_route_catalogue(parsed, table)
+          parsed.each do |entry|
+            entry[:value].accept(Ruby::RouteCatalogue.new(table, entry[:rel_file]))
           end
         end
 

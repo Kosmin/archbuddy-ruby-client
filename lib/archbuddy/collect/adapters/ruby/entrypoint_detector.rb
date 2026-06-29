@@ -39,15 +39,20 @@ module Archbuddy
             (controller_actions(table) + top_level_defs(table)).uniq
           end
 
-          # Controller actions ∪ Grape endpoint handlers (W2). Grape endpoints
-          # are framework-wired request entrypoints just like controller actions,
-          # so the :default and :controllers strategies both surface them.
+          # Controller actions ∪ Grape endpoint handlers (W2) ∪ routed actions
+          # (W4). Grape endpoints and Rails-routes-declared actions are
+          # framework-wired request entrypoints just like heuristic controller
+          # actions; all three surfaces belong in :default and :controllers.
+          # The routed-action union is gated: RouteCatalogue only seeds pairs
+          # where table.method? is true (L2), so no fabrication here.
           def controller_actions(table)
             actions = table.methods.values.select do |m|
               !m.singleton && m.owner_fq && table.controller_class?(m.owner_fq)
             end.map(&:fq_symbol)
 
-            (actions + grape_endpoints(table)).uniq
+            routed = table.methods.keys.select { |fq| table.routed_action?(fq) }
+
+            (actions + grape_endpoints(table) + routed).uniq
           end
 
           def grape_endpoints(table)
