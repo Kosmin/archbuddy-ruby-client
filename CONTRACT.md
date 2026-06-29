@@ -44,6 +44,23 @@ entrypoints:              # array of node_id (may be EMPTY → M3 warning)
   - "n_…"
 ```
 
+### v0.3.0 framework probes — NO schema change
+
+v0.3.0 adds a **pluggable framework-probe seam** to the collector. The graph and findings schemas are
+**UNCHANGED**: graph stays `"1.1"`, findings stays `"1.2"`, `SUPPORTED_VERSIONS` is untouched, and the
+engine is not re-released.
+
+Why no schema change is needed:
+
+- **Edges are framework-neutral topology.** Every probe-resolved call is emitted as a plain `(from, to)`
+  edge — the same shape as any other edge. The framework that wired it is not recorded in graph.yml.
+- **The `endpoint` node kind pre-exists.** `kind: "endpoint"` is already in the schema enum and was
+  already emitted for Rails controller actions (`ruby_adapter.rb:88`). v0.3.0 additionally mints it for
+  Grape endpoint handler blocks. No new kind value is introduced.
+- **Provenance is diagnostics-only.** Per-probe-name edge counts (`probe_edges: { grape: N, ... }`)
+  ride `AdapterResult#diagnostics` and the CLI's stderr note only — they are NEVER serialized into
+  `graph.yml`. The schema's `additionalProperties: false` constraint remains satisfied with zero edits.
+
 **Invariants for graph.yml (asserted by `spec/collect/collector_spec.rb`):**
 - Zero real paths/symbols anywhere — only opaque ids, kinds, `class_id` refs, null/numeric weights.
 - Every node's `loc` is `null`; all timing fields `null` (static).

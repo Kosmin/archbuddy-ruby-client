@@ -72,9 +72,25 @@ remote.
 
 ## Versions and release sequence
 
-Both gems are at **0.2.0**. The mandatory release sequence is **engine `main` first, then client**:
-the client's `metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS` constant at test time, so
-the engine must already carry 0.2.0 before the client suite can be verified green.
+The client is at **0.3.0**; the engine is at **0.2.0** (UNCHANGED). The mandatory release sequence is
+**engine `main` first, then client**: the client's `metric_kernel_consistency_spec` loads the live
+engine `METRIC_KEYS` constant at test time, so the engine must already carry a matching version before
+the client suite can be verified green.
+
+### v0.3.0 client bump — engine UNCHANGED
+
+The client v0.3.0 adds the framework-probe seam and concrete probes (`grape`, `sidekiq_dispatch`) plus
+the Rails-routes entrypoint seeder. This is **entirely collector-side**: the engine is UNCHANGED and
+there is **NO contract/schema change** (graph `"1.1"` / findings `"1.2"` / `SUPPORTED_VERSIONS`
+untouched; the `endpoint` node kind pre-exists). The engine gemspec dep `~> 0.2` is UNCHANGED because
+the engine remains at 0.2.0. No engine release is required.
+
+**Agnostic boundary preserved — even for a future dynamic pass.** The static probe seam (v0.3.0) reads
+only the Prism AST — it never executes or loads the audited app. This preserves the engine's core
+invariant (L1): the engine never boots / never parses source; all framework-aware work lives in the
+collector. If a future dynamic pass is authorized (it is intentionally deferred — see README), it would
+still be implemented as new `Probe` subclasses in the client, with zero engine changes, so the agnostic
+boundary is never crossed.
 
 ## The lockstep contract: metric kernel (D43/D39)
 

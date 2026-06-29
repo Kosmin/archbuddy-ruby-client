@@ -242,7 +242,8 @@ file/line/symbol** names.
 
 ```
 archbuddy collect PATH [--out-dir .archbuddy] \
-  [--language ruby] [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...]
+  [--language ruby] [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...] \
+  [--probes all|none|grape,sidekiq_dispatch]
 
 archbuddy report [FINDINGS_YML] [--id-map .archbuddy/id-map.yml] \
   [--format terminal|yaml|json|dot|html] [--graph .archbuddy/graph.yml] [--top N]
@@ -250,6 +251,65 @@ archbuddy report [FINDINGS_YML] [--id-map .archbuddy/id-map.yml] \
 
 `--out-dir` (collect) and `FINDINGS_YML` / `--id-map` / `--graph` (report) all default into the shared
 `.archbuddy/` workspace, so the common flow needs no flags. Explicit values override.
+
+## Framework probes (capture extensions)
+
+The collector ships a **pluggable, static-DSL-aware probe seam** (v0.3.0) that recovers call edges the
+base AST resolver can't see — edges the framework wires through a DSL (`Grape::API` route handlers,
+Sidekiq/ActiveJob dispatch). Provenance rides the `--probes` diagnostics channel only; nothing extra
+reaches `graph.yml` (the schema is unchanged).
+
+### What the probes cover
+
+| Probe | Key word | What it recovers |
+|-------|----------|-----------------|
+| `grape` | `mount Const` | A `mount` call inside a `Grape::API` resolves to the mounted API's representative endpoint node. |
+| `sidekiq_dispatch` | `Const.perform_async` / `.perform_later` / `.perform_in` / `.perform_at` | An async-dispatch call resolves to a `caller → Const#perform` edge (with a single `.set(...)` hop unwrapped). |
+
+Rails route entries (`config/routes.rb`) are handled by the **RouteCatalogue** entrypoint seeder, which
+reads `to: "controller#action"` strings and `resources`/`resource` RESTful expansions and seeds those
+actions as entrypoints (Pass 1). It emits no new edges — it only confirms that already-known controller
+actions are reachable as entrypoints.
+
+### NEVER-FABRICATE invariant
+
+Every probe and the routes seeder emit an edge or confirm an entrypoint **only** when the target is
+provably wired AND `table.method?(target)` is true. An unprovable, dynamic, or empty target causes the
+probe to **decline** (`nil`), letting the call fall through to the next probe or the `<external>` sink.
+No edge is ever guessed.
+
+### `--probes` CLI flag
+
+```bash
+archbuddy collect .                              # all probes on (default)
+archbuddy collect . --probes none                # disable all probes
+archbuddy collect . --probes grape               # only the Grape mount probe
+archbuddy collect . --probes grape,sidekiq_dispatch  # explicit list
+```
+
+When at least one probe resolves a call, `collect` prints a one-line provenance note on stderr (mirrors
+the metaprogramming-sites note):
+
+```
+note: 42 edges recovered by framework probes (grape=39 sidekiq_dispatch=3)
+```
+
+This is diagnostics-only — provenance never appears in `graph.yml`.
+
+### Provenance diagnostics
+
+`AdapterResult#diagnostics[:probe_edges]` carries a `{ probe_name => count }` hash (e.g.
+`{ grape: 39, sidekiq_dispatch: 3 }`). It is available to the CLI and any downstream tooling that
+consumes `AdapterResult` directly. The serialized `graph.yml` never carries it.
+
+### Deferred seams (not yet built)
+
+- **Dynamic/runtime path** — executing the audited app to capture the live route table /
+  metaprogrammed endpoints / dynamic mounts. Researched and costed; intentionally not built (it would
+  break the engine's app-agnostic, no-boot boundary — L7/P2). The static probe seam is clean: a future
+  dynamic pass is a new `Probe` subclass, not a rewrite.
+- **DB-connector probe** — a non-ActiveRecord connector probe (Sequel, ROM, …). Neither `nexus` nor
+  `app-management` uses one (0 validated targets); the seam makes it a trivial future add.
 
 ## Development
 
