@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "vocab"
+require_relative "grape_dsl"
 
 module Archbuddy
   module Collect
@@ -22,6 +23,13 @@ module Archbuddy
               Vocab::CONTROLLER_BASES.include?(superclass.to_s) ||
                 fq_name.to_s.end_with?("Controller")
             end
+
+            # True when this class is a Grape API (`class Foo < Grape::API`).
+            # Grape endpoint verb-blocks live directly inside such a class; the
+            # DefinitionPass mints a synthetic endpoint MethodEntry per block.
+            def grape_api?
+              GrapeDsl.grape_api_superclass?(superclass)
+            end
           end
 
           # A defined method. `singleton` distinguishes `Foo.x` (true) from
@@ -30,10 +38,19 @@ module Archbuddy
           # computed by the BranchCounter (P3+P9): branches = Π(arm-count) total
           # execution paths (default 1), decisions = raw decision-point count
           # (default 0).
+          # `endpoint` (default false) marks a synthetic Grape endpoint handler
+          # block minted by the DefinitionPass — it has no DefNode of its own but
+          # IS an addressable node (kind:"endpoint") and an entrypoint, and its
+          # block body resolves to real edges in Pass 2.
           MethodEntry = Struct.new(
             :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line,
-            :branches, :decisions, keyword_init: true
-          )
+            :branches, :decisions, :endpoint, keyword_init: true
+          ) do
+            def initialize(*)
+              super
+              self.endpoint = false if endpoint.nil?
+            end
+          end
 
           def initialize
             @classes = {}  # fq_name => ClassEntry

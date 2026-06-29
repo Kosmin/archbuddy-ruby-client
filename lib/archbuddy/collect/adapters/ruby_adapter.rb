@@ -168,6 +168,11 @@ module Archbuddy
         end
 
         def endpoint?(table, method_entry)
+          # A synthetic Grape endpoint handler block is an endpoint by
+          # construction (F3); a controller action is an endpoint via the
+          # existing controller-class check. Either makes kind:"endpoint".
+          return true if method_entry.endpoint
+
           !method_entry.singleton &&
             method_entry.owner_fq &&
             table.controller_class?(method_entry.owner_fq)

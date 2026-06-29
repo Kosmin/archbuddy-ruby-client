@@ -39,10 +39,19 @@ module Archbuddy
             (controller_actions(table) + top_level_defs(table)).uniq
           end
 
+          # Controller actions ∪ Grape endpoint handlers (W2). Grape endpoints
+          # are framework-wired request entrypoints just like controller actions,
+          # so the :default and :controllers strategies both surface them.
           def controller_actions(table)
-            table.methods.values.select do |m|
+            actions = table.methods.values.select do |m|
               !m.singleton && m.owner_fq && table.controller_class?(m.owner_fq)
             end.map(&:fq_symbol)
+
+            (actions + grape_endpoints(table)).uniq
+          end
+
+          def grape_endpoints(table)
+            table.methods.values.select(&:endpoint).map(&:fq_symbol)
           end
 
           def top_level_defs(table)
