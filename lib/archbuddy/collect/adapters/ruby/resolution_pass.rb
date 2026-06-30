@@ -125,7 +125,19 @@ module Archbuddy
             body = node.body
             return nil if body.nil?
 
-            last = body.body.last
+            # A method whose body is wrapped in `begin/rescue` (or carries a
+            # `rescue`/`ensure` clause) parses as a Prism::BeginNode, whose
+            # statements live under `.statements` (a StatementsNode), not `.body`.
+            # A plain body is already a StatementsNode. Descend to the StatementsNode
+            # before reading the last statement; decline on anything else.
+            stmts =
+              case body
+              when Prism::StatementsNode then body
+              when Prism::BeginNode      then body.statements
+              end
+            return nil if stmts.nil?
+
+            last = stmts.body.last
             return nil if last.nil?
 
             case last

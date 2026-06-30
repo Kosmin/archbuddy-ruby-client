@@ -93,6 +93,41 @@ RSpec.describe "Variable-receiver type inference (v0.6 L1 / R4.5)" do
     end
   end
 
+  # --- Case 1b: memoized accessor whose body is a begin/rescue (BeginNode) -
+  # Regression for the V1-validation crash (M-C4): a `def` whose body carries a
+  # `rescue`/`ensure` parses as a Prism::BeginNode (statements under `.statements`,
+  # NOT `.body`). The scanner must descend into it, resolve the accessor, and NOT
+  # raise `NoMethodError: undefined method 'body' for Prism::BeginNode`.
+  it "resolves a memoized accessor whose body is wrapped in begin/rescue (BeginNode)" do
+    in_repo(
+      "app/services/widget.rb" => <<~RUBY,
+        class Widget
+          def render
+            42
+          end
+        end
+      RUBY
+      "app/services/page.rb" => <<~RUBY
+        class Page
+          def show
+            widget.render               # bare accessor -> Widget#render
+          end
+
+          def widget                    # body is a BeginNode (rescue clause)
+            @widget ||= Widget.new      # memoized accessor inside begin/rescue
+          rescue StandardError
+            nil
+          end
+        end
+      RUBY
+    ) do |dir|
+      expect { anonymize(dir) }.not_to raise_error
+      result = anonymize(dir)
+      expect(edge?(result, "Page#show", "Widget#render")).to be(true),
+        "expected the rescue-wrapped memoized accessor to still resolve to Widget#render"
+    end
+  end
+
   # --- Case 2: inline new-chains (plain + namespaced) ----------------------
 
   it "resolves inline Const.new.method AND namespaced Const::Path.new.method chains" do
