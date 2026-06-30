@@ -104,6 +104,34 @@ module Archbuddy
               return edge(:const_instance, instance_fq)    if @table.method?(instance_fq)
             end
 
+            # R4.5: TYPED variable / ivar / memoized-accessor / inline-`Const.new`
+            # receiver -> known method node, via the conservative intra-procedural
+            # type scope (L1). Fires ONLY when R3/R4 did NOT match (a genuine
+            # self/const edge is never shadowed) and the receiver's type is
+            # PROVABLE from ctx.type_scope (or an inline `Const.new` chain).
+            # NEVER fabricates: emits ONLY when @table.method?(fq) is true; else
+            # falls through to R5 -> R9 (<external>). AR/Looker/Snowflake are NOT
+            # special-cased — resolution is pure symbol-table lookup; the db_op
+            # branch fires only via active_record_class?, exactly as R4 does.
+            if (const_fq = typed_receiver_fq(ctx))
+              # db_op when the inferred type is a known AR class (mirror of R4:
+              # 89-94): `x = User.new; x.where` -> db_op, NOT a fabricated edge.
+              if @table.active_record_class?(const_fq) && Vocab.active_record_method?(name)
+                return Resolution.new(
+                  tier: :db_op_typed_receiver, action: :external,
+                  target_fq: "#{const_fq}.#{name}", kind: "db_op"
+                )
+              end
+
+              # `.new` yields an INSTANCE, so prefer the instance form; also
+              # resolve the singleton form (`Const.method`) for completeness,
+              # exactly as R4 does for constant receivers.
+              instance_fq  = "#{const_fq}##{name}"
+              singleton_fq = "#{const_fq}.#{name}"
+              return edge(:typed_instance, instance_fq)   if @table.method?(instance_fq)
+              return edge(:typed_singleton, singleton_fq) if @table.method?(singleton_fq)
+            end
+
             # R5: framework probes (P1). Recognized framework dynamic-dispatch
             # DSLs resolve to REAL edges the framework PROVABLY wires. Run AFTER
             # all base tiers (never shadow a known app edge) and BEFORE <external>
@@ -138,6 +166,40 @@ module Archbuddy
 
           def self_receiver?(receiver)
             receiver.nil? || receiver.is_a?(Prism::SelfNode)
+          end
+
+          # R4.5: the inferred constant FQ of a typed receiver, or nil (decline).
+          # Resolution by receiver shape — every path is conservative and returns
+          # nil unless the type is PROVABLE:
+          #   - inline `Const.new` / `Const::Path.new` chain: the receiver is a
+          #     CallNode named :new whose own receiver is a Constant(Path) node →
+          #     the const FQ via constant_receiver_fq (no scope state needed).
+          #   - LocalVariableReadNode  → ctx.type_scope[name]   (e.g. "x")
+          #   - InstanceVariableReadNode → ctx.type_scope[name]  (e.g. "@svc")
+          #   - nil-receiver CallNode (bare memoized-accessor call) →
+          #     ctx.type_scope[name] (the accessor-return map merged in by the Pass)
+          #   - anything else (param, block arg, unknown) → nil.
+          # Reads ctx.type_scope ONLY; never mutates it.
+          def typed_receiver_fq(ctx)
+            recv = ctx.receiver
+
+            # inline `Const.new` / `Const::Path.new` chain
+            if recv.is_a?(Prism::CallNode) && recv.name == :new &&
+               !recv.receiver.nil?
+              return constant_receiver_fq(recv.receiver)
+            end
+
+            scope = ctx.type_scope
+            return nil if scope.nil?
+
+            case recv
+            when Prism::LocalVariableReadNode, Prism::InstanceVariableReadNode
+              scope[recv.name.to_s]
+            when Prism::CallNode
+              # Bare accessor call (`svc.method` where `svc` is a nil-receiver
+              # CallNode): resolve via the accessor-return map (merged into scope).
+              recv.receiver.nil? ? scope[recv.name.to_s] : nil
+            end
           end
 
           # If the receiver is a constant (Foo) or constant path (Foo::Bar),
