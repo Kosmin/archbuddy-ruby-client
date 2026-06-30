@@ -25,8 +25,15 @@ module Archbuddy
           #   node              => the raw Prism::CallNode for this call site (or
           #                        nil); probes read node.arguments / node.block.
           #                        Base tiers ignore it.
+          #   type_scope        => read-only view of the conservative intra-procedural
+          #                        type scope (L1) for THIS call site: a Hash merging
+          #                        the current method's local-var types over the
+          #                        enclosing class's ivar + memoized-accessor-return
+          #                        types ({ "x" => "Const", "@y" => "Const::Path",
+          #                        "accessor" => "Const" }). nil/empty when no types
+          #                        are tracked. Consumed ONLY by R4.5 (typed receiver).
           CallContext = Struct.new(
-            :name, :receiver, :enclosing_class, :table, :node, keyword_init: true
+            :name, :receiver, :enclosing_class, :table, :node, :type_scope, keyword_init: true
           )
 
           # A resolution outcome.
