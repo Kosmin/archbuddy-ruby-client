@@ -9,9 +9,10 @@ module Billing
       where(state: "late")
     end
 
-    # V4/P4 write sinks. `mark_paid!` writes a symbol-keyed literal hash =>
-    # SPECIFIC (sink_open false). `bulk_update` writes a variable hash =>
-    # OPEN_ENDED (sink_open true). Distinct db_op nodes (distinct Class.method).
+    # AR write sinks. Both are now plain COST-1 db_op terminals (L3/v0.6 — no
+    # sink_open / write-specificity). `mark_paid!` and `bulk_update` mint
+    # distinct db_op nodes (distinct Class.method); the arg shapes no longer
+    # carry any cost signal.
     def self.mark_paid!
       update_all(state: "paid")
     end

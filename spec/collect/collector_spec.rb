@@ -237,39 +237,30 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
     expect(db_node["decisions"]).to eq(0)
   end
 
-  # --- db_op sink_open customizability proxy (graph 1.2, V4/P4) ----------------
+  # --- db_op nodes are plain COST-1 terminals; NO sink_open (L3, v0.6) ----------
 
-  it "emits sink_open=false on a READ db_op node (Invoice.where)" do
-    db_id, = id_map_entry_for_symbol("Billing::Invoice.where")
-    db_node = graph["nodes"].find { |n| n["id"] == db_id }
-    expect(db_node).to have_key("sink_open")
-    expect(db_node["sink_open"]).to be(false)
-  end
-
-  it "emits sink_open=false on a SPECIFIC write (update_all(state: \"paid\"))" do
-    db_id, = id_map_entry_for_symbol("Billing::Invoice.update_all")
-    db_node = graph["nodes"].find { |n| n["id"] == db_id }
-    expect(db_node).not_to be_nil, "expected an Invoice.update_all db_op node"
-    expect(db_node["sink_open"]).to be(false)
-  end
-
-  it "emits sink_open=true on an OPEN_ENDED write (update(attrs))" do
-    db_id, = id_map_entry_for_symbol("Billing::Invoice.update")
-    db_node = graph["nodes"].find { |n| n["id"] == db_id }
-    expect(db_node).not_to be_nil, "expected an Invoice.update db_op node"
-    expect(db_node["sink_open"]).to be(true)
-  end
-
-  it "emits sink_open ONLY on db_op nodes (absent on function/endpoint/external)" do
-    graph["nodes"].reject { |n| n["kind"] == "db_op" }.each do |n|
-      expect(n).not_to have_key("sink_open"),
-        "non-db_op node #{n['id']} (#{n['kind']}) carried sink_open"
+  it "still mints db_op nodes (kind survives) for read/specific-write/open-write AR calls" do
+    %w[Billing::Invoice.where Billing::Invoice.update_all Billing::Invoice.update].each do |sym|
+      db_id, = id_map_entry_for_symbol(sym)
+      db_node = graph["nodes"].find { |n| n["id"] == db_id }
+      expect(db_node).not_to be_nil, "expected a #{sym} db_op node"
+      expect(db_node["kind"]).to eq("db_op")
     end
   end
 
-  it "keeps sink_open OUT of the secret id-map (graph node only)" do
-    id_map["ids"].each_value do |desc|
-      expect(desc).not_to have_key("sink_open")
+  it "does NOT emit sink_open on db_op nodes (L3: a db_op is a plain COST-1 terminal)" do
+    %w[Billing::Invoice.where Billing::Invoice.update_all Billing::Invoice.update].each do |sym|
+      db_id, = id_map_entry_for_symbol(sym)
+      db_node = graph["nodes"].find { |n| n["id"] == db_id }
+      expect(db_node).not_to be_nil, "expected a #{sym} db_op node"
+      expect(db_node).not_to have_key("sink_open")
+    end
+  end
+
+  it "emits sink_open on NO node of ANY kind (the field is fully retired client-side)" do
+    graph["nodes"].each do |n|
+      expect(n).not_to have_key("sink_open"),
+        "node #{n['id']} (#{n['kind']}) carried sink_open"
     end
   end
 end
