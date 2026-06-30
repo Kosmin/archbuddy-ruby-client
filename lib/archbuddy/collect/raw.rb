@@ -27,15 +27,10 @@ module Archbuddy
       #              model consumes (P3+P9). Defaults to 1 so non-method sinks
       #              (db_op / external) contribute a single path.
       # - decisions: d(n) = raw decision-point count. Defaults to 0.
-      # - sink_open: db_op-sink customizability proxy (V4/P4). true iff this
-      #              db_op node is an OPEN-ENDED write sink (least-specific-wins
-      #              aggregate). nil on function/endpoint/external nodes — the
-      #              Anonymizer emits `sink_open` ONLY on db_op nodes so the
-      #              graph field stays OPTIONAL/absent elsewhere.
       RawNode = Struct.new(
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
-        :branches, :decisions, :sink_open,
+        :branches, :decisions,
         keyword_init: true
       ) do
         def initialize(*)

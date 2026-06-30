@@ -3,7 +3,6 @@
 require "prism"
 require_relative "resolver"
 require_relative "grape_dsl"
-require_relative "db_op_spec"
 
 module Archbuddy
   module Collect
@@ -20,13 +19,13 @@ module Archbuddy
         # turns them into Raw* value objects, and only the Anonymizer mints ids.
         class Accumulator
           # db_op / external targets discovered, keyed by their real symbol.
-          #   db_ops:   { "Invoice.where" => {class_fq:, sink_open:} }
+          #   db_ops:   { "Invoice.where" => {class_fq:} }
           #   externals flagged via the single sink (no per-target node).
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
-            @db_ops      = {}          # real_symbol => {class_fq:, sink_open:}
+            @db_ops      = {}          # real_symbol => {class_fq:}
             @meta_sites  = []          # [{from_fq:, name:, line:}] (flagged, no edge)
             @probe_edges = Hash.new(0) # { probe_name(Symbol) => count } (diagnostics-only)
           end
@@ -40,15 +39,10 @@ module Archbuddy
           end
 
           # db_ops collapse by Class.method (resolver db_op_symbol), so one node
-          # fields many call sites. Aggregate the per-call sink spec as
-          # LEAST-SPECIFIC-WINS (V4/P4): `sink_open` becomes true if ANY incoming
-          # write call is open_ended — a sink that SOME caller can mass-assign is
-          # customizable even if others are tidy (SAFE; never under-charges).
-          # Reads / destroys / specific writes contribute false. Per G1/CR-3 only
-          # this derived boolean is emitted on the graph node.
-          def add_db_op_edge(from_fq, symbol, class_fq, spec)
-            e = (@db_ops[symbol] ||= { class_fq: class_fq, sink_open: false })
-            e[:sink_open] ||= spec.open_ended_write?
+          # fields many call sites. A db_op is a plain COST-1 terminal (L3) — no
+          # write-specificity / sink_open is derived or carried.
+          def add_db_op_edge(from_fq, symbol, class_fq)
+            @db_ops[symbol] ||= { class_fq: class_fq }
             @calls << { from_fq: from_fq, to: { type: :db_op, fq: symbol } }
           end
 
@@ -300,10 +294,8 @@ module Archbuddy
               @acc.add_method_edge(from_fq, resolution.target_fq)
             when :external
               if resolution.kind == "db_op"
-                # V4/P4: classify this AR call's effect/specificity from the
-                # CallNode args to derive the sink's open_ended-write bit.
-                spec = DbOpSpec.for_call(node)
-                @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq, spec)
+                # L3: a db_op is a plain COST-1 terminal — no sink spec derived.
+                @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq)
               else
                 @acc.add_external_edge(from_fq)
               end

@@ -133,10 +133,8 @@ module Archbuddy
               kind:           "db_op",
               class_rel_file: class_ref&.rel_file,
               class_line:     class_ref&.line,
-              class_symbol:   class_ref&.fq_name,
-              # V4/P4: open_ended-write sink bit (least-specific-wins aggregate
-              # across the merged Class.method call sites). Defaults false.
-              sink_open:      meta[:sink_open] || false
+              class_symbol:   class_ref&.fq_name
+              # L3 (v0.6): no sink_open — a db_op is a plain COST-1 terminal.
             )
             nodes << node
             key_for_fq[symbol] = node.real_key
