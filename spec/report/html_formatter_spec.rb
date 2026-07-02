@@ -32,7 +32,7 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     ).call
   end
 
-  def render(findings:, graph: nil)
+  def render(findings:, graph: nil, max_nodes: nil)
     result = result_for(findings)
     ranker = Archbuddy::Report::Ranker.new(result)
     context = Archbuddy::Report::Formatter::RenderContext.new(
@@ -42,9 +42,15 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       graph:         graph,
       resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
       scores:        result.scores,
-      connectivity:  result.connectivity
+      connectivity:  result.connectivity,
+      max_nodes:     max_nodes
     )
     Archbuddy::Report::Formatter.for("html").new(context).render
+  end
+
+  def graph_data(html)
+    blob = html[/<script id="archbuddy-data"[^>]*>(.*?)<\/script>/m, 1]
+    JSON.parse(blob.gsub('<\/', "</"))
   end
 
   # --- registry ---------------------------------------------------------------
@@ -429,6 +435,46 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       data = JSON.parse(json_blob.gsub('<\/', "</"))
       node = data["nodes"].find { |n| n["id"] == "n_evil" }
       expect(node["symbol"]).to eq(evil_symbol)
+    end
+  end
+
+  # --max-nodes: cap the graph-viz node set (top N by clutter score) so a huge
+  # graph doesn't crash the browser on initial render. Fixture = 6 nodes / 3 edges.
+  context "with --max-nodes capping the graph node set" do
+    it "renders only the top N nodes by score and drops edges to dropped nodes" do
+      data = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 2))
+
+      expect(data["nodes"].size).to eq(2)
+      expect(data["node_cap"]).to eq("shown" => 2, "total" => 6)
+      # every surviving edge references only surviving nodes (no dangling endpoints)
+      kept = data["nodes"].map { |n| n["id"] }
+      data["edges"].each do |e|
+        expect(kept).to include(e["from"]).and include(e["to"])
+      end
+    end
+
+    it "keeps the highest-clutter nodes (cap orders by score, not graph order)" do
+      full   = graph_data(render(findings: v11_yml, graph: graph_doc)) # uncapped
+      top1   = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 1))
+      scored = full["nodes"].select { |n| n["clutter_score"] }
+                            .max_by { |n| n["clutter_score"] }
+      expect(top1["nodes"].map { |n| n["id"] }).to eq([scored["id"]])
+    end
+
+    it "shows an honest 'top N of M' banner only when actually capped" do
+      capped = render(findings: v11_yml, graph: graph_doc, max_nodes: 2)
+      expect(capped).to include("top 2 of 6 nodes")
+
+      uncapped = render(findings: v11_yml, graph: graph_doc, max_nodes: 0)
+      expect(uncapped).not_to include("nodes by clutter score")
+    end
+
+    it "renders all nodes when the cap is 0 (unlimited) or >= node count" do
+      all_zero = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 0))
+      all_big  = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 999))
+      expect(all_zero["nodes"].size).to eq(6)
+      expect(all_zero["node_cap"]).to be_nil
+      expect(all_big["nodes"].size).to eq(6)
     end
   end
 end
