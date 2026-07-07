@@ -200,6 +200,7 @@ module Archbuddy
           <<~HTML
             <section id="graph">
               <h2>Call Graph</h2>
+              #{node_cap_banner_html}
               <div class="controls">
                 <button id="btn-labels">Toggle labels: real ↔ opaque</button>
                 <label>Layout
@@ -326,6 +327,7 @@ module Archbuddy
             "bottlenecks" => context.ranked.map { |b| StructuredExport.node_hash(b, metric_keys) },
             "scores"      => scores_data,
             "hotspots"    => hotspot_ids_by_dimension,
+            "node_cap"    => node_cap_info,
             "default_metric" => "centrality"
           }
           # Embed as JSON inside a <script type="application/json"> — escape the
@@ -333,11 +335,53 @@ module Archbuddy
           JSON.generate(payload).gsub("</", '<\/')
         end
 
-        # One entry per graph.yml node, de-anonymized. Metrics/clutter joined from
-        # the ranked bottlenecks (verbatim) keyed by opaque id.
+        # The set of node ids to render in the graph viz, as a Hash id => true for
+        # O(1) lookup. When `--max-nodes N` is in effect and the graph exceeds N,
+        # keep the top N by clutter_score (scored nodes first, unscored last,
+        # deterministic id tiebreak); otherwise nil = render all. This bounds the
+        # cytoscape payload so a huge graph (e.g. nexus ~1949 nodes) doesn't crash
+        # the browser on initial render. The bottleneck TABLE is unaffected (it uses
+        # context.ranked / --top).
+        def kept_node_ids
+          return @kept_node_ids if defined?(@kept_node_ids)
+
+          cap = context.max_nodes
+          @kept_node_ids =
+            if cap.nil? || cap <= 0 || graph_nodes.size <= cap
+              nil
+            else
+              score = {}
+              context.ranked.each { |b| score[b.id] = b.clutter_score if b.clutter_score }
+              graph_nodes
+                .map { |gn| gn["id"] }
+                .sort_by { |id| [score[id] ? -score[id] : Float::INFINITY, id] }
+                .first(cap)
+                .each_with_object({}) { |id, h| h[id] = true }
+            end
+        end
+
+        # Truncation summary for the payload/banner, or nil when uncapped.
+        def node_cap_info
+          return nil unless kept_node_ids
+
+          { "shown" => kept_node_ids.size, "total" => graph_nodes.size }
+        end
+
+        def node_cap_banner_html
+          info = node_cap_info
+          return "" unless info
+
+          %(<div class="notice">Graph shows the top #{info["shown"]} of #{info["total"]} nodes ) +
+            %(by clutter score (pass <code>--max-nodes 0</code> for all). ) +
+            %(The bottleneck table below is unaffected.</div>)
+        end
+
+        # One entry per graph.yml node (capped to kept_node_ids), de-anonymized.
+        # Metrics/clutter joined from the ranked bottlenecks (verbatim) keyed by id.
         def graph_node_data
           by_id = context.ranked.each_with_object({}) { |b, h| h[b.id] = b }
-          graph_nodes.map do |gn|
+          nodes = kept_node_ids ? graph_nodes.select { |gn| kept_node_ids.include?(gn["id"]) } : graph_nodes
+          nodes.map do |gn|
             id  = gn["id"]
             b   = by_id[id]
             loc = resolve(id)
@@ -358,8 +402,13 @@ module Archbuddy
           end
         end
 
+        # Edges among the rendered nodes only: when the node set is capped, an edge
+        # to a dropped node would dangle in cytoscape, so keep only edges whose BOTH
+        # endpoints survive the cap.
         def graph_edge_data
-          edges.map { |e| { "from" => e["from"], "to" => e["to"], "calls" => e["calls"] || 1 } }
+          kept = kept_node_ids
+          es = kept ? edges.select { |e| kept.include?(e["from"]) && kept.include?(e["to"]) } : edges
+          es.map { |e| { "from" => e["from"], "to" => e["to"], "calls" => e["calls"] || 1 } }
         end
 
         def scores_data

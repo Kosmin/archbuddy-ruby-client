@@ -60,12 +60,10 @@ module Archbuddy
             "decisions"     => raw.decisions
           }
 
-          # V4/P4 (graph 1.2): the db_op-sink customizability proxy `sink_open`
-          # is OPTIONAL and emitted ONLY on db_op nodes (function/endpoint/
-          # external nodes have no sink semantics → key absent). An opaque
-          # boolean — no app semantics — so it belongs in the shareable graph
-          # node, NOT the secret id-map.
-          node_hash["sink_open"] = raw.sink_open ? true : false if raw.kind == "db_op"
+          # L3 (v0.6): the client no longer emits the `sink_open` proxy. A db_op
+          # is a plain COST-1 terminal; the engine no longer consumes the field
+          # and keeps it DECLARED-but-optional in the graph schema (graph stays
+          # 1.2 — absent `sink_open` validates).
 
           graph_nodes << node_hash
 

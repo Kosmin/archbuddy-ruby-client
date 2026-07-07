@@ -23,6 +23,7 @@ module Archbuddy
       #                       scalar (findings 1.3); nil when absent (back-compat)
       RenderContext = Struct.new(
         :ranked, :class_rollups, :generator, :graph, :resolver, :scores, :connectivity,
+        :max_nodes,
         keyword_init: true
       )
 

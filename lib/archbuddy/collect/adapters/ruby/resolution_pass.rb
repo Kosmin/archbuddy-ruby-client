@@ -3,7 +3,6 @@
 require "prism"
 require_relative "resolver"
 require_relative "grape_dsl"
-require_relative "db_op_spec"
 
 module Archbuddy
   module Collect
@@ -20,13 +19,13 @@ module Archbuddy
         # turns them into Raw* value objects, and only the Anonymizer mints ids.
         class Accumulator
           # db_op / external targets discovered, keyed by their real symbol.
-          #   db_ops:   { "Invoice.where" => {class_fq:, sink_open:} }
+          #   db_ops:   { "Invoice.where" => {class_fq:} }
           #   externals flagged via the single sink (no per-target node).
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
-            @db_ops      = {}          # real_symbol => {class_fq:, sink_open:}
+            @db_ops      = {}          # real_symbol => {class_fq:}
             @meta_sites  = []          # [{from_fq:, name:, line:}] (flagged, no edge)
             @probe_edges = Hash.new(0) # { probe_name(Symbol) => count } (diagnostics-only)
           end
@@ -40,15 +39,10 @@ module Archbuddy
           end
 
           # db_ops collapse by Class.method (resolver db_op_symbol), so one node
-          # fields many call sites. Aggregate the per-call sink spec as
-          # LEAST-SPECIFIC-WINS (V4/P4): `sink_open` becomes true if ANY incoming
-          # write call is open_ended — a sink that SOME caller can mass-assign is
-          # customizable even if others are tidy (SAFE; never under-charges).
-          # Reads / destroys / specific writes contribute false. Per G1/CR-3 only
-          # this derived boolean is emitted on the graph node.
-          def add_db_op_edge(from_fq, symbol, class_fq, spec)
-            e = (@db_ops[symbol] ||= { class_fq: class_fq, sink_open: false })
-            e[:sink_open] ||= spec.open_ended_write?
+          # fields many call sites. A db_op is a plain COST-1 terminal (L3) — no
+          # write-specificity / sink_open is derived or carried.
+          def add_db_op_edge(from_fq, symbol, class_fq)
+            @db_ops[symbol] ||= { class_fq: class_fq }
             @calls << { from_fq: from_fq, to: { type: :db_op, fq: symbol } }
           end
 
@@ -58,6 +52,103 @@ module Archbuddy
 
           def flag_metaprogramming(from_fq, name, line)
             @meta_sites << { from_fq: from_fq, name: name, line: line }
+          end
+        end
+
+        # L1 pre-scan visitor (two-sub-pass). Walks ONE class body collecting,
+        # for that class only:
+        #   - ivar_types:       every `@x = Const.new` / `@x ||= Const.new`
+        #   - accessor_returns: instance methods whose LAST statement returns a
+        #                       `Const.new` (memoized accessor: `def svc; @svc
+        #                       ||= Const.new; end`, plain `@x = Const.new`, or a
+        #                       bare `Const.new`).
+        # It does NOT descend into nested class/module bodies (each nested class
+        # gets its own pre-scan from the main visitor) so ivars never leak across
+        # class boundaries. Pure collector — never edges, never BranchCounter.
+        class ClassTypeScanner < Prism::Visitor
+          def initialize(ivar_types, accessor_returns, const_new_fq)
+            @ivar_types       = ivar_types
+            @accessor_returns = accessor_returns
+            @const_new_fq     = const_new_fq
+            super()
+          end
+
+          # Do NOT recurse into nested classes/modules — their ivars/accessors
+          # belong to a different scope (handled by the main visitor's pre-scan).
+          def visit_class_node(_node); end
+          def visit_module_node(_node); end
+
+          def visit_instance_variable_write_node(node)
+            record_ivar(node.name.to_s, @const_new_fq.call(node.value))
+            super
+          end
+
+          def visit_instance_variable_or_write_node(node)
+            record_ivar(node.name.to_s, @const_new_fq.call(node.value))
+            super
+          end
+
+          def visit_def_node(node)
+            # Memoized / const-returning accessor: instance method (nil receiver)
+            # whose last body statement evaluates to a `Const.new`.
+            if node.receiver.nil?
+              fq = accessor_return_fq(node)
+              record_accessor(node.name.to_s, fq) if fq
+            end
+            super
+          end
+
+          private
+
+          def record_ivar(name, fq)
+            return if fq.nil?
+
+            if @ivar_types.key?(name) && @ivar_types[name] != fq
+              @ivar_types.delete(name) # conflict -> decline
+            else
+              @ivar_types[name] = fq
+            end
+          end
+
+          def record_accessor(name, fq)
+            if @accessor_returns.key?(name) && @accessor_returns[name] != fq
+              @accessor_returns.delete(name) # conflict -> decline
+            else
+              @accessor_returns[name] = fq
+            end
+          end
+
+          # The const FQ a method's LAST statement returns, when it is exactly a
+          # `Const.new` produced by `@x ||= Const.new`, `@x = Const.new`, or a
+          # bare `Const.new`. Guards the empty-body case (def x; end -> nil).
+          def accessor_return_fq(node)
+            body = node.body
+            return nil if body.nil?
+
+            # A method whose body is wrapped in `begin/rescue` (or carries a
+            # `rescue`/`ensure` clause) parses as a Prism::BeginNode, whose
+            # statements live under `.statements` (a StatementsNode), not `.body`.
+            # A plain body is already a StatementsNode. Descend to the StatementsNode
+            # before reading the last statement; decline on anything else.
+            stmts =
+              case body
+              when Prism::StatementsNode then body
+              when Prism::BeginNode      then body.statements
+              end
+            return nil if stmts.nil?
+
+            last = stmts.body.last
+            return nil if last.nil?
+
+            case last
+            when Prism::InstanceVariableOrWriteNode,
+                 Prism::InstanceVariableWriteNode,
+                 Prism::LocalVariableWriteNode,
+                 Prism::LocalVariableOrWriteNode
+              @const_new_fq.call(last.value)
+            when Prism::CallNode
+              @const_new_fq.call(last)
+            end
           end
         end
 
@@ -74,6 +165,20 @@ module Archbuddy
             # source-order ordinals over the same parsed array in the same order.
             @grape_stack   = [] # class_fq strings of enclosing Grape::API classes
             @verb_ordinals = Hash.new(0) # [class_fq, verb] => next ordinal
+            # Conservative intra-procedural type scope (L1). Per-Pass-instance
+            # (per-file) lifecycle, symmetric with @verb_ordinals (F5) — NEVER
+            # global. Records ONLY exact `Const.new` assignments so R4.5 can
+            # resolve typed-receiver call sites to REAL edges via the existing
+            # SymbolTable#method? gate (never fabricated).
+            #   @local_types       => { "x" => "Const" } — reset per def / per
+            #                         Grape verb-block (a fresh method scope).
+            #   @ivar_types        => { class_fq => { "@x" => "Const" } } —
+            #                         accumulated per class via the pre-scan.
+            #   @accessor_returns  => { class_fq => { "svc" => "Const" } } —
+            #                         memoized-accessor return types, per class.
+            @local_types      = {}
+            @ivar_types       = Hash.new { |h, k| h[k] = {} }
+            @accessor_returns = Hash.new { |h, k| h[k] = {} }
             super()
           end
 
@@ -84,6 +189,13 @@ module Archbuddy
           def visit_class_node(node)
             superclass = node.superclass && node.superclass.slice
             push_namespace(node.constant_path.slice) do
+              # TWO-SUB-PASS (L1, ledger watch-item a): pre-scan the WHOLE class
+              # body to collect ivar + memoized-accessor-return types BEFORE the
+              # resolving walk, so a reader method appearing in source BEFORE the
+              # writer/accessor still sees the class-scoped types (source-order
+              # independent). Pure type collection — never touches BranchCounter.
+              prescan_class_types(node, current_namespace)
+
               if GrapeDsl.grape_api_superclass?(superclass)
                 @grape_stack.push(current_namespace)
                 begin
@@ -104,6 +216,9 @@ module Archbuddy
             fq_symbol = owner_fq.empty? ? node.name.to_s : "#{owner_fq}#{sep}#{node.name}"
 
             @method_stack.push(fq_symbol)
+            # Locals never leak across methods (L1): reset on def entry. The
+            # class-scoped ivar/accessor maps (built by the pre-scan) persist.
+            @local_types = {}
             super
           ensure
             @method_stack.pop
@@ -125,6 +240,8 @@ module Archbuddy
               @verb_ordinals[[class_fq, verb]] += 1
 
               @method_stack.push(GrapeDsl.endpoint_fq(class_fq, verb, ordinal))
+              # A Grape verb-block is a fresh method scope (L1): reset locals.
+              @local_types = {}
               begin
                 super # walk the handler block body; its calls record as edges
               ensure
@@ -142,10 +259,33 @@ module Archbuddy
                 receiver:        node.receiver,
                 enclosing_class: current_namespace.empty? ? nil : current_namespace,
                 table:           @table,
-                node:            node
+                node:            node,
+                type_scope:      current_type_scope
               )
               record(@resolver.resolve(ctx), from_fq, node)
             end
+            super
+          end
+
+          # L1 write-node collectors. Each records an exact `Const.new`
+          # assignment into the appropriate type map, then calls super so the
+          # normal walk (and any nested call sites) proceeds. Pure type-state
+          # collectors — they MUST NOT touch BranchCounter (Pass 1 only). They
+          # run during the resolving walk to keep @local_types current within a
+          # def; the class-scoped ivar map is built by the pre-scan.
+          def visit_local_variable_write_node(node)
+            record_local_type(node.name.to_s, const_new_fq(node.value))
+            super
+          end
+
+          def visit_instance_variable_write_node(node)
+            record_ivar_type(node.name.to_s, const_new_fq(node.value))
+            super
+          end
+
+          def visit_instance_variable_or_write_node(node)
+            # `@x ||= Const.new` — OrWrite node (P1), the memoize idiom.
+            record_ivar_type(node.name.to_s, const_new_fq(node.value))
             super
           end
 
@@ -166,10 +306,8 @@ module Archbuddy
               @acc.add_method_edge(from_fq, resolution.target_fq)
             when :external
               if resolution.kind == "db_op"
-                # V4/P4: classify this AR call's effect/specificity from the
-                # CallNode args to derive the sink's open_ended-write bit.
-                spec = DbOpSpec.for_call(node)
-                @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq, spec)
+                # L3: a db_op is a plain COST-1 terminal — no sink spec derived.
+                @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq)
               else
                 @acc.add_external_edge(from_fq)
               end
@@ -178,6 +316,76 @@ module Archbuddy
 
           def enclosing_class_fq
             current_namespace.empty? ? nil : current_namespace
+          end
+
+          # --- L1 type-scope helpers ------------------------------------------
+
+          # The const FQ when `value_node` is EXACTLY `Const.new` /
+          # `Const::Path.new` (a CallNode named :new whose receiver is a
+          # ConstantReadNode/ConstantPathNode), else nil. The strict gate that
+          # keeps L1 conservative: `Foo.build` (name :build) and any non-const
+          # receiver decline. Shared by the write collectors and the pre-scan.
+          def const_new_fq(value_node)
+            return nil unless value_node.is_a?(Prism::CallNode)
+            return nil unless value_node.name == :new
+
+            recv = value_node.receiver
+            case recv
+            when Prism::ConstantReadNode, Prism::ConstantPathNode
+              recv.slice
+            end
+          end
+
+          # Record a local var's tracked type. Conditional-reassignment guard:
+          # if the name is already tracked with a DIFFERENT const, drop it to
+          # unknown (decline) rather than guess. A non-`Const.new` RHS (fq nil)
+          # also clears any prior tracking for that name (reassigned away).
+          def record_local_type(name, fq)
+            if fq.nil?
+              @local_types.delete(name)
+            elsif @local_types.key?(name) && @local_types[name] != fq
+              @local_types.delete(name)
+            else
+              @local_types[name] = fq
+            end
+          end
+
+          # Record a class-scoped ivar's tracked type (current class). Same
+          # conflict-decline discipline as locals.
+          def record_ivar_type(name, fq)
+            scope = @ivar_types[current_namespace]
+            if fq.nil?
+              scope.delete(name)
+            elsif scope.key?(name) && scope[name] != fq
+              scope.delete(name)
+            else
+              scope[name] = fq
+            end
+          end
+
+          # The read-only merged view handed to R4.5 via ctx.type_scope: the
+          # current method's locals OVERLAID on this class's ivar + accessor
+          # maps. nil when nothing is tracked (degenerate: R4.5 declines for all
+          # receivers → existing R9 <external>, never a fabricated edge).
+          def current_type_scope
+            cls    = current_namespace
+            merged = {}
+            merged.merge!(@accessor_returns[cls]) if @accessor_returns.key?(cls)
+            merged.merge!(@ivar_types[cls])       if @ivar_types.key?(cls)
+            merged.merge!(@local_types)
+            merged.empty? ? nil : merged
+          end
+
+          # TWO-SUB-PASS pre-scan: collect ivar + memoized-accessor-return types
+          # across the WHOLE class body before the resolving walk. Uses a
+          # dedicated visitor so it never disturbs @method_stack / @namespace /
+          # BranchCounter — it only populates @ivar_types[class_fq] and
+          # @accessor_returns[class_fq].
+          def prescan_class_types(class_node, class_fq)
+            scanner = ClassTypeScanner.new(
+              @ivar_types[class_fq], @accessor_returns[class_fq], method(:const_new_fq)
+            )
+            class_node.body&.accept(scanner)
           end
 
           def push_namespace(name)

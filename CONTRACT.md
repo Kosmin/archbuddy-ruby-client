@@ -38,10 +38,10 @@ nodes:                    # array; each node:
                           # until/for) multiplies into branches; idioms (&&/||, &., ||=/&&=, rescue,
                           # pattern-match) are counted in decisions only.
     decisions: 0          # OPTIONAL (graph 1.1+); integer ≥ 0; raw decision-point count (all constructs)
-    sink_open: true       # OPTIONAL (graph 1.2+, db_op nodes ONLY); true when the db_op is an
-                          # open-ended write sink (variable/splat/string-SQL attrs → engine charges ×U);
-                          # false when the write uses symbol-keyed literal attrs or is a read/destroy;
-                          # absent on function/endpoint/external nodes. Engine derives U from topology.
+                          # NOTE (v0.6/L3): the client NO LONGER emits `sink_open`. A db_op is now a
+                          # plain COST-1 terminal — no write-specificity / customizable-sink proxy. The
+                          # field stays DECLARED-but-optional in the engine graph schema (graph stays
+                          # 1.2; a node OMITTING it validates), so old 1.2 graphs WITH it still load.
 edges:                    # array; each edge:
   - from: "n_…"
     to: "n_…"             # unresolved calls all point at the single shared ext_ sink
@@ -51,6 +51,25 @@ edges:                    # array; each edge:
 entrypoints:              # array of node_id (may be EMPTY → M3 warning)
   - "n_…"
 ```
+
+### v0.6.0: variable-receiver type inference (L1) + sink-cost revert (L3) — graph stays 1.2
+
+Two behavioural changes; **no schema shape change** (graph stays `"1.2"`, findings stays `"1.3"`):
+
+- **Variable-receiver type inference (L1):** the resolver gains a tier **R4.5** between R4
+  (const-receiver) and R5 (probes). It resolves variable / ivar / memoized-accessor /
+  inline-`Const.new` receivers to REAL `Const#method` edges via the EXISTING `SymbolTable#method?`
+  gate — conservative, intra-procedural (intra-method locals + same-class ivars + memoized
+  accessors + inline `Const.new` chains), **never a whitelist**. NEVER-FABRICATE: an edge is emitted
+  ONLY when the method provably exists; otherwise the call declines to `<external>`. AR receivers
+  (`x = User.new; x.where`) mirror R4's AR branch → a `db_op` node, not a fabricated method edge.
+- **Sink-cost revert (L3):** the client **stops emitting `sink_open`** and removes the
+  `AR_FIELD_WRITE` write-specificity machinery (`Vocab::AR_WRITE`/`AR_DESTROY`/`AR_READ`/
+  `AR_FIELD_WRITE`/`ar_op_kind`/`ar_field_write?`) and the `DbOpSpec` module. A `db_op` is now a
+  plain COST-1 terminal. The engine stops CONSUMING the `×U` multiplier and keeps `sink_open`
+  **DECLARED-but-optional** in the graph schema, so the change is behavioural, not schema-breaking
+  (graph stays 1.2; old 1.2 graphs carrying `sink_open` still validate). `db_op` stays a valid
+  `kind` enum value — the resolver still classifies AR calls as `db_op` (free provenance, unscored).
 
 ### v0.4.0 (W4): de-idiomatized `branches` + `sink_open` (graph 1.2)
 
@@ -209,8 +228,9 @@ engine-computed fields — `{forward, reverse, scored_nodes, total_nodes}` — w
 There is **no `verdict` field** (the client decides no band; D17). The reporter renders the four fields
 verbatim as a one-line banner ABOVE the dimension rows: `Connectivity: 5/1672 nodes scored (0.3%)`.
 Absent on 1.0/1.1/1.2 docs → no banner rendered (back-compat). A nil `forward` ratio renders as "N/A"
-(e.g. when there are no entrypoints — N1). `sink_open` (graph 1.2) and `connectivity` (findings 1.3) are
-graph INPUT fields, NOT metric-kernel keys; `METRIC_KEYS` stays at 8.
+(e.g. when there are no entrypoints — N1). `sink_open` (graph 1.2 — DECLARED-but-optional, NO LONGER
+emitted by the client as of v0.6/L3) and `connectivity` (findings 1.3) are graph INPUT fields, NOT
+metric-kernel keys; `METRIC_KEYS` stays at 8.
 
 ---
 

@@ -35,8 +35,10 @@ module Archbuddy
                       desc: "Output format: terminal|yaml|json|dot|html"
       option :graph, desc: "Path to graph.yml (edge list; default: #{WORKSPACE}/graph.yml; required for --format dot, used by --format html)"
       option :top, type: :integer, desc: "Show only the top N bottlenecks"
+      option :max_nodes, type: :integer, default: 100,
+                         desc: "HTML graph: render only the top N nodes by clutter score (0 = all) so a huge graph doesn't crash the browser (default: 100). Does not affect the bottleneck table (see --top)."
 
-      def call(format:, findings: nil, id_map: nil, graph: nil, top: nil, **)
+      def call(format:, findings: nil, id_map: nil, graph: nil, top: nil, max_nodes: 100, **)
         findings ||= File.join(WORKSPACE, "findings.yml")
         id_map   ||= File.join(WORKSPACE, "id-map.yml")
         # --graph defaults to the workspace graph.yml only when it actually
@@ -69,7 +71,8 @@ module Archbuddy
           graph:         graph && Archbuddy::Report::Reconnect::Serializer.load(graph),
           resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
           scores:        result.scores,
-          connectivity:  result.connectivity
+          connectivity:  result.connectivity,
+          max_nodes:     max_nodes&.to_i
         )
 
         puts formatter_class.new(context).render

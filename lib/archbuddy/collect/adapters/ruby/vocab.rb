@@ -50,35 +50,6 @@ module Archbuddy
             insert insert_all upsert upsert_all
           ].to_set.freeze
 
-          # AR op-kind partition (V4/P4). Every name in ACTIVE_RECORD falls into
-          # exactly one of write/destroy/read so the collector can classify a
-          # db_op call site's effect. Used ONLY to derive the opaque `sink_open`
-          # boolean the engine consumes (L2) — never serialized as op-kind.
-          AR_WRITE = %w[
-            create create! new save save! update update! update_all
-            update_column update_columns increment! decrement! touch
-            insert insert_all upsert upsert_all
-            find_or_create_by find_or_create_by!
-          ].to_set.freeze
-
-          AR_DESTROY = %w[
-            destroy destroy! destroy_all delete delete_all
-          ].to_set.freeze
-
-          # Everything else in ACTIVE_RECORD is a read (queries/scopes/aggregates).
-          AR_READ = (ACTIVE_RECORD - AR_WRITE - AR_DESTROY).freeze
-
-          # Field-naming writes: the subset of AR_WRITE whose arguments carry the
-          # written field payload, so write `specificity` (symbol-keyed literal
-          # hash = specific vs. variable/splat/string-SQL = open_ended) is
-          # meaningful. `save`/`touch`/`find_or_create_by` carry no inspectable
-          # field hash at the call site, so they are NOT customizability concerns
-          # (specificity n/a → engine factor 1).
-          AR_FIELD_WRITE = %w[
-            create create! new update update! update_all update_columns
-            insert insert_all upsert upsert_all
-          ].to_set.freeze
-
           # Base classes that mark a class as an ActiveRecord model.
           ACTIVE_RECORD_BASES = %w[
             ApplicationRecord ActiveRecord::Base
@@ -101,22 +72,6 @@ module Archbuddy
 
           def active_record_method?(name)
             ACTIVE_RECORD.include?(name.to_s)
-          end
-
-          # Classify an AR method's effect (V4/P4). Only meaningful when
-          # active_record_method?(name) is already true. destroy > write > read.
-          def ar_op_kind(name)
-            n = name.to_s
-            return "destroy" if AR_DESTROY.include?(n)
-            return "write"   if AR_WRITE.include?(n)
-
-            "read"
-          end
-
-          # The subset of writes whose argument shape determines write
-          # specificity (open_ended vs. specific). See AR_FIELD_WRITE.
-          def ar_field_write?(name)
-            AR_FIELD_WRITE.include?(name.to_s)
           end
         end
       end
