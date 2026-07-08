@@ -74,10 +74,11 @@ remote.
 
 ## Versions and release sequence
 
-The client is at **0.4.0**; the engine is at **0.3.0**. The mandatory release sequence is **engine
+The client is at **0.7.0** (v0.8 committed-cache + multiplexer_proxy surface work; the report-polish
+branch adds the html graph-readability fix on top). The mandatory release sequence is **engine
 `main` first, then client**: the client's `metric_kernel_consistency_spec` loads the live engine
 `METRIC_KEYS` constant at test time, so the engine must already carry a matching version before the
-client suite can be verified green.
+client suite can be verified green. (The `### v0.4.0` … entries below are the historical changelog.)
 
 ### v0.4.0 client bump (W4+W5) — engine 0.3.0
 

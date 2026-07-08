@@ -385,12 +385,12 @@ module Archbuddy
 
           cap = context.max_nodes
           @kept_node_ids =
-            if cap.nil? || cap <= 0 || graph_nodes.size <= cap
+            if cap.nil? || cap <= 0 || graphable_nodes.size <= cap
               nil
             else
               score = {}
               context.ranked.each { |b| score[b.id] = b.clutter_score if b.clutter_score }
-              graph_nodes
+              graphable_nodes
                 .map { |gn| gn["id"] }
                 .sort_by { |id| [score[id] ? -score[id] : Float::INFINITY, id] }
                 .first(cap)
@@ -398,11 +398,24 @@ module Archbuddy
             end
         end
 
+        # Graph-viz node candidates = real, in-tree nodes only. The <external>
+        # sink boundary (kind "external", `ext_` ids) is EXCLUDED from the graph:
+        # it carries no findings, its opaque `<external …>` labels are noise, and
+        # its high fan-in is what rendered as the giant converging wedges. Dropping
+        # it here also drops its inbound edges (the both-endpoints guard), so the
+        # graph shows the real call structure. (The external sinks still appear in
+        # the findings/scores — this is a VIZ-only exclusion.)
+        def graphable_nodes
+          @graphable_nodes ||= graph_nodes.reject do |gn|
+            gn["kind"].to_s == "external" || gn["id"].to_s.start_with?("ext_")
+          end
+        end
+
         # Truncation summary for the payload/banner, or nil when uncapped.
         def node_cap_info
           return nil unless kept_node_ids
 
-          { "shown" => kept_node_ids.size, "total" => graph_nodes.size }
+          { "shown" => kept_node_ids.size, "total" => graphable_nodes.size }
         end
 
         def node_cap_banner_html
@@ -418,7 +431,7 @@ module Archbuddy
         # Metrics/clutter joined from the ranked bottlenecks (verbatim) keyed by id.
         def graph_node_data
           by_id = context.ranked.each_with_object({}) { |b, h| h[b.id] = b }
-          nodes = kept_node_ids ? graph_nodes.select { |gn| kept_node_ids.include?(gn["id"]) } : graph_nodes
+          nodes = kept_node_ids ? graphable_nodes.select { |gn| kept_node_ids.include?(gn["id"]) } : graphable_nodes
           nodes.map do |gn|
             id  = gn["id"]
             b   = by_id[id]
@@ -443,10 +456,22 @@ module Archbuddy
         # Edges among the rendered nodes only: when the node set is capped, an edge
         # to a dropped node would dangle in cytoscape, so keep only edges whose BOTH
         # endpoints survive the cap.
+        # Only edges BETWEEN rendered nodes. An edge to an excluded node (a capped-out
+        # node OR an <external> sink dropped by graphable_nodes) would dangle in
+        # cytoscape, so filter against the rendered set ALWAYS (not just when capped)
+        # — this is also what removes the fan-in edges to external sinks.
         def graph_edge_data
-          kept = kept_node_ids
-          es = kept ? edges.select { |e| kept.include?(e["from"]) && kept.include?(e["to"]) } : edges
-          es.map { |e| { "from" => e["from"], "to" => e["to"], "calls" => e["calls"] || 1 } }
+          rendered = rendered_node_ids
+          edges.select { |e| rendered.include?(e["from"]) && rendered.include?(e["to"]) }
+               .map { |e| { "from" => e["from"], "to" => e["to"], "calls" => e["calls"] || 1 } }
+        end
+
+        # The ids actually rendered = the cap selection when capped, else all
+        # graphable (external-excluded) nodes. Used by both node + edge data so they
+        # never disagree.
+        def rendered_node_ids
+          @rendered_node_ids ||= kept_node_ids ||
+            graphable_nodes.each_with_object({}) { |gn, h| h[gn["id"]] = true }
         end
 
         def scores_data
@@ -652,7 +677,13 @@ module Archbuddy
               var present = {}; data.nodes.forEach(function (n) { present[n.id] = true; });
               data.edges.forEach(function (e, i) {
                 if (present[e.from] && present[e.to]) {
-                  elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, w: 1 + num(e.calls) } });
+                  // Edge thickness is LOG-scaled and CAPPED: a hot sink reached by
+                  // hundreds of calls must not render as a giant wedge. ~0.8px (1 call)
+                  // up to ~3.5px (many calls). Keeps the call-count signal without
+                  // drowning the graph.
+                  var calls = num(e.calls);
+                  var w = Math.min(3.5, 0.8 + Math.log(1 + (calls > 0 ? calls : 1)) / Math.LN2 * 0.5);
+                  elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, w: w } });
                 }
               });
 
@@ -679,6 +710,14 @@ module Archbuddy
                     'border-width': 2, 'border-color': '#0f1419',
                     'color': '#e6edf3', 'font-size': 9, 'text-valign': 'bottom', 'text-halign': 'center',
                     'text-outline-width': 2, 'text-outline-color': '#0f1419'
+                  }},
+                  // Unresolved <external> sink nodes are the app's boundary — they
+                  // carry no findings/clutter and would otherwise dominate the view.
+                  // De-emphasize: dim, small, muted grey, thin dashed border, tiny
+                  // label. They recede so the real call structure reads clearly.
+                  { selector: 'node[kind = "external"]', style: {
+                    'opacity': 0.35, 'width': 10, 'height': 10, 'font-size': 6,
+                    'background-color': '#3d4853', 'border-width': 1, 'border-style': 'dashed'
                   }},
                   { selector: 'edge', style: {
                     'width': 'data(w)', 'line-color': '#3d4853', 'target-arrow-color': '#3d4853',

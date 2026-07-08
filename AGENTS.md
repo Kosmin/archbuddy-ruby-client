@@ -8,13 +8,17 @@ Reading docs first is faster than reading code and keeps context usage low.
 ## What this project is
 
 A Ruby gem — `archbuddy` (module `Archbuddy`, binary `archbuddy`) — that is the **Ruby client** of an
-otherwise language-agnostic architecture-clutter auditor. It owns two concerns:
+otherwise language-agnostic architecture-clutter auditor. It owns three concerns:
 
 1. **Collector** (`lib/archbuddy/collect/`, CLI `collect`) — statically walks a Ruby codebase (via `prism`)
    into method-level nodes + directed edges, then **anonymizes** them through a single trust boundary,
    emitting `graph.yml` (shareable, opaque) + `id-map.yml` (**SECRET, local, gitignored**).
 2. **Reconnect/Reporter** (`lib/archbuddy/report/`, CLI `report`) — joins the engine's `findings.yml` back
    against the secret `id-map.yml` to produce a ranked clutter report scored against real code symbols.
+3. **Committed incremental cache** (`lib/archbuddy/cache/`, v0.8) — the language-neutral, de-anonymized-at-write
+   `.archbuddy/` metadata cache an audited repo commits (real names, line-free, adaptively sharded) so a PR's
+   architecture-score delta shows in its diff; `report` reads it directly with no id-map. See ARCHITECTURE.md
+   Concern 3 + [`docs/COMMITTING_ARCHBUDDY.md`](docs/COMMITTING_ARCHBUDDY.md).
 
 This is **one half of a two-repo system**. The other repo is the **core engine** `architecture_auditor`
 (sibling at `../architecture-auditor`), which this client **depends on** for the shared Contract
@@ -25,12 +29,15 @@ This is **one half of a two-repo system**. The other repo is the **core engine**
 ### End-to-end data flow
 
 ```
-your repo ──> archbuddy collect ──> graph.yml + id-map.yml(SECRET)
-graph.yml ──> architecture_auditor analyze (the OTHER repo) ──> findings.yml
-findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
+your repo ──> archbuddy collect ──> graph.yml + id-map.yml(SECRET) + COMMITTED real-name cache
+graph.yml ──> architecture_auditor analyze (the OTHER repo) ──> findings.yml (opaque)
+findings.yml + id-map.yml ──> archbuddy analyze ──> archbuddy-findings.json (COMMITTED, real-name)
+archbuddy-findings.json ──> archbuddy report ──> ranked clutter report + multiplexer_proxy smell
 ```
 
-`id-map.yml` **never leaves this machine** and is the only thing that can de-anonymize the graph.
+`id-map.yml` **never leaves this machine** and is the only thing that can de-anonymize the *opaque* graph.
+The **committed** cache is de-anonymized at write time (the audited repo's OWN real names), so `report`
+reads it directly with **no id-map** — a fresh clone works.
 
 ## Tech stack
 
@@ -38,7 +45,7 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
 |---------|--------|
 | Language / runtime | Ruby **>= 3.2**. Ruby 3.4.2 auto-selects via rbenv from `.ruby-version` in-repo; if your shell doesn't auto-switch, prefix ruby/bundle/rspec with `RBENV_VERSION=ruby-3.4.2` |
 | AST parser | `prism` (~> 1.0) — two-pass `Prism::Visitor` capture |
-| CLI framework | `dry-cli` (~> 1.4) — `Dry::CLI::Registry`, two commands: `collect`, `report` |
+| CLI framework | `dry-cli` (~> 1.4) — `Dry::CLI::Registry`, **four** commands (v0.8): `collect`, `analyze`, `report`, `reset` |
 | Shared contract | `architecture_auditor` gem — Gemfile defaults to the **git source** (distribution, D47); local dev overrides to the `../architecture-auditor` sibling via `ARCHITECTURE_AUDITOR_PATH` or `bundle config local.architecture_auditor` (M2). See [`.claude/docs/cross-repo.md`](.claude/docs/cross-repo.md) |
 | Tests | `rspec` (~> 3.13) |
 | Serialization | Always via the contract's `Serializer` (deterministic YAML, D30) — never raw `YAML.dump`/`Psych` |
@@ -102,8 +109,9 @@ findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
 Read the self-referential docs in this order before opening source:
 
 1. This file (`AGENTS.md` / `CLAUDE.md`) — stack, invariants, vocabulary, task workflow
-2. [`ARCHITECTURE.md`](ARCHITECTURE.md) — the two concerns, trust boundary, module/file map (find any
-   responsibility by name without opening files), data flow, dependency on the engine Contract
+2. [`ARCHITECTURE.md`](ARCHITECTURE.md) — the three concerns (Collector, Reporter, committed Cache), trust
+   boundary, module/file map (find any responsibility by name without opening files), data flow, dependency
+   on the engine Contract, and the **language-adapter seam**
 3. [`CONTRACT.md`](CONTRACT.md) — the **contract/schema** doc: what the collector EMITS
    (`graph.yml` + `id-map.yml` shapes) and what `report` CONSUMES (`findings.yml` shape), by reference to
    the engine's canonical contract. (This repo has **no database**; CONTRACT.md documents the data
@@ -143,7 +151,8 @@ A task is complete only when implementation + tests pass **AND** docs are update
 □ Added a new language adapter                   → ARCHITECTURE.md + .claude/docs/adapter-extension.md + Registry note
 □ Changed what `report` consumes (findings shape)→ CONTRACT.md (consumed shape) — coordinate with the engine repo
 □ Added/changed a Formatter                      → ARCHITECTURE.md (Reporter section, formats table)
-□ Changed a CLI flag (collect/report)            → ARCHITECTURE.md (CLI section) + README.md
+□ Changed the Cache (layout/writer/reader/…)     → ARCHITECTURE.md (Concern 3) + docs/COMMITTING_ARCHBUDDY.md if the committed shape/gitignore changes
+□ Changed a CLI flag/command (collect/analyze/report/reset) → ARCHITECTURE.md (CLI section) + README.md
 □ Changed the metric set                         → report.rb constant + the engine's METRIC_KEYS (lockstep) + CONTRACT.md
 □ Introduced a new pattern/convention/invariant  → this file (AGENTS.md)
 ```
