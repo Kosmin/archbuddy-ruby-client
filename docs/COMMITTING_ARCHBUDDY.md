@@ -1,0 +1,96 @@
+# Committing the archbuddy cache (audited-repo guide)
+
+archbuddy v0.8 turns the auditor from a stateless full-recompute into a
+**committed, incrementally-updated metadata cache**. An audited repo commits a
+small, reviewable, real-name cache so a PR's architecture-score impact shows up
+in its diff — the same way a lockfile, a `.rubocop_todo.yml` baseline, or a Jest
+`__snapshots__/` tree does. This guide is for the **audited repo** (the codebase
+you run archbuddy against), not for archbuddy's own repo.
+
+## What is committed vs ignored
+
+| Path | Committed? | What it is |
+|------|-----------|-----------|
+| `archbuddy-findings.json` (repo root) | **COMMITTED** | Compact aggregate: headline dimension scores + the `multiplexer_proxy` smell list + pointers into the detail tree. Kept small (pointers, not payload). |
+| `.archbuddy/<mirrored-source-path>…` | **COMMITTED** | Real-name, line-free detail tree mirroring your source layout. Adaptively sharded (large files split per-class, then per-method) so diffs stay surgical. |
+| `.archbuddy/id-map.yml` | **IGNORED (SECRET)** | The real↔opaque name map. Never commit, never share. |
+| `.archbuddy/.cache/` | **IGNORED** | Machine-local incremental speed cache (raw parse/hash blobs). Re-derivable; the `.tsbuildinfo` of archbuddy. |
+| `.archbuddy/graph.yml`, `.archbuddy/findings.yml` | **IGNORED** | Opaque interchange between `collect` and the engine `analyze`. Regenerated each run. |
+| `.archbuddy/report.*` | **IGNORED** | De-anonymized report exports (`report.html`, etc.) — SECRET/local-only. |
+
+The committed cache is **de-anonymized at write time**: it holds your repo's OWN
+real class/method names and file paths. That is your own code in your own repo —
+fine to commit. The **secret** is the `id-map.yml` (and any de-anonymized
+`report.*`), which stays gitignored. A fresh clone reads the committed cache
+**directly, with no id-map**.
+
+## `.gitignore`
+
+Copy the shipped template (`templates/audited-repo.gitignore`) into your repo's
+tracked `.gitignore`:
+
+```gitignore
+# archbuddy — committed architecture cache
+.archbuddy/*
+!.archbuddy/*/
+.archbuddy/id-map.yml
+.archbuddy/.cache/
+.archbuddy/graph.yml
+.archbuddy/findings.yml
+.archbuddy/report.*
+# (archbuddy-findings.json at the repo root is committed — do NOT ignore it.)
+```
+
+`.archbuddy/*` ignores the top-level entries; `!.archbuddy/*/` re-includes the
+committed source-mirrored subdirectories; the remaining lines re-ignore the
+specific secret/interchange files. Verify with:
+
+```sh
+git check-ignore .archbuddy/id-map.yml        # → prints the path (ignored)  ✔
+git check-ignore archbuddy-findings.json      # → nothing (tracked)          ✔
+git check-ignore .archbuddy/app/models/x.rb.json  # → nothing (tracked)      ✔
+```
+
+## The four CLI modes
+
+```sh
+archbuddy collect .            # assemble fragments → graph.yml + id-map.yml + committed cache
+archbuddy collect . --changed  # incremental: re-parse only content-changed files
+architecture-auditor analyze   # engine: graph.yml → findings.yml (opaque)   [the OTHER repo]
+archbuddy analyze              # engine analyze + de-anon-at-write the committed real-name cache
+archbuddy report               # render from the committed cache (no id-map needed)
+archbuddy reset .              # full re-collect + analyze from scratch (first run / model change)
+```
+
+Typical first run: `archbuddy reset .` (or `collect` + `analyze`), then commit
+`archbuddy-findings.json` + `.archbuddy/` (minus the ignored paths).
+
+## The CI staleness step
+
+Add `archbuddy collect --check` to CI. It regenerates the committed cache and
+asserts it matches what is committed (via `git diff`), so a PR that changes
+source without regenerating + committing the cache fails the gate — the lockfile
+/ `jest --ci` idiom.
+
+Exit codes:
+
+- **0** — clean: the committed cache is up-to-date.
+- **1** — DRIFT: the committed cache is stale. Run `archbuddy collect .` (or
+  `archbuddy reset .`) and **commit** the updated `archbuddy-findings.json` +
+  `.archbuddy/` tree.
+- **2** — NO BASELINE: `.archbuddy/`/`archbuddy-findings.json` is absent. This is
+  a **loud** failure (never a vacuous pass): run `archbuddy reset .` and commit
+  the result before enabling the gate.
+
+`--check` never reads the SECRET `id-map.yml` (the committed cache is real-name
+and readable without it), so it works in a fresh CI checkout where the gitignored
+secret is absent.
+
+Generic CI snippet (adapt to your CI system — no hosted workflow is shipped, to
+stay org-policy-safe):
+
+```sh
+# in CI, after checkout + bundle install:
+bundle exec archbuddy collect --check
+# non-zero exit fails the job
+```

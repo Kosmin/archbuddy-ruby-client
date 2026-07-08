@@ -5,6 +5,7 @@ require_relative "cache/layout"
 require_relative "cache/writer"
 require_relative "cache/reader"
 require_relative "cache/change_detector"
+require_relative "cache/checker"
 
 module Archbuddy
   # The committed, incrementally-updated `.archbuddy/` metadata cache (v0.8).

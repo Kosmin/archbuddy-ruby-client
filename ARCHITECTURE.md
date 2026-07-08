@@ -137,7 +137,7 @@ Everything is **verbatim** (D17) — no metric is ever recomputed.
 |--------------|----------------|
 | `report.rb` (`Report`) | Defines `METRIC_KEYS_FOR_DISPLAY` — the 8 display metric keys as a **named constant** (D43), asserted == engine `Analyze::METRIC_KEYS`. Autoloads the model/reconnect/ranker/explanation/formatter + the five formatters (terminal/yaml/json/dot/html). |
 | `model.rb` (`Model::Location/Bottleneck/Finding`) | Presentation-agnostic value objects (R-1). `Location` is a de-anonymized `{id,file,line,symbol,kind,class_id,resolved}` — `resolved?` false ⇒ a graceful `<external …>` placeholder (never raises). `Bottleneck` = one node + its verbatim 8 metrics + `clutter_score` + the findings touching it (`rollup?` true when `kind=="class_rollup"`). `Finding` = node-type (single `node`) or path-type (`path_refs` chain, `path?`/`chain`). |
-| `scores.rb` (`Scores`, `Scores::DimensionScore/Hotspot`, `Scores::Connectivity`) | **R-8: the de-anonymized presentation model for findings.yml's OPTIONAL project-level `scores` block (findings 1.3, additive).** `Scores.from_findings(doc, resolver)` parses the two dimensions (**reverse_traceability** always-computable + **forward_discoverability** which is **N/A when there are no entrypoints**), copies each dimension's `score`/`grade` **verbatim** (D17 — never recomputed; they come straight from findings.yml), and de-anonymizes each dimension's **worst-first OPAQUE `hotspots`** via the SAME `IdMapResolver` (graceful `<external …>` for missing/`ext_` ids). Each `Hotspot` carries the dimension's **driving-metric values** (`DRIVING_METRICS`: reverse ⇒ fan_in/centrality/in_cycle; forward ⇒ path_length/fan_out) pulled verbatim from the per-node `nodes.<id>.metrics`. **Returns `nil` for a 1.0 doc with no scores block** (back-compat). `DimensionScore#display_score` formats the verbatim cost as `"%.1f"` (unbounded, no `/100` suffix, real-space arithmetic mean — no logarithm); `nil` renders as `"N/A"`. The cost number is the headline; the grade is a tentative secondary indicator. `Scores::Connectivity` (V8, findings 1.3) is a parallel struct (`{forward, reverse, scored_nodes, total_nodes}` — CR-1 four-field shape, no `verdict`) parsed by `connectivity_from_findings`; nil-tolerant for 1.0/1.1/1.2 docs (no banner). `forward`/`reverse` are engine-emitted 0..1 ratios formatted by the client as `"0.3%"` or `"N/A"` (D17 — no recompute). |
+| `scores.rb` (`Scores`, `Scores::DimensionScore/Hotspot`, `Scores::Connectivity`) | **R-8: the de-anonymized presentation model for findings.yml's OPTIONAL project-level `scores` block (findings 1.3, additive).** `Scores.from_findings(doc, resolver)` parses the two dimensions (**reverse_traceability** always-computable + **forward_discoverability** which is **N/A when there are no entrypoints**), copies each dimension's `score`/`grade` **verbatim** (D17 — never recomputed; they come straight from findings.yml), and de-anonymizes each dimension's **worst-first OPAQUE `hotspots`** via the SAME `IdMapResolver` (graceful `<external …>` for missing/`ext_` ids). Each `Hotspot` carries the dimension's **driving-metric values** (`DRIVING_METRICS`: reverse ⇒ fan_in/centrality/in_cycle; forward ⇒ path_length/fan_out) pulled verbatim from the per-node `nodes.<id>.metrics`. **Returns `nil` for a 1.0 doc with no scores block** (back-compat). `DimensionScore#display_score` formats the verbatim cost as `"%.1f"` (unbounded, no `/100` suffix, real-space arithmetic mean — no logarithm); `nil` renders as `"N/A"`. The cost number is the headline; the grade is a tentative secondary indicator. `Scores::Connectivity` (V8, findings 1.3) is a parallel struct (`{forward, reverse, scored_nodes, total_nodes}` — CR-1 four-field shape, no `verdict`) parsed by `connectivity_from_findings`; nil-tolerant for 1.0/1.1/1.2 docs (no banner). `forward`/`reverse` are engine-emitted 0..1 ratios formatted by the client as `"0.3%"` or `"N/A"` (D17 — no recompute). **R1 (v0.8):** `Scores::MultiplexerProxy` + `multiplexer_proxies_from_findings` / `multiplexer_proxies_from_committed` surface the v0.7 `multiplexer_proxy` smell (findings 1.4 `scores.multiplexer_proxies`, worst-first) VERBATIM. Accepts BOTH the committed real-name `{symbol, added_coupling}` shape (no id-map) and the legacy opaque `{node, …}` shape (resolved). Returns `nil` for no scores block (section omitted), `[]` for scored-but-no-proxy (honest `(none)` note — never fabricated); ids-only degrades to a blank coupling. |
 | `reconnect.rb` (`Reconnect`, `IdMapResolver`) | **R-2 join engine.** `from_files` loads findings.yml + the SECRET id-map.yml via `Serializer`. De-anonymizes at the three contract join sites: `findings.nodes.<id>`, each `findings[].node`, each `findings[].path[]` element. Metrics/score copied **verbatim** (D17). `IdMapResolver.resolve(id)` → `Location`; ids absent from the map (e.g. `ext_` sinks, unknown ids) resolve to a graceful placeholder and **never raise**. Path findings attach to the first node on their path. Also builds the optional `Scores` model (R-8) and exposes it on `Result#scores` (`nil` for a 1.0 doc). Parses the optional `scores.connectivity` block (findings 1.3) and exposes it on `Result#connectivity` (`nil` for 1.0/1.1/1.2 docs — no resolver needed, counts/ratios only, no opaque ids). |
 | `ranker.rb` (`Ranker`) | **R-3.** `ranked(top:)` sorts bottlenecks by `clutter_score` desc, deterministic tiebreak by opaque id (nil scores last). `class_rollups(top:)` groups by `class_id`, **sums** members' verbatim scores (a presentation aggregate, not recomputation), de-anonymizes the `cls_` id (D9). Never recomputes a node metric. |
 | `explanation.rb` (`Explanation`) | **R-4 (D19).** `TABLE` maps all 7 finding types → plain-English "why is this clutter" along two axes: **forward discoverability** vs **reverse traceability**. `describe(finding)` renders a one-line, value-aware explanation. |
@@ -159,8 +159,9 @@ Everything is **verbatim** (D17) — no metric is ever recomputed.
 
 ## CLI
 
-`Archbuddy::CLI` (dry-cli, D48) registers exactly two commands. Both are the only readers/producers of the
-secret id-map.
+`Archbuddy::CLI` (dry-cli, D48) registers **four** commands (v0.8 committed-cache surface): `collect`,
+`analyze`, `report`, `reset`. `collect` is the sole producer of the SECRET `id-map.yml`; the *committed*
+cache is de-anonymized at WRITE time and readable with NO id-map.
 
 ### `archbuddy collect PATH` — `cli/collect.rb`
 
@@ -174,6 +175,9 @@ Sole producer of `id-map.yml`. Builds a `Config`, gets the adapter via `Registry
 | `--language` | `ruby` | Adapter language (Registry key). |
 | `--entrypoints` | `default` | `default\|controllers\|all_public\|none`. |
 | `--entrypoint-pattern` | `[]` | Extra entrypoint fq-symbol regex(es) (repeatable). |
+| `--changed` | `false` | Incremental: reuse unchanged files' cached parse (content-hash trigger), re-parse only changed. |
+| `--base-ref` | — | Optional git base ref for the `--changed` fast-path pre-filter (content hash still authoritative). |
+| `--check` | `false` | CI staleness gate (`Cache::Checker`): regenerate the committed cache + `git diff`; `exit 1` on drift, `exit 2` (loud) when there is no committed baseline, `exit 0` clean. Never reads the id-map. |
 
 **Default-workspace secret safety (`ensure_default_workspace_excluded!`).** When `--out-dir` is omitted
 (the default `.archbuddy/`) AND CWD is inside a git repo, the command appends `.archbuddy/` to
@@ -187,17 +191,35 @@ metaprogramming-sites-skipped note when > 0; the **M3 zero-entrypoints warning**
 `--entrypoints all_public`; and the two `wrote …` lines (the id-map line is tagged `SECRET — gitignored,
 never share`).
 
-### `archbuddy report FINDINGS_YML` — `cli/report.rb`
+### `archbuddy analyze` — `cli/analyze.rb`
 
-The other id-map reader. Defaults all inputs into the shared `.archbuddy/` workspace, then resolves the
-formatter (`Formatter.for`, `exit 1` on unknown), runs `Reconnect.from_files`, builds a `Ranker`, assembles a
-`RenderContext`, and prints `formatter.render`. A missing default findings/id-map produces a friendly
-`exit 1` error (`missing_input!`) naming the producing command — never a stack trace.
+The SCORE + de-anon-at-write step. Assumes `collect` already produced the opaque `.archbuddy/graph.yml`
+(errors loudly, `exit 1`, with a `collect` hint otherwise). Shells out to the engine `analyze`
+(`graph.yml → findings.yml`, opaque), then **transcodes at WRITE time** (`Cache::Writer`) — de-anonymizing
+the opaque findings + SECRET id-map into the COMMITTED, real-name root `archbuddy-findings.json` (headline
+scores + the `multiplexer_proxy` smell). The engine stays YAML-native; only the client holds the id-map, so
+the de-anon-at-write step is client-owned. `reset` delegates its analyze+transcode here (one implementation).
+
+### `archbuddy reset PATH` — `cli/reset.rb`
+
+L3 full reset / overhaul: a FULL (never `--changed`) re-collect from scratch (ignoring the speed cache),
+then delegates to `analyze`. Use on first run or when the scoring model changes.
+
+### `archbuddy report [FINDINGS_YML]` — `cli/report.rb`
+
+TWO read paths (R2-1). **DEFAULT** (no explicit findings arg + a committed `archbuddy-findings.json`
+present): `Reconnect.from_cache(aggregate_path:, id_map_path: nil)` reads the COMMITTED, real-name aggregate
+**directly, with NO id-map** — a fresh clone works. **LEGACY** (explicit findings arg, or no committed
+cache): `Reconnect.from_files` joins an opaque `findings.yml` against the SECRET id-map at read time. Then it
+resolves the formatter (`Formatter.for`, `exit 1` on unknown), builds a `Ranker`, assembles a
+`RenderContext` (now carrying `multiplexer_proxies`), and prints `formatter.render`. Every formatter renders
+the **`multiplexer_proxy` smell** (findings 1.4) as an additive section, VERBATIM worst-first: absent scores
+block → section omitted; scored-but-empty → an honest `(none)` note (never a fabricated verdict).
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `FINDINGS_YML` (arg) | `.archbuddy/findings.yml` | Opaque findings.yml from `analyze`. OPTIONAL — defaults into the workspace. |
-| `--id-map` | `.archbuddy/id-map.yml` | The SECRET id-map.yml from `collect`. |
+| `FINDINGS_YML` (arg) | committed `archbuddy-findings.json` (root) | With no arg, the DEFAULT committed real-name cache is read (no id-map). An explicit path forces the LEGACY opaque path. |
+| `--id-map` | `.archbuddy/id-map.yml` | The SECRET id-map.yml — LEGACY path only; NOT read on the committed default path. |
 | `--format` | `terminal` | `terminal\|yaml\|json\|dot\|html`. |
 | `--graph` | `.archbuddy/graph.yml` **if present** | Path to graph.yml; **required for `--format dot`**, used by `--format html` (html degrades gracefully without it). Default only applies when the workspace file exists, so terminal/yaml/json don't warn about a missing graph. |
 | `--top` | — | Show only the top N bottlenecks. |

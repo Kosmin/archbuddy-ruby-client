@@ -27,12 +27,17 @@ The pluggable `Adapter` interface means a future React/Node.js client is a new a
 ## Data flow
 
 ```
-your repo ──> archbuddy collect ──> graph.yml + id-map.yml(SECRET)
-graph.yml ──> architecture-auditor analyze ──> findings.yml
-findings.yml + id-map.yml ──> archbuddy report ──> ranked clutter report
+your repo ──> archbuddy collect ──> graph.yml + id-map.yml(SECRET) + COMMITTED real-name cache
+graph.yml ──> architecture-auditor analyze ──> findings.yml (opaque)
+findings.yml + id-map.yml ──> archbuddy analyze ──> archbuddy-findings.json (COMMITTED, real-name)
+archbuddy-findings.json ──> archbuddy report ──> ranked clutter report + multiplexer_proxy smell
 ```
 
-`id-map.yml` **never leaves this machine** and is the only thing that can de-anonymize the graph.
+`id-map.yml` **never leaves this machine** and is the only thing that can de-anonymize the *opaque* graph.
+The **committed** cache (`archbuddy-findings.json` + `.archbuddy/<mirrored-source>/`) is de-anonymized at
+write time — it holds the audited repo's OWN real names, so `report` reads it **directly, with no id-map**
+(a fresh clone works). See [`docs/COMMITTING_ARCHBUDDY.md`](docs/COMMITTING_ARCHBUDDY.md) for what is
+committed vs ignored and the CI staleness gate.
 
 ## Requirements
 
@@ -255,14 +260,40 @@ file/line/symbol** names.
 ```
 archbuddy collect PATH [--out-dir .archbuddy] \
   [--language ruby] [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...] \
-  [--probes all|none|grape,sidekiq_dispatch]
+  [--probes all|none|grape,sidekiq_dispatch] [--changed [--base-ref origin/main]] [--check]
+
+archbuddy analyze     # engine analyze + de-anon-at-write the committed real-name cache
 
 archbuddy report [FINDINGS_YML] [--id-map .archbuddy/id-map.yml] \
   [--format terminal|yaml|json|dot|html] [--graph .archbuddy/graph.yml] [--top N]
+
+archbuddy reset PATH  # full re-collect + analyze from scratch (first run / model change)
 ```
 
 `--out-dir` (collect) and `FINDINGS_YML` / `--id-map` / `--graph` (report) all default into the shared
 `.archbuddy/` workspace, so the common flow needs no flags. Explicit values override.
+
+### The four modes (v0.8 committed cache)
+
+- **`collect [--changed]`** — assemble per-file fragments → the opaque `graph.yml` + SECRET `id-map.yml`
+  **and** the COMMITTED real-name cache (`archbuddy-findings.json` + `.archbuddy/<mirrored-source>/`).
+  `--changed` re-parses only content-changed files (content-hash trigger; `--base-ref` is an optional
+  git fast-path pre-filter). `--check` is the CI staleness gate — see below.
+- **`analyze`** — run the engine on `graph.yml` → `findings.yml` (opaque), then **de-anonymize at write
+  time** into the committed real-name aggregate (headline scores + the `multiplexer_proxy` smell).
+- **`report`** — render from the COMMITTED real-name cache **directly, with no id-map** (a fresh clone
+  works). Falls back to the legacy opaque `findings.yml` + `id-map.yml` when there is no committed cache
+  or an explicit `FINDINGS_YML` is given. Surfaces the `multiplexer_proxy` smell across every formatter.
+- **`reset PATH`** — full re-collect (ignoring the speed cache) + `analyze` from scratch. Use on first
+  run or when the scoring model changes.
+
+### CI staleness gate — `collect --check`
+
+`archbuddy collect --check` regenerates the committed cache and asserts it matches what is committed
+(`git diff`). Exit **0** clean, **1** on drift (run `collect`/`reset` + commit), **2** (loud) when there
+is no committed baseline. It never reads the SECRET `id-map.yml`. See
+[`docs/COMMITTING_ARCHBUDDY.md`](docs/COMMITTING_ARCHBUDDY.md) for the audited-repo `.gitignore` template
+and a generic CI snippet.
 
 ## Framework probes (capture extensions)
 

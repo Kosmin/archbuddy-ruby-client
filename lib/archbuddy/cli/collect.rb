@@ -3,6 +3,7 @@
 require "dry/cli"
 require "fileutils"
 require_relative "../collect"
+require_relative "../cache/checker"
 
 module Archbuddy
   module CLI
@@ -30,9 +31,20 @@ module Archbuddy
                        desc: "Incremental collect: reuse unchanged files' cached parse, re-parse only changed"
       option :base_ref, type: :string, default: nil,
                         desc: "Optional git base ref for the --changed fast-path pre-filter (e.g. origin/main)"
+      option :check, type: :boolean, default: false,
+                     desc: "CI staleness gate: regenerate the committed cache + assert it matches what is committed (git diff). Exit 1 on drift, 2 when there is no committed baseline."
 
       def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all",
-               out_dir: nil, changed: false, base_ref: nil, **)
+               out_dir: nil, changed: false, base_ref: nil, check: false, **)
+        # R3-1: `--check` is the CI staleness gate. It regenerates the committed
+        # cache (a full re-collect) and asserts it matches what is committed via
+        # `git diff`, exiting non-zero on drift and LOUD (exit 2) when there is no
+        # committed baseline at all — never a vacuous pass. Delegated to
+        # Cache::Checker (baseline + diff policy) with the regenerate step
+        # injected, so this command owns only the wiring.
+        if check
+          exit run_check(path, language, entrypoints, entrypoint_pattern, probes)
+        end
         # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
         # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
@@ -107,6 +119,26 @@ module Archbuddy
       end
 
       private
+
+      # R3-1: regenerate the committed cache in place (a full re-collect +
+      # de-anon-at-write), then let Cache::Checker apply the baseline + git-diff
+      # policy and return the process exit code (0 clean / 1 drift / 2 no
+      # baseline). NEVER reads the SECRET id-map — the committed cache is
+      # real-name and the check only touches source + committed cache + git.
+      def run_check(path, language, entrypoints, entrypoint_pattern, probes)
+        checker = Archbuddy::Cache::Checker.new(project_root: Dir.pwd)
+        checker.check do
+          # Full re-collect (NOT --changed): re-hash + re-parse every file so a
+          # stale committed fragment can't survive behind a matching speed-cache
+          # blob. This rewrites the committed aggregate + detail tree; a
+          # collect-only regenerate preserves the committed scores block.
+          call(
+            path: path, language: language, entrypoints: entrypoints,
+            entrypoint_pattern: entrypoint_pattern, probes: probes,
+            out_dir: nil, changed: false, base_ref: nil, check: false
+          )
+        end
+      end
 
       # v0.8 (C1-3): the SECRET sub-paths that must NEVER be committed in an
       # AUDITED repo. The committed layout (archbuddy-findings.json + the
