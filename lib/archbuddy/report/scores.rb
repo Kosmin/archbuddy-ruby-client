@@ -206,6 +206,17 @@ module Archbuddy
         end
       end
 
+      # R2-1: parse the COMMITTED aggregate's TOP-LEVEL real-name smell list
+      # (Cache::Writer emits `multiplexer_proxies: [{symbol, added_coupling}]` at
+      # the doc root, worst-first). Already de-anonymized — no resolver, no
+      # id-map. `list` is the array (possibly []); returns Array<MultiplexerProxy>
+      # in the same worst-first order (VERBATIM).
+      def multiplexer_proxies_from_committed(list)
+        (list || []).map do |proxy|
+          MultiplexerProxy.new(location: nil, symbol: proxy["symbol"], added_coupling: proxy["added_coupling"])
+        end
+      end
+
       # Build one MultiplexerProxy from either producer shape (VERBATIM order).
       def build_multiplexer_proxy(proxy, resolver)
         added = proxy["added_coupling"]
