@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "collect/raw"
+require_relative "collect/fragment"
 require_relative "collect/adapter"
 require_relative "collect/config"
 require_relative "collect/anonymizer"

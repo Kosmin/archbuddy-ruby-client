@@ -2,6 +2,7 @@
 
 require "dry/cli"
 require_relative "../collect"
+require_relative "../cache/layout"
 require_relative "../report"
 require_relative "../report/reconnect"
 require_relative "../report/ranker"
@@ -9,28 +10,41 @@ require_relative "../report/formatter"
 
 module Archbuddy
   module CLI
-    # `archbuddy report FINDINGS_YML --id-map ./out/id-map.yml
-    #     [--format terminal|yaml|json|dot] [--graph graph.yml] [--top N]`
+    # `archbuddy report [FINDINGS_YML] [--id-map ./.archbuddy/id-map.yml]
+    #     [--format terminal|yaml|json|dot|html] [--graph graph.yml] [--top N]`
     #
-    # The SECOND and only other command (besides `collect`) that reads the SECRET
-    # id-map.yml. It joins the engine's opaque findings.yml back to real symbols
-    # (Reconnect), ranks by verbatim clutter_score (Ranker — never recomputed,
-    # D17), and renders via the requested Formatter strategy.
+    # TWO read paths (R2-1):
     #
-    # All non-terminal exports (yaml/json/dot) carry real symbols and are
-    # SECRET/local-only — gitignored; never commit, never send externally.
+    #   * DEFAULT — the COMMITTED, REAL-NAME root aggregate
+    #     `archbuddy-findings.json`. Read DIRECTLY with NO id-map (the committed
+    #     layer is de-anonymized at write time, CR-1). A fresh clone runs
+    #     `archbuddy report` with no args, no secret, and sees the scores + the
+    #     multiplexer_proxy smell. This is the produce-via-`archbuddy analyze`
+    #     flow.
+    #   * LEGACY — an explicit opaque `findings.yml` (or the default
+    #     `.archbuddy/findings.yml`) joined against the SECRET id-map at read
+    #     time (`Reconnect.from_files`). Used when there is no committed aggregate
+    #     yet, or when an explicit findings path is passed.
+    #
+    # Non-terminal exports (yaml/json/dot/html) carry real symbols; on the LEGACY
+    # path they are SECRET/local-only (gitignored). The committed aggregate is
+    # already committed real-name (an audited repo's own code), so a report
+    # rendered from it carries nothing the committed cache doesn't already hold.
     class Report < Dry::CLI::Command
-      desc "De-anonymize + rank the engine's findings.yml into a clutter report"
+      desc "Render the architecture report (committed real-name cache by default; legacy findings.yml + id-map on request)"
+
+      # The COMMITTED real-name root aggregate (repo-relative), the DEFAULT source.
+      ROOT_AGGREGATE = Archbuddy::Cache::Layout::ROOT_AGGREGATE
 
       # FINDINGS_YML, --id-map and --graph all default into the shared
-      # `.archbuddy/` workspace so `archbuddy report` works with NO args right
-      # after `collect` + `analyze`. Explicit args/flags override.
+      # `.archbuddy/` workspace so the LEGACY path works with NO args right
+      # after `collect` + engine `analyze`. Explicit args/flags override.
       WORKSPACE = Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
 
       argument :findings, required: false,
-                          desc: "Path to findings.yml (opaque, from `analyze`; default: #{WORKSPACE}/findings.yml)"
+                          desc: "Path to opaque findings.yml (LEGACY path; default committed source: #{ROOT_AGGREGATE})"
 
-      option :id_map, desc: "Path to the SECRET id-map.yml (from `collect`; default: #{WORKSPACE}/id-map.yml)"
+      option :id_map, desc: "Path to the SECRET id-map.yml (LEGACY path only; default: #{WORKSPACE}/id-map.yml)"
       option :format, default: "terminal",
                       desc: "Output format: terminal|yaml|json|dot|html"
       option :graph, desc: "Path to graph.yml (edge list; default: #{WORKSPACE}/graph.yml; required for --format dot, used by --format html)"
@@ -39,15 +53,7 @@ module Archbuddy
                          desc: "HTML graph: render only the top N nodes by clutter score (0 = all) so a huge graph doesn't crash the browser (default: 100). Does not affect the bottleneck table (see --top)."
 
       def call(format:, findings: nil, id_map: nil, graph: nil, top: nil, max_nodes: 100, **)
-        findings ||= File.join(WORKSPACE, "findings.yml")
-        id_map   ||= File.join(WORKSPACE, "id-map.yml")
-        # --graph defaults to the workspace graph.yml only when it actually
-        # exists, so formats that don't need it (terminal/yaml/json) don't warn
-        # about a missing default and html/dot degrade/explain as before.
         graph ||= default_graph_path
-
-        missing_input!("findings", findings, "architecture-auditor analyze") unless File.exist?(findings)
-        missing_input!("id-map", id_map, "archbuddy collect .") unless File.exist?(id_map)
 
         formatter_class =
           begin
@@ -57,9 +63,7 @@ module Archbuddy
             exit 1
           end
 
-        result = Archbuddy::Report::Reconnect.from_files(
-          findings_path: findings, id_map_path: id_map
-        ).call
+        result = load_result(findings, id_map)
 
         ranker = Archbuddy::Report::Ranker.new(result)
         top_n  = top&.to_i
@@ -72,6 +76,7 @@ module Archbuddy
           resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
           scores:        result.scores,
           connectivity:  result.connectivity,
+          multiplexer_proxies: result.multiplexer_proxies,
           max_nodes:     max_nodes&.to_i
         )
 
@@ -79,6 +84,36 @@ module Archbuddy
       end
 
       private
+
+      # Choose the read path (R2-1). With NO explicit findings arg, PREFER the
+      # committed real-name root aggregate (read directly, NO id-map). Fall back
+      # to the LEGACY opaque findings.yml + SECRET id-map only when there is no
+      # committed aggregate (or when an explicit findings path is given).
+      def load_result(findings, id_map)
+        if findings.nil? && File.exist?(ROOT_AGGREGATE)
+          # DEFAULT: committed real-name cache. NO id-map is read here — the
+          # committed layer is already de-anonymized (CR-1). A fresh clone works.
+          Archbuddy::Report::Reconnect.from_cache(aggregate_path: ROOT_AGGREGATE, id_map_path: nil)
+        else
+          load_legacy_result(findings, id_map)
+        end
+      end
+
+      # LEGACY: opaque findings.yml joined against the SECRET id-map at read time.
+      def load_legacy_result(findings, id_map)
+        findings ||= File.join(WORKSPACE, "findings.yml")
+        id_map   ||= File.join(WORKSPACE, "id-map.yml")
+
+        unless File.exist?(findings)
+          warn "error: no committed cache (#{ROOT_AGGREGATE}) and no findings at #{findings} — " \
+               "run `archbuddy analyze .` (committed cache) or `architecture-auditor analyze` first " \
+               "(or pass an explicit path)."
+          exit 1
+        end
+        missing_input!("id-map", id_map, "archbuddy collect .") unless File.exist?(id_map)
+
+        Archbuddy::Report::Reconnect.from_files(findings_path: findings, id_map_path: id_map).call
+      end
 
       # Use the workspace graph.yml as the --graph default only if it's present
       # (so terminal/yaml/json don't emit a spurious missing-graph notice).

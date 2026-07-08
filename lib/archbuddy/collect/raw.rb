@@ -17,7 +17,11 @@ module Archbuddy
       #
       # - rel_file:  repo-relative path (e.g. "app/models/user.rb"); nil for the
       #              synthetic external sink.
-      # - line:      1-based start line; nil for the external sink.
+      # - line:      1-based start line; nil for the external sink. DISPLAY-ONLY
+      #              (v0.8): `line` is NOT part of identity — it is carried into the
+      #              id-map payload for de-anonymization/display, but a node's id
+      #              (and its `real_key`) is keyed on (rel_file, symbol) only, so
+      #              moving a def within a file does NOT change its id.
       # - symbol:    fully-qualified symbol, e.g. "User#save" / "User.find".
       # - kind:      contract node kind.
       # - class_rel_file / class_line / class_symbol: the owning class's def site,
@@ -45,8 +49,16 @@ module Archbuddy
 
         # A stable identity key for this node in REAL space, so edges can refer
         # to endpoints before ids are minted and the Anonymizer can dedupe.
+        #
+        # v0.8: keyed on (rel_file, symbol) ONLY, NUL-joined — it MUST match the
+        # engine's canonical key `SHA256("rel_file\x00fq_symbol")` byte-for-byte
+        # (asserted by the id-parity spec: `real_key == Ids.canonical_key(rel_file,
+        # symbol)`). `line` is DROPPED from identity so a def that moves within a
+        # file keeps its id, and so two same-(file,symbol) raws collapse to one
+        # node (first-def-wins). The NUL separator is injective (impossible in a
+        # POSIX path or a Ruby symbol).
         def real_key
-          "#{rel_file}:#{line}:#{symbol}"
+          "#{rel_file}\x00#{symbol}"
         end
       end
 

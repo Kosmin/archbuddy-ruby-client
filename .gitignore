@@ -21,6 +21,9 @@ report.html
 graph.yml
 findings.yml
 *.findings.yml
+# v0.8 committed-cache aggregate — for AUDITED repos this is committed, but in
+# the client's OWN repo (dogfood) it is a generated artifact, never source.
+archbuddy-findings.json
 
 # Bundler / gems
 /.bundle/

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "architecture_auditor"
 require_relative "model"
 require_relative "scores"
@@ -28,7 +29,11 @@ module Archbuddy
       # 1.1) — NIL for a 1.0 findings doc with no scores block (back-compat).
       # `connectivity` is the optional project-level connectivity scalar (findings
       # 1.3) — NIL when absent; no resolver needed (counts/ratios only, no opaque ids).
-      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, :connectivity, keyword_init: true) do
+      # `multiplexer_proxies` is the optional de-anonymized v0.7 smell list
+      # (findings 1.4 `scores.multiplexer_proxies`, worst-first) — an
+      # Array<Scores::MultiplexerProxy> when a scores block is present (possibly
+      # EMPTY = scored-but-no-proxy), NIL when absent (pre-1.4 / no scores block).
+      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, :connectivity, :multiplexer_proxies, keyword_init: true) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
         # resolver so repeated lookups don't rebuild the id-map wrapper each call.
         def resolve(id)
@@ -84,11 +89,49 @@ module Archbuddy
         end
       end
 
-      # Build a Reconnect from file paths (the CLI path).
+      # Build a Reconnect from file paths (the LEGACY opaque path): opaque
+      # findings.yml + the SECRET id-map.yml joined at READ time.
       def self.from_files(findings_path:, id_map_path:)
         new(
           findings_doc: Serializer.load(findings_path),
           id_map:       Serializer.load(id_map_path)
+        )
+      end
+
+      # R2-1: build a Result DIRECTLY from the COMMITTED, REAL-NAME root
+      # aggregate (`archbuddy-findings.json`) — the de-anon-at-write cache (CR-1).
+      # This is the DEFAULT report path: a fresh clone reads it with NO id-map
+      # (the committed layer is already real-name; the SECRET id-map stays
+      # gitignored and is NEVER consulted here). `id_map_path` is accepted but
+      # DEFAULTS TO NIL and is intentionally ignored on this path — the signature
+      # documents that the committed read needs no secret.
+      #
+      # The compact aggregate carries the headline dimension scores + the
+      # multiplexer_proxy smell + source POINTERS — NOT the per-node metric detail
+      # (that lives in the sharded tree and is not expanded for this surface, R11).
+      # So the Result's `bottlenecks` are empty here; `scores`/`multiplexer_proxies`/
+      # `connectivity` come straight from the real-name aggregate, VERBATIM.
+      def self.from_cache(aggregate_path:, id_map_path: nil) # rubocop:disable Lint/UnusedMethodArgument
+        doc = JSON.parse(File.read(aggregate_path))
+
+        # The COMMITTED aggregate shape differs from findings.yml: the headline
+        # dimension scores live under `scores` (grade + score, no opaque hotspot
+        # ids), and the multiplexer_proxy smell is a TOP-LEVEL, already-real-name
+        # `multiplexer_proxies` list (Cache::Writer). No resolver is needed — the
+        # doc is de-anonymized (CR-1). `nil` when the aggregate carries no smell
+        # block (a collect-only aggregate written before analyze).
+        smell =
+          if doc.key?("multiplexer_proxies")
+            Scores.multiplexer_proxies_from_committed(doc["multiplexer_proxies"])
+          end
+
+        Result.new(
+          bottlenecks:         [],
+          id_map:              {},
+          findings_doc:        doc,
+          scores:              Scores.from_findings(doc, nil),
+          connectivity:        Scores.connectivity_from_findings(doc),
+          multiplexer_proxies: smell
         )
       end
 
@@ -130,7 +173,11 @@ module Archbuddy
           scores:        Scores.from_findings(@findings_doc, @resolver),
           # Optional findings-1.3 connectivity scalar. NIL when absent (1.0/1.1/1.2
           # doc) — back-compat; no resolver needed (counts/ratios only, no opaque ids).
-          connectivity:  Scores.connectivity_from_findings(@findings_doc)
+          connectivity:  Scores.connectivity_from_findings(@findings_doc),
+          # Optional findings-1.4 multiplexer_proxy smell (worst-first, VERBATIM).
+          # On the legacy opaque findings path this resolves opaque node ids via
+          # the SAME resolver; NIL when absent, [] when scored-but-no-proxy.
+          multiplexer_proxies: Scores.multiplexer_proxies_from_findings(@findings_doc, @resolver)
         )
       end
 

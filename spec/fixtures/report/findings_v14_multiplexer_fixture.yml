@@ -1,0 +1,68 @@
+# Test fixture: findings 1.4 WITH scores.multiplexer_proxies (the v0.7 smell,
+# RICH {node, added_coupling} worst-first form — LEGACY opaque path). NOT a real
+# secret — invented opaque ids matching id_map_fixture.yml. Reuses the same node
+# ids so the existing id-map de-anonymizes them (Billing#charge is the worst
+# proxy, then User#save, then an ext_ sink ABSENT from the id-map → graceful
+# <external …> placeholder, no raise).
+schema_version: "1.4"
+generator:
+  tool: architecture-auditor test
+  adapter: ruby
+  capture: static
+nodes:
+  n_9806809c4b1f:
+    metrics:
+      path_length: 0
+      fan_in: 0
+      fan_out: 3
+      centrality: 0.10
+      instability: 1.0
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 9.5
+  n_e188e5adb49f:
+    metrics:
+      path_length: 2
+      fan_in: 42
+      fan_out: 1
+      centrality: 0.90
+      instability: 0.25
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 8.0
+  n_4452f2ecaf84:
+    metrics:
+      path_length: 1
+      fan_in: 2
+      fan_out: 1
+      centrality: 0.40
+      instability: 0.50
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 5.0
+findings:
+  - type: high_fan_in
+    severity: high
+    node: n_e188e5adb49f
+scores:
+  reverse_traceability:
+    score: 58
+    grade: D
+    hotspots:
+      - n_e188e5adb49f
+  forward_discoverability:
+    score: 72
+    grade: C
+    hotspots:
+      - n_9806809c4b1f
+  # RICH form, worst-first by added_coupling (VERBATIM — never re-ranked).
+  multiplexer_proxies:
+    - node: n_e188e5adb49f
+      added_coupling: 12.5
+    - node: n_4452f2ecaf84
+      added_coupling: 4.0
+    - node: ext_e4c31576a772
+      added_coupling: 1.0

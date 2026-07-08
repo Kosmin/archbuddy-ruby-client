@@ -1,0 +1,33 @@
+# Test fixture: findings 1.4 with an EMPTY scores.multiplexer_proxies list —
+# the honest "scored, but no proxy detected (or forward N/A)" case. The reporter
+# must render an explicit "(none)" note, NEVER a fabricated verdict, and NEVER
+# omit the section (that is the nil/absent case, not the empty case).
+schema_version: "1.4"
+generator:
+  tool: architecture-auditor test
+  adapter: ruby
+  capture: static
+nodes:
+  n_e188e5adb49f:
+    metrics:
+      path_length: 2
+      fan_in: 42
+      fan_out: 1
+      centrality: 0.90
+      instability: 0.25
+      in_cycle: 0
+      orphan: 0
+      dead: 0
+    clutter_score: 8.0
+findings: []
+scores:
+  reverse_traceability:
+    score: 20
+    grade: A
+    hotspots:
+      - n_e188e5adb49f
+  forward_discoverability:
+    score: 15
+    grade: A
+    hotspots: []
+  multiplexer_proxies: []

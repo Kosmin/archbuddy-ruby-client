@@ -26,6 +26,10 @@ Gem::Specification.new do |spec|
     # the gem or `gem install`ed copies raise Errno::ENOENT. A spec guards this.
     "lib/archbuddy/report/assets/cytoscape.min.js",
     "lib/archbuddy/report/assets/CYTOSCAPE_LICENSE",
+    # The AUDITED-repo .gitignore template shipped for the committed-cache flow
+    # (v0.8 R2-2) + the committing guide (R3-2).
+    "templates/audited-repo.gitignore",
+    "docs/COMMITTING_ARCHBUDDY.md",
     "exe/*",
     "README.md"
   ]

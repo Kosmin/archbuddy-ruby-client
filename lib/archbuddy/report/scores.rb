@@ -53,6 +53,46 @@ module Archbuddy
         end
       end
 
+      # R1: the de-anonymized presentation model for the v0.7 `multiplexer_proxy`
+      # smell (findings 1.4 `scores.multiplexer_proxies`). A multiplexer_proxy is
+      # a method whose forward-discoverability arms are so divergent that it acts
+      # as a hidden routing layer, ADDING coupling the call graph can't attribute
+      # to any one caller. The engine ranks them worst-first by `added_coupling`.
+      #
+      # The report renders these VERBATIM (D17) — the client NEVER recomputes the
+      # smell or its ranking. Two producer shapes are accepted:
+      #
+      #   * COMMITTED cache (real-name, the authoritative path): each entry is
+      #     `{ "symbol" => "Klass#meth", "added_coupling" => <num> }` — already
+      #     de-anonymized at WRITE time, so NO id-map/resolver is needed to read.
+      #   * LEGACY opaque findings.yml: each entry is `{ "node" => <opaque id>,
+      #     "added_coupling" => <num> }` — resolved via the SAME IdMapResolver used
+      #     everywhere else (graceful `<external …>` placeholder for a missing id).
+      #
+      # `added_coupling` is copied verbatim; the model only FORMATS it for display.
+      MultiplexerProxy = Struct.new(:location, :symbol, :added_coupling, keyword_init: true) do
+        # "7.5" when present; "" when the producer emitted no coupling scalar
+        # (an ids-only engine build — degrades gracefully, never fabricates a 0).
+        def coupling_display
+          return "" if added_coupling.nil?
+          return added_coupling.to_s if added_coupling.is_a?(Integer)
+
+          format("%.4f", added_coupling)
+        rescue TypeError
+          added_coupling.to_s
+        end
+
+        # "Klass#meth (app/x.rb:8)" when a Location resolved a file:line; the bare
+        # symbol otherwise (the committed real-name path carries no line, so it is
+        # symbol-only by design — line is display-only and stays in the id-map).
+        def where
+          return symbol if location.nil? || !location.resolved?
+
+          fl = location.file_line
+          fl.empty? ? symbol : "#{symbol} (#{fl})"
+        end
+      end
+
       # One dimension's de-anonymized presentation model. score/grade are
       # VERBATIM from findings.yml; hotspots are resolved Locations (worst-first).
       DimensionScore = Struct.new(
@@ -135,6 +175,60 @@ module Archbuddy
           scored_nodes: conn["scored_nodes"],
           total_nodes:  conn["total_nodes"]
         )
+      end
+
+      # R1: parse the OPTIONAL `scores.multiplexer_proxies` smell list (findings
+      # 1.4). Returns, in the engine's worst-first order (VERBATIM — never
+      # re-sorted):
+      #
+      #   * an Array<MultiplexerProxy> (possibly EMPTY) when a `scores` block
+      #     exists — [] means "scored, but no proxy / forward N/A" (NEVER a
+      #     fabricated verdict — the caller renders an explicit "(none)" note).
+      #   * NIL when there is no `scores` block at all (a 1.0/1.1/1.2/1.3 doc, or
+      #     a committed aggregate written before analyze) — the caller OMITS the
+      #     section entirely (absence, not emptiness).
+      #
+      # Accepts BOTH producer shapes: the committed real-name `{symbol, …}` entry
+      # (resolver not consulted — already de-anonymized at WRITE) and the legacy
+      # opaque `{node, …}` entry (resolved via the id-map). `resolver` may be nil
+      # on the committed path (there is no id-map to read).
+      #
+      # @param findings_doc [Hash] parsed findings/aggregate doc (string keys)
+      # @param resolver     [#resolve, nil] id → Model::Location (legacy path only)
+      # @return [Array<MultiplexerProxy>, nil]
+      def multiplexer_proxies_from_findings(findings_doc, resolver = nil)
+        block = (findings_doc || {})["scores"]
+        return nil if block.nil? || block.empty?
+        return nil unless block.key?("multiplexer_proxies")
+
+        (block["multiplexer_proxies"] || []).map do |proxy|
+          build_multiplexer_proxy(proxy, resolver)
+        end
+      end
+
+      # R2-1: parse the COMMITTED aggregate's TOP-LEVEL real-name smell list
+      # (Cache::Writer emits `multiplexer_proxies: [{symbol, added_coupling}]` at
+      # the doc root, worst-first). Already de-anonymized — no resolver, no
+      # id-map. `list` is the array (possibly []); returns Array<MultiplexerProxy>
+      # in the same worst-first order (VERBATIM).
+      def multiplexer_proxies_from_committed(list)
+        (list || []).map do |proxy|
+          MultiplexerProxy.new(location: nil, symbol: proxy["symbol"], added_coupling: proxy["added_coupling"])
+        end
+      end
+
+      # Build one MultiplexerProxy from either producer shape (VERBATIM order).
+      def build_multiplexer_proxy(proxy, resolver)
+        added = proxy["added_coupling"]
+
+        if proxy.key?("symbol")
+          # Committed real-name path: symbol is authoritative, no id-map needed.
+          MultiplexerProxy.new(location: nil, symbol: proxy["symbol"], added_coupling: added)
+        else
+          # Legacy opaque path: resolve the node id via the same id-map join.
+          loc = resolver ? resolver.resolve(proxy["node"]) : nil
+          MultiplexerProxy.new(location: loc, symbol: loc&.symbol || proxy["node"], added_coupling: added)
+        end
       end
 
       # Parse + de-anonymize the `scores` block. Returns an ordered Array of

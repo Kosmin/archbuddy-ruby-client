@@ -21,7 +21,22 @@ module Archbuddy
           # machine consumers get them too. Omitted entirely for a 1.0 doc
           # (context.scores nil) — back-compat with existing consumers.
           doc["scores"] = scores_hash(context.scores) if context.scores && !context.scores.empty?
+          # findings 1.4: the v0.7 multiplexer_proxy smell, worst-first (VERBATIM).
+          # Present the key whenever the doc carried a scores block (nil = absent →
+          # omitted; [] = scored-but-no-proxy → emitted as an empty array, an
+          # honest "none", never a fabricated verdict).
+          doc["multiplexer_proxies"] = multiplexer_proxies_array(context.multiplexer_proxies) \
+            unless context.multiplexer_proxies.nil?
           doc
+        end
+
+        # Worst-first array of {symbol, added_coupling} — added_coupling VERBATIM
+        # (raw scalar, not the formatted display string), omitted when the engine
+        # emitted no coupling (ids-only degrade). Order preserved (never re-sorted).
+        def multiplexer_proxies_array(proxies)
+          proxies.map do |proxy|
+            { "symbol" => proxy.symbol, "added_coupling" => proxy.added_coupling }.compact
+          end
         end
 
         # De-anonymized project scores keyed by dimension. score/grade VERBATIM;

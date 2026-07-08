@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require_relative "../cache"
 
 module Archbuddy
   module Collect
@@ -28,8 +29,12 @@ module Archbuddy
 
       # @param graph [Hash] opaque graph
       # @param id_map [Hash] secret id-map
-      # @return [Hash] { graph: <path>, id_map: <path> }
-      def emit(graph:, id_map:)
+      # @param committed [Boolean] also transcode+write the COMMITTED real-name
+      #   `.archbuddy/` cache (root aggregate + detail tree). Default true; the
+      #   opaque graph.yml + SECRET id-map.yml are still written (gitignored
+      #   internal interchange the engine `analyze` consumes).
+      # @return [Hash] { graph:, id_map:, committed: { aggregate:, fragments: } }
+      def emit(graph:, id_map:, committed: true)
         # D37: validate before writing — a non-conforming graph never reaches disk.
         Validator.validate!(:graph, graph)
 
@@ -44,7 +49,19 @@ module Archbuddy
         ensure_secret_ignored!(id_map_path)
         File.write(id_map_path, Serializer.dump(id_map))
 
-        { graph: graph_path, id_map: id_map_path }
+        result = { graph: graph_path, id_map: id_map_path }
+
+        # DE-ANON-AT-WRITE (C1-2): transcode opaque graph + SECRET id-map into the
+        # COMMITTED real-name, line-free layout under the audited project root.
+        # `findings: nil` at collect time — the structural aggregate carries the
+        # source pointers only; scores + the multiplexer_proxy list are folded in
+        # when the aggregate is re-transcoded post-analyze.
+        if committed
+          result[:committed] = Archbuddy::Cache::Writer.new(project_root: @project_root)
+                                                       .write(graph: graph, id_map: id_map)
+        end
+
+        result
       end
 
       private

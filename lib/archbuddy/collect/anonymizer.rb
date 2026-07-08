@@ -37,6 +37,17 @@ module Archbuddy
           node_id  = mint_node_id(raw)
           class_id = raw.class_rollup? ? class_id_for(raw) : nil
 
+          # FIRST-DEF-WINS (v0.8): dropping `line` from identity means two raws with
+          # the same (rel_file, symbol) now share a real_key and mint the SAME id.
+          # The SymbolTable already collapses same-fq source defs upstream, but we
+          # guard here too: the first def owns the id + its id-map (line) payload;
+          # a later same-key raw is NOT emitted as a duplicate graph node and does
+          # NOT overwrite the payload. This is a deterministic collapse, NOT a
+          # fabricated merge of two distinct methods.
+          if @id_for_key.key?(raw.real_key)
+            next
+          end
+
           @id_for_key[raw.real_key] = node_id
 
           node_hash = {
@@ -96,11 +107,13 @@ module Archbuddy
       def mint_node_id(raw)
         # The external sink has no real file/line; mint it as an ext_ id keyed by
         # its synthetic symbol so it is stable and matches the D41 regex.
+        # v0.8: identity is (rel_file, symbol) — NO line. `line` stays in the
+        # id-map DISPLAY payload only (below), never in the minted id.
         case raw.kind
         when "external"
-          Ids.external_id(raw.rel_file.to_s, raw.line.to_i, raw.symbol)
+          Ids.external_id(raw.rel_file.to_s, raw.symbol)
         else
-          Ids.node_id(raw.rel_file.to_s, raw.line.to_i, raw.symbol)
+          Ids.node_id(raw.rel_file.to_s, raw.symbol)
         end
       end
 
@@ -108,9 +121,11 @@ module Archbuddy
       # id-map (with kind:"class_rollup"). Returns the cls_ id; it is referenced
       # by nodes via class_id but NEVER added to graph nodes[] (D42).
       def class_id_for(raw)
-        key = "#{raw.class_rel_file}:#{raw.class_line}:#{raw.class_symbol}"
+        # v0.8: class identity is (class_rel_file, class_symbol) — NO class_line.
+        # The dedup key mirrors the engine canonical key (NUL-joined, line-free).
+        key = "#{raw.class_rel_file}\x00#{raw.class_symbol}"
         @class_ids[key] ||= begin
-          cls_id = Ids.class_id(raw.class_rel_file.to_s, raw.class_line.to_i, raw.class_symbol)
+          cls_id = Ids.class_id(raw.class_rel_file.to_s, raw.class_symbol)
           @id_map_ids[cls_id] = {
             "file"     => raw.class_rel_file,
             "line"     => raw.class_line,

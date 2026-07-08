@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
 require "prism"
+require "digest"
 require_relative "../adapter"
 require_relative "../raw"
+require_relative "../fragment"
+require_relative "../../cache/change_detector"
+require_relative "../../cache/reader"
 require_relative "ruby/file_enumerator"
 require_relative "ruby/symbol_table"
 require_relative "ruby/definition_pass"
@@ -28,16 +32,74 @@ module Archbuddy
         # for the whole graph; every unresolved call points here.
         EXTERNAL_SINK_SYMBOL = "<external>"
 
-        def collect
-          files  = Ruby::FileEnumerator.new(root, config).files
-          parsed = parse_all(files)
+        # v0.8 (C1-1/C2): the whole-project capture is a two-phase pipeline —
+        # a PER-FILE fragment builder (`collect_file_fragment`, the only per-file
+        # step, cacheable) + a GLOBAL `assemble` over all fragments (SymbolTable
+        # merge, resolution, edges, entrypoints — inherently cross-file).
+        #
+        # `mode`:
+        #   :full        (default) — parse every enumerated file (first run / reset)
+        #   :incremental (C2)      — reuse an UNCHANGED file's parse from the
+        #                            machine-local `.archbuddy/.cache/` (content-hash
+        #                            + collector-version gated); re-parse only
+        #                            changed files. `assemble` is UNCHANGED — it
+        #                            consumes fragments regardless of origin, so the
+        #                            incremental result == a full recompute for the
+        #                            changed set (the C2 reuse==recompute invariant).
+        #
+        # An empty/fully-stale cache in :incremental mode degrades to a FULL parse
+        # (every file misses the reuse gate) — NOT an empty graph.
+        #
+        # @param mode [Symbol] :full | :incremental
+        # @param base_ref [String, nil] optional git base ref (fast-path pre-filter)
+        def collect(mode: :full, base_ref: nil)
+          files = Ruby::FileEnumerator.new(root, config).files
 
+          fragments =
+            if mode == :incremental
+              collect_incremental(files, base_ref: base_ref)
+            else
+              files.map { |abs, rel_file| collect_file_fragment(abs, rel_file) }
+            end
+
+          assemble(fragments)
+        end
+
+        # PER-FILE cache unit (C1-1). A pure function of ONE file's bytes: parse
+        # it with Prism and capture the version-folded content hash (the C2 change
+        # trigger). Reads NO cross-file state. `abs` is the absolute source path;
+        # `rel_file` the repo-relative key. Returns a Collect::Fragment.
+        #
+        # `reader` (optional): when supplied, a hash-matching, version-matching
+        # cached parse is REUSED verbatim instead of re-parsing; a fresh parse is
+        # stored for next run. Same content_hash either way, so the fragment (and
+        # thus the assembled graph) is byte-identical to a re-parse.
+        def collect_file_fragment(abs, rel_file, reader: nil)
+          source = File.read(abs)
+          hash   = Cache::ChangeDetector.content_hash(source)
+
+          parsed = reader&.reuse(rel_file, hash)
+          if parsed.nil?
+            parsed = Prism.parse(source).value
+            reader&.store(rel_file, hash, parsed)
+          end
+
+          Fragment.new(rel_file: rel_file, content_hash: hash, parsed_value: parsed)
+        end
+
+        # GLOBAL assemble (C1-1). Runs the identical Pass-1 (definitions) + route
+        # catalogue + Pass-2 (resolution) over the fragments' parsed ASTs — in
+        # the fragments' given (deterministically-sorted) order — then builds the
+        # neutral Raw* AdapterResult. Byte-identical to the old whole-project body
+        # for the same fragment set (the C1-1 parity contract). `#collect`'s public
+        # return type (AdapterResult) is unchanged so `cli/collect.rb` keeps working.
+        def assemble(fragments)
           table = Ruby::SymbolTable.new
-          run_definition_pass(parsed, table)
-          run_route_catalogue(parsed, table)  # W4: seed routed actions before entrypoints
+          run_definition_pass(fragments, table)
+          run_route_catalogue(fragments, table)  # W4: seed routed actions before entrypoints
 
           acc = Ruby::Accumulator.new
-          run_resolution_pass(parsed, table, acc)
+          run_resolution_pass(fragments, table, acc)
 
           # Build nodes first, indexing each by its fq symbol -> real_key so edges
           # and entrypoints reference the exact same keys.
@@ -69,15 +131,39 @@ module Archbuddy
 
         private
 
-        def parse_all(files)
+        # C2 incremental build: reuse unchanged files' parses from the speed
+        # cache, re-parse only changed files. The candidate set is (optionally)
+        # narrowed by a git-diff fast path, but the content hash + collector
+        # version in the Reader gate is AUTHORITATIVE — a file the fast path did
+        # not flag but whose cache blob misses (hash/version mismatch, or no blob)
+        # is still re-parsed via `collect_file_fragment`. Deleted files simply
+        # never enumerate, so their fragments are dropped. The Reader stores every
+        # fresh parse, so the NEXT run can reuse it.
+        def collect_incremental(files, base_ref: nil)
+          reader   = Cache::Reader.new(project_root: incremental_project_root)
+          detector = Cache::ChangeDetector.new(project_root: incremental_project_root)
+
+          enumerated  = files.map { |_abs, rel| rel }
+          # Fast-path pre-filter is advisory: it may shrink which files we bother
+          # to hash, but every enumerated file still gets a fragment (reused or
+          # re-parsed) so `assemble` sees the WHOLE tree, never a partial graph.
+          _candidates = detector.candidate_files(enumerated, base_ref: base_ref)
+
           files.map do |abs, rel_file|
-            { rel_file: rel_file, value: Prism.parse(File.read(abs)).value }
+            collect_file_fragment(abs, rel_file, reader: reader)
           end
         end
 
-        def run_definition_pass(parsed, table)
-          parsed.each do |entry|
-            entry[:value].accept(Ruby::DefinitionPass.new(table, entry[:rel_file]))
+        # The audited project root for the machine-local `.cache/`. The adapter's
+        # `root` may be a file or a dir; use its directory so `.archbuddy/.cache/`
+        # anchors at the repo root the CLI runs in (CWD-relative, matching collect).
+        def incremental_project_root
+          File.directory?(root) ? root : File.dirname(root)
+        end
+
+        def run_definition_pass(fragments, table)
+          fragments.each do |fragment|
+            fragment.parsed_value.accept(Ruby::DefinitionPass.new(table, fragment.rel_file))
           end
         end
 
@@ -85,18 +171,18 @@ module Archbuddy
         # selects (only acts on files containing routes.draw blocks) and seeds
         # (controller_fq, action) pairs into the SymbolTable only when the method
         # already exists there (L2 never-fabricate gate inside the catalogue).
-        def run_route_catalogue(parsed, table)
-          parsed.each do |entry|
-            entry[:value].accept(Ruby::RouteCatalogue.new(table, entry[:rel_file]))
+        def run_route_catalogue(fragments, table)
+          fragments.each do |fragment|
+            fragment.parsed_value.accept(Ruby::RouteCatalogue.new(table, fragment.rel_file))
           end
         end
 
-        def run_resolution_pass(parsed, table, acc)
+        def run_resolution_pass(fragments, table, acc)
           # Build the config-selected probes ONCE (stateless; reused per file).
           # Empty in the seam wave (ProbeRegistry::PROBES == []) -> [] -> no-op.
           probes = Ruby::ProbeRegistry.for(config)
-          parsed.each do |entry|
-            entry[:value].accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
+          fragments.each do |fragment|
+            fragment.parsed_value.accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
           end
         end
 

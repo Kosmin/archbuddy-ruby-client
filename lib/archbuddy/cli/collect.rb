@@ -3,6 +3,7 @@
 require "dry/cli"
 require "fileutils"
 require_relative "../collect"
+require_relative "../cache/checker"
 
 module Archbuddy
   module CLI
@@ -26,8 +27,24 @@ module Archbuddy
                                   desc: "Additional entrypoint fq-symbol regex(es)"
       option :probes, default: "all",
                       desc: "Framework probe selection: all|none|comma,list (e.g. grape,sidekiq_dispatch)"
+      option :changed, type: :boolean, default: false,
+                       desc: "Incremental collect: reuse unchanged files' cached parse, re-parse only changed"
+      option :base_ref, type: :string, default: nil,
+                        desc: "Optional git base ref for the --changed fast-path pre-filter (e.g. origin/main)"
+      option :check, type: :boolean, default: false,
+                     desc: "CI staleness gate: regenerate the committed cache + assert it matches what is committed (git diff). Exit 1 on drift, 2 when there is no committed baseline."
 
-      def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all", out_dir: nil, **)
+      def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all",
+               out_dir: nil, changed: false, base_ref: nil, check: false, **)
+        # R3-1: `--check` is the CI staleness gate. It regenerates the committed
+        # cache (a full re-collect) and asserts it matches what is committed via
+        # `git diff`, exiting non-zero on drift and LOUD (exit 2) when there is no
+        # committed baseline at all — never a vacuous pass. Delegated to
+        # Cache::Checker (baseline + diff policy) with the regenerate step
+        # injected, so this command owns only the wiring.
+        if check
+          exit run_check(path, language, entrypoints, entrypoint_pattern, probes)
+        end
         # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
         # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
@@ -49,9 +66,13 @@ module Archbuddy
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)
+        # C2: --changed selects the incremental collect (reuse unchanged files'
+        # cached parse from the machine-local .archbuddy/.cache/, re-parse only
+        # changed). Default :full parses everything (first run / reset).
+        collect_mode   = changed ? :incremental : :full
         adapter_result =
           begin
-            adapter.collect
+            adapter.collect(mode: collect_mode, base_ref: base_ref)
           rescue Archbuddy::Collect::Adapters::Ruby::FileEnumerator::NoSourceError => e
             warn "error: #{e.message}"
             exit 1
@@ -99,21 +120,67 @@ module Archbuddy
 
       private
 
-      # When the DEFAULT `.archbuddy/` workspace is used inside a git repo,
-      # ensure it is locally ignored so the secret id-map can be written safely.
-      # We append `.archbuddy/` to `.git/info/exclude` — a LOCAL ignore that does
-      # NOT modify the user's tracked `.gitignore`. Idempotent: never duplicates
-      # the line, and a no-op if `.archbuddy/` is already ignored by any means
-      # (e.g. the user's own .gitignore). Outside a git repo we do nothing (there
-      # is no commit risk; the Emitter's filename fallback still covers the secret).
+      # R3-1: regenerate the committed cache in place (a full re-collect +
+      # de-anon-at-write), then let Cache::Checker apply the baseline + git-diff
+      # policy and return the process exit code (0 clean / 1 drift / 2 no
+      # baseline). NEVER reads the SECRET id-map — the committed cache is
+      # real-name and the check only touches source + committed cache + git.
+      def run_check(path, language, entrypoints, entrypoint_pattern, probes)
+        checker = Archbuddy::Cache::Checker.new(project_root: Dir.pwd)
+        checker.check do
+          # Full re-collect (NOT --changed): re-hash + re-parse every file so a
+          # stale committed fragment can't survive behind a matching speed-cache
+          # blob. This rewrites the committed aggregate + detail tree; a
+          # collect-only regenerate preserves the committed scores block.
+          call(
+            path: path, language: language, entrypoints: entrypoints,
+            entrypoint_pattern: entrypoint_pattern, probes: probes,
+            out_dir: nil, changed: false, base_ref: nil, check: false
+          )
+        end
+      end
+
+      # v0.8 (C1-3): the SECRET sub-paths that must NEVER be committed in an
+      # AUDITED repo. The committed layout (archbuddy-findings.json + the
+      # `.archbuddy/<mirrored-source>` detail tree) is intentionally LEFT
+      # STAGEABLE so a PR shows its score-delta (L1/L5). We therefore narrow the
+      # local exclude from the whole `.archbuddy/` dir to ONLY:
+      #   - `.archbuddy/id-map.yml`  — the SECRET real↔opaque map
+      #   - `.archbuddy/.cache/`     — the machine-local speed cache (re-derivable)
+      #   - the opaque interchange graph.yml/findings.yml (never committed)
+      #   - de-anonymized report.* exports (real symbols — secret/local-only)
+      SECRET_EXCLUDE_PATHS = [
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/id-map.yml",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/.cache/",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/graph.yml",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/findings.yml",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/report.*"
+      ].freeze
+
+      # When the DEFAULT `.archbuddy/` workspace is used inside a git repo, ensure
+      # the SECRET sub-paths are locally ignored so the id-map can be written
+      # safely — WITHOUT ignoring the committable real-name cache. We append the
+      # narrow SECRET paths to `.git/info/exclude` (a LOCAL ignore that does NOT
+      # modify the user's tracked `.gitignore`). Idempotent per line, and each
+      # line is skipped if already ignored by any means (e.g. the user's own
+      # `.gitignore` already ignores the whole dir — a dogfood repo). Outside a
+      # git repo we do nothing (no commit risk; the Emitter's filename fallback
+      # still covers the secret).
       def ensure_default_workspace_excluded!
-        dir = Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
         return unless git_repo?
-        return if path_ignored?(dir)
 
         exclude_file = File.join(git_dir, "info", "exclude")
         FileUtils.mkdir_p(File.dirname(exclude_file))
-        line = "#{dir}/"
+
+        SECRET_EXCLUDE_PATHS.each do |line|
+          append_exclude_line(exclude_file, line)
+        end
+      end
+
+      # Append one exclude line idempotently; skip if the target is already
+      # ignored (by the tracked .gitignore, a prior run, etc.).
+      def append_exclude_line(exclude_file, line)
+        return if path_ignored?(line.chomp("/").chomp("*").chomp("."))
 
         existing = File.exist?(exclude_file) ? File.read(exclude_file) : ""
         return if existing.split("\n").map(&:strip).include?(line) # idempotent
@@ -122,7 +189,7 @@ module Archbuddy
           f.print("\n") unless existing.empty? || existing.end_with?("\n")
           f.puts(line)
         end
-        warn "note: added '#{line}' to .git/info/exclude (local-only) so the SECRET id-map stays uncommitted"
+        warn "note: added '#{line}' to .git/info/exclude (local-only) so the SECRET stays uncommitted"
       end
 
       def git_repo?

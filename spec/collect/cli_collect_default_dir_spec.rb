@@ -56,28 +56,38 @@ RSpec.describe "Archbuddy::CLI::Collect default `.archbuddy/` workspace" do
     end
   end
 
-  it "auto-adds `.archbuddy/` to .git/info/exclude and writes the id-map (git repo)" do
+  # C1-3: the local exclude is NARROWED to the SECRET sub-paths so the committed
+  # real-name cache (archbuddy-findings.json + the .archbuddy/<mirrored> detail
+  # tree) stays STAGEABLE, while id-map.yml + .cache/ + the opaque interchange
+  # stay ignored.
+  it "narrows .git/info/exclude to SECRET sub-paths; id-map ignored, committed cache stageable" do
     Dir.mktmpdir do |dir|
       system("git", "init", "-q", chdir: dir)
 
       err = nil
       run_collect_in(dir, source: HAS_ENTRYPOINT_SRC) { |e| err = e }
 
-      exclude = File.join(dir, ".git", "info", "exclude")
-      expect(File.read(exclude)).to include(".archbuddy/")
+      exclude = File.read(File.join(dir, ".git", "info", "exclude"))
+      expect(exclude).to include(".archbuddy/id-map.yml")
+      expect(exclude).to include(".archbuddy/.cache/")
+      # NOT the whole dir (that would hide the committed cache)
+      expect(exclude.split("\n").map(&:strip)).not_to include(".archbuddy/")
       expect(err).to include(".git/info/exclude")
 
-      # The id-map was written AND is now git-ignored.
-      id_map = File.join(dir, ".archbuddy", "id-map.yml")
-      expect(File).to exist(id_map)
       Dir.chdir(dir) do
+        # SECRET is ignored
         system("git", "check-ignore", "-q", ".archbuddy/id-map.yml")
-        expect($?.success?).to be(true)
+        expect($?.success?).to be(true), "id-map.yml must stay ignored"
+        # committed real-name cache is NOT ignored (stageable)
+        system("git", "check-ignore", "-q", "archbuddy-findings.json")
+        expect($?.success?).to be(false), "archbuddy-findings.json must be committable"
+        system("git", "check-ignore", "-q", ".archbuddy/lib.rb.json")
+        expect($?.success?).to be(false), "a committed fragment must be committable"
       end
     end
   end
 
-  it "is idempotent — a 2nd run does not duplicate the exclude line" do
+  it "is idempotent — a 2nd run does not duplicate the secret exclude lines" do
     Dir.mktmpdir do |dir|
       system("git", "init", "-q", chdir: dir)
 
@@ -85,7 +95,7 @@ RSpec.describe "Archbuddy::CLI::Collect default `.archbuddy/` workspace" do
       run_collect_in(dir, source: HAS_ENTRYPOINT_SRC)
 
       exclude = File.read(File.join(dir, ".git", "info", "exclude"))
-      occurrences = exclude.split("\n").count { |l| l.strip == ".archbuddy/" }
+      occurrences = exclude.split("\n").count { |l| l.strip == ".archbuddy/id-map.yml" }
       expect(occurrences).to eq(1)
     end
   end
