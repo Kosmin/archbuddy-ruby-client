@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require "prism"
+require "digest"
 require_relative "../adapter"
 require_relative "../raw"
+require_relative "../fragment"
 require_relative "ruby/file_enumerator"
 require_relative "ruby/symbol_table"
 require_relative "ruby/definition_pass"
@@ -28,16 +30,50 @@ module Archbuddy
         # for the whole graph; every unresolved call points here.
         EXTERNAL_SINK_SYMBOL = "<external>"
 
+        # v0.8 (C1-1): the whole-project capture is now a two-phase pipeline —
+        # a PER-FILE fragment builder (`collect_file_fragment`, the only per-file
+        # step, cacheable) + a GLOBAL `assemble` over all fragments (SymbolTable
+        # merge, resolution, edges, entrypoints — inherently cross-file). This
+        # method is the FULL driver: enumerate deterministically, build a
+        # fragment per file, assemble them all. `assemble(all fragments)` is
+        # byte-identical to the pre-split whole-project `collect` (parity spec).
+        #
+        # C2 layers incremental reuse on top by swapping `collect_file_fragment`
+        # for a cached fragment when the content hash matches — `assemble` is
+        # unchanged (it consumes fragments regardless of how they were produced).
         def collect
-          files  = Ruby::FileEnumerator.new(root, config).files
-          parsed = parse_all(files)
+          files     = Ruby::FileEnumerator.new(root, config).files
+          fragments = files.map { |abs, rel_file| collect_file_fragment(abs, rel_file) }
+          assemble(fragments)
+        end
 
+        # PER-FILE cache unit (C1-1). A pure function of ONE file's bytes: parse
+        # it with Prism and capture the content hash (the C2 change trigger).
+        # Reads NO cross-file state — definitions/resolution/edges are derived
+        # globally in `assemble`. `abs` is the absolute source path; `rel_file`
+        # the repo-relative key. Returns a Collect::Fragment.
+        def collect_file_fragment(abs, rel_file)
+          source = File.read(abs)
+          Fragment.new(
+            rel_file:     rel_file,
+            content_hash: Digest::SHA256.hexdigest(source),
+            parsed_value: Prism.parse(source).value
+          )
+        end
+
+        # GLOBAL assemble (C1-1). Runs the identical Pass-1 (definitions) + route
+        # catalogue + Pass-2 (resolution) over the fragments' parsed ASTs — in
+        # the fragments' given (deterministically-sorted) order — then builds the
+        # neutral Raw* AdapterResult. Byte-identical to the old whole-project body
+        # for the same fragment set (the C1-1 parity contract). `#collect`'s public
+        # return type (AdapterResult) is unchanged so `cli/collect.rb` keeps working.
+        def assemble(fragments)
           table = Ruby::SymbolTable.new
-          run_definition_pass(parsed, table)
-          run_route_catalogue(parsed, table)  # W4: seed routed actions before entrypoints
+          run_definition_pass(fragments, table)
+          run_route_catalogue(fragments, table)  # W4: seed routed actions before entrypoints
 
           acc = Ruby::Accumulator.new
-          run_resolution_pass(parsed, table, acc)
+          run_resolution_pass(fragments, table, acc)
 
           # Build nodes first, indexing each by its fq symbol -> real_key so edges
           # and entrypoints reference the exact same keys.
@@ -69,15 +105,9 @@ module Archbuddy
 
         private
 
-        def parse_all(files)
-          files.map do |abs, rel_file|
-            { rel_file: rel_file, value: Prism.parse(File.read(abs)).value }
-          end
-        end
-
-        def run_definition_pass(parsed, table)
-          parsed.each do |entry|
-            entry[:value].accept(Ruby::DefinitionPass.new(table, entry[:rel_file]))
+        def run_definition_pass(fragments, table)
+          fragments.each do |fragment|
+            fragment.parsed_value.accept(Ruby::DefinitionPass.new(table, fragment.rel_file))
           end
         end
 
@@ -85,18 +115,18 @@ module Archbuddy
         # selects (only acts on files containing routes.draw blocks) and seeds
         # (controller_fq, action) pairs into the SymbolTable only when the method
         # already exists there (L2 never-fabricate gate inside the catalogue).
-        def run_route_catalogue(parsed, table)
-          parsed.each do |entry|
-            entry[:value].accept(Ruby::RouteCatalogue.new(table, entry[:rel_file]))
+        def run_route_catalogue(fragments, table)
+          fragments.each do |fragment|
+            fragment.parsed_value.accept(Ruby::RouteCatalogue.new(table, fragment.rel_file))
           end
         end
 
-        def run_resolution_pass(parsed, table, acc)
+        def run_resolution_pass(fragments, table, acc)
           # Build the config-selected probes ONCE (stateless; reused per file).
           # Empty in the seam wave (ProbeRegistry::PROBES == []) -> [] -> no-op.
           probes = Ruby::ProbeRegistry.for(config)
-          parsed.each do |entry|
-            entry[:value].accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
+          fragments.each do |fragment|
+            fragment.parsed_value.accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
           end
         end
 
