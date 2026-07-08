@@ -215,8 +215,12 @@ archbuddy report --format html > .archbuddy/report.html
 open .archbuddy/report.html   # macOS; or just open the file in any browser
 ```
 
-- The graph nodes come from `graph.yml` (`--graph` defaults to `.archbuddy/graph.yml`); **without a
-  graph the scores header + bottleneck table still render** (with a visible notice — no crash).
+- **Default (from the committed cache): the graph is built from the committed REAL-NAME detail tree**
+  (`.archbuddy/<mirrored-source>` fragments), so `archbuddy report` with no args renders a clean
+  **real-name, external-excluded, clutter-ranked** call graph **with no id-map** (a fresh clone works).
+  On the legacy opaque path the graph nodes come from `graph.yml` (`--graph` defaults to
+  `.archbuddy/graph.yml`), de-anonymized via the SECRET id-map. Either way, **without a graph the scores
+  header + bottleneck table still render** (with a visible notice — no crash).
 - Graph controls: toggle labels between **real symbols ↔ opaque ids** (defaults to real, since this is
   the local view), highlight each dimension's hotspots, switch built-in layout (cose/grid/breadthfirst/
   circle), recolor nodes by metric, and click a node (or a table row) to inspect its file:line, kind,
@@ -282,8 +286,12 @@ archbuddy reset PATH  # full re-collect + analyze from scratch (first run / mode
 - **`analyze`** — run the engine on `graph.yml` → `findings.yml` (opaque), then **de-anonymize at write
   time** into the committed real-name aggregate (headline scores + the `multiplexer_proxy` smell).
 - **`report`** — render from the COMMITTED real-name cache **directly, with no id-map** (a fresh clone
-  works). Falls back to the legacy opaque `findings.yml` + `id-map.yml` when there is no committed cache
-  or an explicit `FINDINGS_YML` is given. Surfaces the `multiplexer_proxy` smell across every formatter.
+  works). As of **v0.8** the default report also builds its interactive graph from the committed
+  **real-name detail tree** (reassembled across shards), so the graph shows **real method names**,
+  excludes `<external>` sinks, and ranks by the committed clutter (`multiplexer_proxy`) — no id-map, no
+  opaque node labels. Falls back to the legacy opaque `findings.yml` + `id-map.yml` (graph via
+  `--graph`) when there is no committed cache or an explicit `FINDINGS_YML` is given. Surfaces the
+  `multiplexer_proxy` smell across every formatter.
 - **`reset PATH`** — full re-collect (ignoring the speed cache) + `analyze` from scratch. Use on first
   run or when the scoring model changes.
 
