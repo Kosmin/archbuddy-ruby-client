@@ -2,6 +2,7 @@
 
 require "fileutils"
 require "set"
+require "json"
 require_relative "canonical_json"
 require_relative "layout"
 
@@ -190,6 +191,8 @@ module Archbuddy
       # --- root aggregate (compact: scores + smell + POINTERS) -----------------
 
       def write_aggregate(pointers, findings, resolver)
+        rel = Layout::ROOT_AGGREGATE
+
         doc = {
           "serializer_version" => SERIALIZER_VERSION,
           # POINTERS into the detail tree — payload NOT inlined (stays small).
@@ -197,14 +200,39 @@ module Archbuddy
         }
 
         if findings
+          # analyze/reset path: fold in the fresh de-anonymized scores + smell.
           scores = findings["scores"]
-          doc["scores"]              = headline_scores(scores)             if scores
-          doc["multiplexer_proxies"] = deanon_proxies(scores, resolver)    if scores
+          if scores
+            doc["scores"]              = headline_scores(scores)
+            doc["multiplexer_proxies"] = deanon_proxies(scores, resolver)
+          end
+        else
+          # collect path (no findings yet): PRESERVE any scores + smell already
+          # committed by a prior analyze/reset, so a plain `collect` (e.g. an
+          # incremental re-collect after a cosmetic edit) refreshes only the
+          # structural pointers and does NOT clobber the aggregate's score block
+          # — the C1 blank-line-clean invariant holds for the SAME committed doc.
+          preserve_existing_scores(rel, doc)
         end
 
-        rel = Layout::ROOT_AGGREGATE
         write_file(rel, CanonicalJson.dump(doc))
         rel
+      end
+
+      # Carry forward the scores + multiplexer_proxies from an already-committed
+      # aggregate (written by a previous analyze/reset) when the current write is
+      # a collect-only (findings nil). No-op if there is no prior aggregate or it
+      # carries no scores.
+      def preserve_existing_scores(rel, doc)
+        abs = File.join(@project_root, rel)
+        return unless File.exist?(abs)
+
+        prior = JSON.parse(File.read(abs))
+        doc["scores"]              = prior["scores"]              if prior.key?("scores")
+        doc["multiplexer_proxies"] = prior["multiplexer_proxies"] if prior.key?("multiplexer_proxies")
+      rescue StandardError
+        # A corrupt/absent prior aggregate → just write the structural doc.
+        nil
       end
 
       # Headline (compact) dimension scores — grade + score numbers only; drop

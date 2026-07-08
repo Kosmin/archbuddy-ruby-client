@@ -98,6 +98,32 @@ RSpec.describe Archbuddy::Cache::Writer do
     end
   end
 
+  # A collect-only re-write (findings: nil) must PRESERVE the scores +
+  # multiplexer_proxy block a prior analyze/reset committed — so a plain collect
+  # after an analyze does NOT clobber the aggregate's score block (which would
+  # trip --check and break the blank-line-clean invariant for the real flow).
+  it "preserves an existing aggregate's scores when re-written by a collect-only pass" do
+    Dir.mktmpdir do |dir|
+      findings = {
+        "scores" => {
+          "forward_discoverability" => { "grade" => "C", "score" => 60.0 },
+          "reverse_traceability"    => { "grade" => "D", "score" => 50.0 },
+          "multiplexer_proxies"     => []
+        }
+      }
+      # analyze/reset write (with findings) → rich aggregate.
+      write_into(dir, findings: findings)
+      rich = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(rich).to have_key("scores")
+
+      # collect-only re-write (findings: nil) → scores PRESERVED byte-identically.
+      write_into(dir, findings: nil)
+      after = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(after["scores"]).to eq(rich["scores"])
+      expect(after["multiplexer_proxies"]).to eq(rich["multiplexer_proxies"])
+    end
+  end
+
   it "produces byte-identical committed output across two runs (determinism)" do
     Dir.mktmpdir do |dir|
       write_into(dir)
