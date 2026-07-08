@@ -99,21 +99,47 @@ module Archbuddy
 
       private
 
-      # When the DEFAULT `.archbuddy/` workspace is used inside a git repo,
-      # ensure it is locally ignored so the secret id-map can be written safely.
-      # We append `.archbuddy/` to `.git/info/exclude` — a LOCAL ignore that does
-      # NOT modify the user's tracked `.gitignore`. Idempotent: never duplicates
-      # the line, and a no-op if `.archbuddy/` is already ignored by any means
-      # (e.g. the user's own .gitignore). Outside a git repo we do nothing (there
-      # is no commit risk; the Emitter's filename fallback still covers the secret).
+      # v0.8 (C1-3): the SECRET sub-paths that must NEVER be committed in an
+      # AUDITED repo. The committed layout (archbuddy-findings.json + the
+      # `.archbuddy/<mirrored-source>` detail tree) is intentionally LEFT
+      # STAGEABLE so a PR shows its score-delta (L1/L5). We therefore narrow the
+      # local exclude from the whole `.archbuddy/` dir to ONLY:
+      #   - `.archbuddy/id-map.yml`  — the SECRET real↔opaque map
+      #   - `.archbuddy/.cache/`     — the machine-local speed cache (re-derivable)
+      #   - the opaque interchange graph.yml/findings.yml (never committed)
+      #   - de-anonymized report.* exports (real symbols — secret/local-only)
+      SECRET_EXCLUDE_PATHS = [
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/id-map.yml",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/.cache/",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/graph.yml",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/findings.yml",
+        "#{Archbuddy::Collect::DEFAULT_WORKSPACE_DIR}/report.*"
+      ].freeze
+
+      # When the DEFAULT `.archbuddy/` workspace is used inside a git repo, ensure
+      # the SECRET sub-paths are locally ignored so the id-map can be written
+      # safely — WITHOUT ignoring the committable real-name cache. We append the
+      # narrow SECRET paths to `.git/info/exclude` (a LOCAL ignore that does NOT
+      # modify the user's tracked `.gitignore`). Idempotent per line, and each
+      # line is skipped if already ignored by any means (e.g. the user's own
+      # `.gitignore` already ignores the whole dir — a dogfood repo). Outside a
+      # git repo we do nothing (no commit risk; the Emitter's filename fallback
+      # still covers the secret).
       def ensure_default_workspace_excluded!
-        dir = Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
         return unless git_repo?
-        return if path_ignored?(dir)
 
         exclude_file = File.join(git_dir, "info", "exclude")
         FileUtils.mkdir_p(File.dirname(exclude_file))
-        line = "#{dir}/"
+
+        SECRET_EXCLUDE_PATHS.each do |line|
+          append_exclude_line(exclude_file, line)
+        end
+      end
+
+      # Append one exclude line idempotently; skip if the target is already
+      # ignored (by the tracked .gitignore, a prior run, etc.).
+      def append_exclude_line(exclude_file, line)
+        return if path_ignored?(line.chomp("/").chomp("*").chomp("."))
 
         existing = File.exist?(exclude_file) ? File.read(exclude_file) : ""
         return if existing.split("\n").map(&:strip).include?(line) # idempotent
@@ -122,7 +148,7 @@ module Archbuddy
           f.print("\n") unless existing.empty? || existing.end_with?("\n")
           f.puts(line)
         end
-        warn "note: added '#{line}' to .git/info/exclude (local-only) so the SECRET id-map stays uncommitted"
+        warn "note: added '#{line}' to .git/info/exclude (local-only) so the SECRET stays uncommitted"
       end
 
       def git_repo?
