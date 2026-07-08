@@ -140,16 +140,24 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     end
   end
 
-  # --- ext_/missing id graceful de-anon on a graph node -----------------------
+  # --- external sinks are EXCLUDED from the graph viz -------------------------
+  # v0.8.1: <external> sink nodes (kind "external" / ext_ ids) are the app's
+  # boundary — they carry no findings and their high fan-in rendered as giant
+  # converging wedges over opaque `<external …>` labels. They are excluded from
+  # the graph node set (their inbound edges drop with them). They still appear in
+  # the findings/scores — this is a VIZ-only exclusion.
 
-  it "renders an ext_/missing id graph node as a graceful <external …>" do
+  it "excludes ext_/external sink nodes from the graph viz" do
     html = render(findings: v11_yml, graph: graph_doc)
     json_blob = html[/<script id="archbuddy-data"[^>]*>(.*?)<\/script>/m, 1]
     data = JSON.parse(json_blob.gsub('<\/', "</"))
-    ext = data["nodes"].find { |n| n["id"] == "ext_e4c31576a772" }
-    expect(ext).not_to be_nil
-    expect(ext["resolved"]).to be(false)
-    expect(ext["symbol"]).to include("<external")
+    expect(data["nodes"].find { |n| n["id"] == "ext_e4c31576a772" }).to be_nil
+    # No true external-SINK id (ext_) survives in the graph node set. (An unresolved
+    # real `n_` node may still carry the "external" fallback KIND — that's a display
+    # label, not a sink; the sink-id exclusion is what kills the fan-in flood.)
+    expect(data["nodes"].none? { |n| n["id"].to_s.start_with?("ext_") }).to be(true)
+    # ...and its inbound edges drop with it (no edge references the excluded id)
+    expect(data["edges"].none? { |e| e["from"] == "ext_e4c31576a772" || e["to"] == "ext_e4c31576a772" }).to be(true)
   end
 
   # --- no-graph degradation ---------------------------------------------------
@@ -445,7 +453,7 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       data = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 2))
 
       expect(data["nodes"].size).to eq(2)
-      expect(data["node_cap"]).to eq("shown" => 2, "total" => 6)
+      expect(data["node_cap"]).to eq("shown" => 2, "total" => 5)
       # every surviving edge references only surviving nodes (no dangling endpoints)
       kept = data["nodes"].map { |n| n["id"] }
       data["edges"].each do |e|
@@ -463,7 +471,7 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
 
     it "shows an honest 'top N of M' banner only when actually capped" do
       capped = render(findings: v11_yml, graph: graph_doc, max_nodes: 2)
-      expect(capped).to include("top 2 of 6 nodes")
+      expect(capped).to include("top 2 of 5 nodes")
 
       uncapped = render(findings: v11_yml, graph: graph_doc, max_nodes: 0)
       expect(uncapped).not_to include("nodes by clutter score")
@@ -472,9 +480,9 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     it "renders all nodes when the cap is 0 (unlimited) or >= node count" do
       all_zero = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 0))
       all_big  = graph_data(render(findings: v11_yml, graph: graph_doc, max_nodes: 999))
-      expect(all_zero["nodes"].size).to eq(6)
+      expect(all_zero["nodes"].size).to eq(5) # 6 fixture nodes − 1 excluded external sink
       expect(all_zero["node_cap"]).to be_nil
-      expect(all_big["nodes"].size).to eq(6)
+      expect(all_big["nodes"].size).to eq(5)
     end
   end
 end
