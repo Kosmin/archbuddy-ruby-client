@@ -23,27 +23,37 @@ module Archbuddy
     # the steady-state counterpart to `reset`: `reset` forces a full re-collect
     # first, then delegates the analyze+transcode here.
     #
-    # PATH is accepted for symmetry with collect/reset but is NOT re-collected —
-    # analyze scores whatever `collect` last produced. Pass nothing to score the
-    # current `.archbuddy/graph.yml`.
+    # PATH is the TARGET repo root (default: CWD). analyze scores whatever
+    # `collect` last produced UNDER THAT TARGET's `.archbuddy/` workspace and
+    # writes the committed cache to the TARGET repo — NOT the current working
+    # directory (W1). It is NOT re-collected here. Pass nothing to score the
+    # current directory's `.archbuddy/graph.yml`.
     class Analyze < Dry::CLI::Command
       desc "Score the collected graph + write the committed real-name cache (engine analyze + de-anon-at-write)"
 
-      argument :path, required: false, desc: "(unused — analyze scores the graph.yml collect produced)"
+      argument :path, required: false, desc: "Target repo root whose .archbuddy/ workspace to score (default: CWD)"
 
-      def call(**)
-        workspace    = Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
+      def call(path: nil, **)
+        # W1: honor the TARGET path arg — resolve the committed cache + workspace
+        # under the target repo, not Dir.pwd. Default to CWD when no arg (the
+        # existing default-workspace behavior is preserved).
+        target_root  = File.expand_path(path || Dir.pwd)
+        workspace    = File.join(target_root, Archbuddy::Collect::DEFAULT_WORKSPACE_DIR)
         graph_yml    = File.join(workspace, "graph.yml")
         id_map_yml   = File.join(workspace, "id-map.yml")
         findings_yml = File.join(workspace, "findings.yml")
 
         unless File.exist?(graph_yml)
-          warn "error: no #{graph_yml} — run `archbuddy collect .` (or `archbuddy reset .`) first."
+          # Show a repo-relative workspace path when the target IS the CWD (the
+          # common case) so the hint reads cleanly; absolute only for a remote
+          # target arg.
+          display = graph_yml.start_with?("#{Dir.pwd}/") ? graph_yml.sub("#{Dir.pwd}/", "") : graph_yml
+          warn "error: no #{display} — run `archbuddy collect .` (or `archbuddy reset .`) first."
           exit 1
         end
 
         run_engine_analyze(graph_yml, findings_yml)
-        rewrite_aggregate(graph_yml, id_map_yml, findings_yml)
+        rewrite_aggregate(target_root, graph_yml, id_map_yml, findings_yml)
 
         warn "analyze complete: engine scored graph.yml -> findings.yml; committed cache refreshed"
       end
@@ -62,12 +72,13 @@ module Archbuddy
 
       # DE-ANON-AT-WRITE (CR-1): fold the fresh de-anonymized scores +
       # multiplexer_proxy smell into the committed root aggregate. The SECRET
-      # id-map is read HERE (client-side) and NEVER committed.
-      def rewrite_aggregate(graph_yml, id_map_yml, findings_yml)
+      # id-map is read HERE (client-side) and NEVER committed. W1: the committed
+      # cache is written under `target_root` (the path arg), not Dir.pwd.
+      def rewrite_aggregate(target_root, graph_yml, id_map_yml, findings_yml)
         return unless File.exist?(findings_yml)
 
         serializer = ArchitectureAuditor::Contract::Serializer
-        Archbuddy::Cache::Writer.new(project_root: Dir.pwd).write(
+        Archbuddy::Cache::Writer.new(project_root: target_root).write(
           graph:    serializer.load(graph_yml),
           id_map:   serializer.load(id_map_yml),
           findings: serializer.load(findings_yml)

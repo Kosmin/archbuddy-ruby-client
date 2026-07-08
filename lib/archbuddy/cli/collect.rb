@@ -36,6 +36,13 @@ module Archbuddy
 
       def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all",
                out_dir: nil, changed: false, base_ref: nil, check: false, **)
+        # W1: `path` is the codebase to scan AND the TARGET repo root. The
+        # committed cache (aggregate + detail tree) + the default `.archbuddy/`
+        # workspace belong under the TARGET, not Dir.pwd — so `collect <target>`
+        # from a different CWD writes into the target repo. Default to CWD when
+        # the target IS the current directory (the existing behavior).
+        target_root = File.expand_path(path)
+
         # R3-1: `--check` is the CI staleness gate. It regenerates the committed
         # cache (a full re-collect) and asserts it matches what is committed via
         # `git diff`, exiting non-zero on drift and LOUD (exit 2) when there is no
@@ -43,20 +50,20 @@ module Archbuddy
         # Cache::Checker (baseline + diff policy) with the regenerate step
         # injected, so this command owns only the wiring.
         if check
-          exit run_check(path, language, entrypoints, entrypoint_pattern, probes)
+          exit run_check(target_root, path, language, entrypoints, entrypoint_pattern, probes)
         end
-        # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
+        # --out-dir is OPTIONAL: default to the TARGET's `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
-        # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
+        # default AND the target is inside a git repo, auto-ensure `.archbuddy/` is
         # LOCALLY ignored (via .git/info/exclude — never the tracked .gitignore)
         # so the existing gitignore-before-secret guard in the Emitter passes
         # without the user thinking about it. For an EXPLICIT --out-dir we do NOT
         # touch any ignore file: the guard refuses if the path the USER chose is
         # not ignored (we never silently edit ignores for a user-chosen path).
         using_default_out_dir = out_dir.nil?
-        out_dir ||= Archbuddy::Collect::DEFAULT_WORKSPACE_DIR
+        out_dir ||= File.join(target_root, Archbuddy::Collect::DEFAULT_WORKSPACE_DIR)
 
-        ensure_default_workspace_excluded! if using_default_out_dir
+        ensure_default_workspace_excluded!(target_root) if using_default_out_dir
 
         config = Archbuddy::Collect::Config.new(
           language:            language,
@@ -84,7 +91,9 @@ module Archbuddy
           adapter: language
         ).call
 
-        paths = Archbuddy::Collect::Emitter.new(out_dir: out_dir).emit(
+        # W1: the Emitter writes the COMMITTED cache under the TARGET repo root,
+        # not Dir.pwd — so the detail tree + aggregate land in the target.
+        paths = Archbuddy::Collect::Emitter.new(out_dir: out_dir, project_root: target_root).emit(
           graph: anon.graph, id_map: anon.id_map
         )
 
@@ -125,8 +134,10 @@ module Archbuddy
       # policy and return the process exit code (0 clean / 1 drift / 2 no
       # baseline). NEVER reads the SECRET id-map — the committed cache is
       # real-name and the check only touches source + committed cache + git.
-      def run_check(path, language, entrypoints, entrypoint_pattern, probes)
-        checker = Archbuddy::Cache::Checker.new(project_root: Dir.pwd)
+      def run_check(target_root, path, language, entrypoints, entrypoint_pattern, probes)
+        # W1: the staleness gate baselines + diffs the committed cache in the
+        # TARGET repo (the codebase being scanned), not Dir.pwd.
+        checker = Archbuddy::Cache::Checker.new(project_root: target_root)
         checker.check do
           # Full re-collect (NOT --changed): re-hash + re-parse every file so a
           # stale committed fragment can't survive behind a matching speed-cache
@@ -166,21 +177,21 @@ module Archbuddy
       # `.gitignore` already ignores the whole dir — a dogfood repo). Outside a
       # git repo we do nothing (no commit risk; the Emitter's filename fallback
       # still covers the secret).
-      def ensure_default_workspace_excluded!
-        return unless git_repo?
+      def ensure_default_workspace_excluded!(target_root)
+        return unless git_repo?(target_root)
 
-        exclude_file = File.join(git_dir, "info", "exclude")
+        exclude_file = File.join(git_dir(target_root), "info", "exclude")
         FileUtils.mkdir_p(File.dirname(exclude_file))
 
         SECRET_EXCLUDE_PATHS.each do |line|
-          append_exclude_line(exclude_file, line)
+          append_exclude_line(target_root, exclude_file, line)
         end
       end
 
       # Append one exclude line idempotently; skip if the target is already
       # ignored (by the tracked .gitignore, a prior run, etc.).
-      def append_exclude_line(exclude_file, line)
-        return if path_ignored?(line.chomp("/").chomp("*").chomp("."))
+      def append_exclude_line(target_root, exclude_file, line)
+        return if path_ignored?(target_root, line.chomp("/").chomp("*").chomp("."))
 
         existing = File.exist?(exclude_file) ? File.read(exclude_file) : ""
         return if existing.split("\n").map(&:strip).include?(line) # idempotent
@@ -192,24 +203,26 @@ module Archbuddy
         warn "note: added '#{line}' to .git/info/exclude (local-only) so the SECRET stays uncommitted"
       end
 
-      def git_repo?
-        !git_dir.nil?
+      def git_repo?(target_root)
+        !git_dir(target_root).nil?
       end
 
-      # Absolute path to the .git directory (handles worktrees/submodules where
-      # `git rev-parse --git-dir` may return a non-default location). nil when
-      # CWD is not inside a git repo.
-      def git_dir
-        return @git_dir if defined?(@git_dir)
+      # Absolute path to the TARGET repo's .git directory (handles
+      # worktrees/submodules where `git rev-parse --git-dir` may return a
+      # non-default location). nil when the target is not inside a git repo.
+      # Memoized per target_root so repeated calls in one command are cheap.
+      def git_dir(target_root)
+        @git_dir ||= {}
+        return @git_dir[target_root] if @git_dir.key?(target_root)
 
-        out = `git rev-parse --absolute-git-dir 2>/dev/null`
-        @git_dir = ($?.success? && !out.strip.empty?) ? out.strip : nil
+        out = `git -C #{shell_escape(target_root)} rev-parse --absolute-git-dir 2>/dev/null`
+        @git_dir[target_root] = ($?.success? && !out.strip.empty?) ? out.strip : nil
       rescue StandardError
-        @git_dir = nil
+        (@git_dir ||= {})[target_root] = nil
       end
 
-      def path_ignored?(path)
-        out = `git check-ignore #{shell_escape(path)} 2>/dev/null`
+      def path_ignored?(target_root, path)
+        out = `git -C #{shell_escape(target_root)} check-ignore #{shell_escape(path)} 2>/dev/null`
         $?.success? && !out.strip.empty?
       rescue StandardError
         false

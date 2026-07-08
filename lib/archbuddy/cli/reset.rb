@@ -34,18 +34,27 @@ module Archbuddy
       option :probes, default: "all", desc: "Framework probe selection: all|none|comma,list"
 
       def call(path:, language: "ruby", entrypoints: "default", entrypoint_pattern: [], probes: "all", **)
+        # W1: `path` is the TARGET repo root. Both the collect output (graph.yml +
+        # id-map.yml + detail tree) and the analyze transcode (committed aggregate)
+        # go under the TARGET's `.archbuddy/`, not Dir.pwd — so `reset <target>`
+        # from any CWD writes the committed cache into the target repo.
+        target_root = File.expand_path(path)
+        target_ws   = File.join(target_root, Archbuddy::Collect::DEFAULT_WORKSPACE_DIR)
+
         # 1. FULL collect (never incremental) — writes graph.yml + id-map.yml +
-        #    the committed structural detail tree (findings not yet available).
+        #    the committed structural detail tree (findings not yet available)
+        #    into the TARGET workspace.
         Archbuddy::CLI::Collect.new.call(
           path: path, language: language, entrypoints: entrypoints,
-          entrypoint_pattern: entrypoint_pattern, probes: probes, changed: false
+          entrypoint_pattern: entrypoint_pattern, probes: probes, changed: false,
+          out_dir: target_ws
         )
 
         # 2+3. Analyze (engine score graph.yml -> findings.yml) + DE-ANON-AT-WRITE
-        #      transcode into the committed root aggregate. Delegated to the
-        #      `analyze` command so there is ONE implementation of the
-        #      score+transcode step (reset = full collect + analyze).
-        Archbuddy::CLI::Analyze.new.call
+        #      transcode into the committed root aggregate UNDER THE TARGET.
+        #      Delegated to the `analyze` command so there is ONE implementation
+        #      of the score+transcode step (reset = full collect + analyze).
+        Archbuddy::CLI::Analyze.new.call(path: target_root)
 
         warn "reset complete: full re-collect + analyze; committed cache refreshed"
       end
