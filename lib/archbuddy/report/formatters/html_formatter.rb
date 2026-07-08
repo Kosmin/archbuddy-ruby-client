@@ -652,7 +652,13 @@ module Archbuddy
               var present = {}; data.nodes.forEach(function (n) { present[n.id] = true; });
               data.edges.forEach(function (e, i) {
                 if (present[e.from] && present[e.to]) {
-                  elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, w: 1 + num(e.calls) } });
+                  // Edge thickness is LOG-scaled and CAPPED: a hot sink reached by
+                  // hundreds of calls must not render as a giant wedge. ~0.8px (1 call)
+                  // up to ~3.5px (many calls). Keeps the call-count signal without
+                  // drowning the graph.
+                  var calls = num(e.calls);
+                  var w = Math.min(3.5, 0.8 + Math.log(1 + (calls > 0 ? calls : 1)) / Math.LN2 * 0.5);
+                  elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, w: w } });
                 }
               });
 
@@ -679,6 +685,14 @@ module Archbuddy
                     'border-width': 2, 'border-color': '#0f1419',
                     'color': '#e6edf3', 'font-size': 9, 'text-valign': 'bottom', 'text-halign': 'center',
                     'text-outline-width': 2, 'text-outline-color': '#0f1419'
+                  }},
+                  // Unresolved <external> sink nodes are the app's boundary — they
+                  // carry no findings/clutter and would otherwise dominate the view.
+                  // De-emphasize: dim, small, muted grey, thin dashed border, tiny
+                  // label. They recede so the real call structure reads clearly.
+                  { selector: 'node[kind = "external"]', style: {
+                    'opacity': 0.35, 'width': 10, 'height': 10, 'font-size': 6,
+                    'background-color': '#3d4853', 'border-width': 1, 'border-style': 'dashed'
                   }},
                   { selector: 'edge', style: {
                     'width': 'data(w)', 'line-color': '#3d4853', 'target-arrow-color': '#3d4853',
