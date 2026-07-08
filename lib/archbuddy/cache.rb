@@ -3,6 +3,8 @@
 require_relative "cache/canonical_json"
 require_relative "cache/layout"
 require_relative "cache/writer"
+require_relative "cache/reader"
+require_relative "cache/change_detector"
 
 module Archbuddy
   # The committed, incrementally-updated `.archbuddy/` metadata cache (v0.8).

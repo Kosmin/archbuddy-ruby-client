@@ -49,7 +49,9 @@ RSpec.describe "RubyAdapter fragment split (C1-1 byte parity)" do
     fragment = a.collect_file_fragment(abs, rel)
 
     expect(fragment.rel_file).to eq(rel)
-    expect(fragment.content_hash).to eq(Digest::SHA256.hexdigest(File.read(abs)))
+    # content_hash is the version-folded authoritative change trigger (C2), NOT a
+    # raw SHA of the bytes — it matches ChangeDetector.content_hash exactly.
+    expect(fragment.content_hash).to eq(Archbuddy::Cache::ChangeDetector.content_hash(File.read(abs)))
     expect(fragment.parsed_value).to be_a(Prism::Node)
     # Purity: a second build of the SAME file yields the SAME hash + an
     # equivalent parse, and reads no other file (content_hash is over this

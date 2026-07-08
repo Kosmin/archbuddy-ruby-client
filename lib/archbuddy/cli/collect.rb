@@ -26,8 +26,13 @@ module Archbuddy
                                   desc: "Additional entrypoint fq-symbol regex(es)"
       option :probes, default: "all",
                       desc: "Framework probe selection: all|none|comma,list (e.g. grape,sidekiq_dispatch)"
+      option :changed, type: :boolean, default: false,
+                       desc: "Incremental collect: reuse unchanged files' cached parse, re-parse only changed"
+      option :base_ref, type: :string, default: nil,
+                        desc: "Optional git base ref for the --changed fast-path pre-filter (e.g. origin/main)"
 
-      def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all", out_dir: nil, **)
+      def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all",
+               out_dir: nil, changed: false, base_ref: nil, **)
         # --out-dir is OPTIONAL: default to the shared `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
         # default AND we're inside a git repo, auto-ensure `.archbuddy/` is
@@ -49,9 +54,13 @@ module Archbuddy
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)
+        # C2: --changed selects the incremental collect (reuse unchanged files'
+        # cached parse from the machine-local .archbuddy/.cache/, re-parse only
+        # changed). Default :full parses everything (first run / reset).
+        collect_mode   = changed ? :incremental : :full
         adapter_result =
           begin
-            adapter.collect
+            adapter.collect(mode: collect_mode, base_ref: base_ref)
           rescue Archbuddy::Collect::Adapters::Ruby::FileEnumerator::NoSourceError => e
             warn "error: #{e.message}"
             exit 1
