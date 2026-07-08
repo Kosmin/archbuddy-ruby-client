@@ -19,6 +19,7 @@ module Archbuddy
           lines = []
           lines << header
           lines.concat(scores_section) if context.scores && !context.scores.empty?
+          lines.concat(multiplexer_proxy_section) unless context.multiplexer_proxies.nil?
           lines.concat(bottleneck_sections)
           lines.concat(rollup_section) unless context.class_rollups.empty?
           lines << ""
@@ -94,6 +95,30 @@ module Archbuddy
           where  = loc.resolved? ? " (#{loc.file_line})" : ""
           driver = hotspot.metrics.map { |k, v| "#{k}=#{format_metric(v)}" }.join(", ")
           "      #{rank}. #{loc.symbol}#{where}  [#{driver}]"
+        end
+
+        # R1: the v0.7 multiplexer_proxy smell — an ADDITIVE section between the
+        # Architecture Scores summary and the per-bottleneck list. Rendered
+        # VERBATIM in the engine's worst-first order (D17 — never re-ranked).
+        #
+        # `context.multiplexer_proxies` is nil-guarded by the caller (section only
+        # rendered when the findings doc carried a scores block). An EMPTY list is
+        # a HONEST "(none)" note — never a fabricated verdict (forward N/A or a
+        # project with no multiplexing arm both legitimately produce []).
+        def multiplexer_proxy_section
+          lines = ["", "Multiplexer Proxy Smell", "-" * 60]
+          proxies = context.multiplexer_proxies
+          if proxies.empty?
+            lines << "  (none — no multiplexer_proxy detected, or forward-discoverability N/A)"
+            return lines
+          end
+          lines << "  methods acting as hidden routing layers (worst-first, by added coupling):"
+          proxies.each_with_index do |proxy, i|
+            coupling = proxy.coupling_display
+            suffix   = coupling.empty? ? "" : "  [added_coupling=#{coupling}]"
+            lines << "    #{i + 1}. #{proxy.where}#{suffix}"
+          end
+          lines
         end
 
         def bottleneck_sections

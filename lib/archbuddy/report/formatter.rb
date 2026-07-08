@@ -21,9 +21,13 @@ module Archbuddy
       #                       scores (findings 1.1); nil for a 1.0 doc (back-compat)
       # @param connectivity  [Scores::Connectivity,nil] project-level connectivity
       #                       scalar (findings 1.3); nil when absent (back-compat)
+      # @param multiplexer_proxies [Array<Scores::MultiplexerProxy>,nil] the v0.7
+      #                       smell (findings 1.4), worst-first, VERBATIM; nil when
+      #                       absent (pre-1.4 / no scores block), [] when scored
+      #                       but no proxy / forward N/A (renders an explicit note)
       RenderContext = Struct.new(
         :ranked, :class_rollups, :generator, :graph, :resolver, :scores, :connectivity,
-        :max_nodes,
+        :max_nodes, :multiplexer_proxies,
         keyword_init: true
       )
 

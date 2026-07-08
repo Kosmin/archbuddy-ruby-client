@@ -28,7 +28,11 @@ module Archbuddy
       # 1.1) — NIL for a 1.0 findings doc with no scores block (back-compat).
       # `connectivity` is the optional project-level connectivity scalar (findings
       # 1.3) — NIL when absent; no resolver needed (counts/ratios only, no opaque ids).
-      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, :connectivity, keyword_init: true) do
+      # `multiplexer_proxies` is the optional de-anonymized v0.7 smell list
+      # (findings 1.4 `scores.multiplexer_proxies`, worst-first) — an
+      # Array<Scores::MultiplexerProxy> when a scores block is present (possibly
+      # EMPTY = scored-but-no-proxy), NIL when absent (pre-1.4 / no scores block).
+      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, :connectivity, :multiplexer_proxies, keyword_init: true) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
         # resolver so repeated lookups don't rebuild the id-map wrapper each call.
         def resolve(id)
@@ -130,7 +134,11 @@ module Archbuddy
           scores:        Scores.from_findings(@findings_doc, @resolver),
           # Optional findings-1.3 connectivity scalar. NIL when absent (1.0/1.1/1.2
           # doc) — back-compat; no resolver needed (counts/ratios only, no opaque ids).
-          connectivity:  Scores.connectivity_from_findings(@findings_doc)
+          connectivity:  Scores.connectivity_from_findings(@findings_doc),
+          # Optional findings-1.4 multiplexer_proxy smell (worst-first, VERBATIM).
+          # On the legacy opaque findings path this resolves opaque node ids via
+          # the SAME resolver; NIL when absent, [] when scored-but-no-proxy.
+          multiplexer_proxies: Scores.multiplexer_proxies_from_findings(@findings_doc, @resolver)
         )
       end
 

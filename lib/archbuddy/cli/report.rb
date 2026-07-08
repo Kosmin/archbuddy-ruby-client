@@ -72,6 +72,7 @@ module Archbuddy
           resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
           scores:        result.scores,
           connectivity:  result.connectivity,
+          multiplexer_proxies: result.multiplexer_proxies,
           max_nodes:     max_nodes&.to_i
         )
 

@@ -52,6 +52,7 @@ module Archbuddy
             <body>
             #{body_header}
             #{scores_header_html}
+            #{multiplexer_proxies_html}
             #{graph_section_html}
             #{bottleneck_table_html}
             <script>#{cytoscape_library}</script>
@@ -180,6 +181,42 @@ module Archbuddy
               </div>
             HTML
           end
+        end
+
+        # R1: the v0.7 multiplexer_proxy smell as an ADDITIVE section peer to
+        # scores_header_html. Rendered VERBATIM worst-first (D17). "" when absent
+        # (nil — no scores block); an explicit "(none)" note when scored-but-empty
+        # (never a fabricated verdict). Symbol + added-coupling are `escape`d
+        # (trust-boundary text). No opaque id is needed here — the committed path
+        # is real-name; graph annotation uses the opaque-id key in data_json.
+        def multiplexer_proxies_html
+          proxies = context.multiplexer_proxies
+          return "" if proxies.nil?
+
+          body =
+            if proxies.empty?
+              %(<div class="notice">No multiplexer_proxy detected, or forward-discoverability is N/A.</div>)
+            else
+              rows = proxies.each_with_index.map do |proxy, i|
+                coupling = proxy.coupling_display
+                coupling_cell = coupling.empty? ? "&mdash;" : escape(coupling)
+                "<tr><td class=\"num\">#{i + 1}</td><td>#{escape(proxy.where)}</td>" \
+                  "<td class=\"num\">#{coupling_cell}</td></tr>"
+              end.join("\n")
+              <<~HTML
+                <table>
+                  <thead><tr><th>#</th><th>Method</th><th>added_coupling</th></tr></thead>
+                  <tbody>#{rows}</tbody>
+                </table>
+              HTML
+            end
+
+          <<~HTML
+            <section id="multiplexer-proxies">
+              <h2>Multiplexer Proxy Smell</h2>
+              #{body}
+            </section>
+          HTML
         end
 
         def graph_section_html
@@ -327,6 +364,7 @@ module Archbuddy
             "bottlenecks" => context.ranked.map { |b| StructuredExport.node_hash(b, metric_keys) },
             "scores"      => scores_data,
             "hotspots"    => hotspot_ids_by_dimension,
+            "multiplexer_proxies" => multiplexer_proxy_data,
             "node_cap"    => node_cap_info,
             "default_metric" => "centrality"
           }
@@ -418,6 +456,20 @@ module Archbuddy
             h[dim.key] = {
               "label" => dim.label, "question" => dim.question,
               "score" => dim.score, "grade" => dim.grade, "na_reason" => dim.na_reason
+            }.compact
+          end
+        end
+
+        # The multiplexer_proxy smell for the data blob (worst-first, VERBATIM).
+        # Carries the opaque node id when known (legacy path — for graph node
+        # annotation) alongside the real symbol + added_coupling. [] when absent
+        # or empty (the section HTML handles the visible "(none)"/omit distinction).
+        def multiplexer_proxy_data
+          (context.multiplexer_proxies || []).map do |proxy|
+            {
+              "id"             => proxy.location&.id,
+              "symbol"         => proxy.symbol,
+              "added_coupling" => proxy.added_coupling
             }.compact
           end
         end
