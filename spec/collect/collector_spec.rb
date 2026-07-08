@@ -63,10 +63,58 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
     end
   end
 
-  it "mints node ids that equal the contract Ids mint for the real triple" do
+  it "mints node ids that equal the contract Ids mint for the (rel_file, symbol) pair (id-parity, v0.8)" do
     opaque_id, desc = id_map_entry_for_symbol("Billing::Invoice#total")
-    expected = ids.node_id(desc["file"], desc["line"], desc["symbol"])
+    # v0.8 id-parity: the client-minted opaque id == the engine mint on the same
+    # (rel_file, fq_symbol) pair — NO line (identity is name, not line).
+    expected = ids.node_id(desc["file"], desc["symbol"])
     expect(opaque_id).to eq(expected)
+  end
+
+  it "id-parity: the client real_key equals the engine canonical_key for (rel_file, symbol)" do
+    # The single most load-bearing cross-repo invariant: the client's RawNode
+    # real_key (used for edge/entrypoint resolution + first-def-wins dedup) MUST be
+    # byte-identical to the engine's canonical hashed key, so both repos mint the
+    # SAME opaque id for the same symbol. Drift here silently corrupts the graph.
+    raw = Archbuddy::Collect::Raw::RawNode.new(
+      rel_file: "app/models/user.rb", line: 12, symbol: "User#save", kind: "function"
+    )
+    expect(raw.real_key).to eq(ids.canonical_key("app/models/user.rb", "User#save"))
+  end
+
+  it "move-a-def-id-stable: real_key/id does NOT change when a def moves (line differs)" do
+    at_line_12 = Archbuddy::Collect::Raw::RawNode.new(
+      rel_file: "app/models/user.rb", line: 12, symbol: "User#save", kind: "function"
+    )
+    at_line_99 = Archbuddy::Collect::Raw::RawNode.new(
+      rel_file: "app/models/user.rb", line: 99, symbol: "User#save", kind: "function"
+    )
+    expect(at_line_99.real_key).to eq(at_line_12.real_key)
+    expect(ids.node_id(at_line_99.rel_file, at_line_99.symbol))
+      .to eq(ids.node_id(at_line_12.rel_file, at_line_12.symbol))
+  end
+
+  it "first-def-wins: two same-(file,symbol) raws collapse to ONE graph node (not a fabricated merge)" do
+    # After dropping line from identity, a reopened class / conditional re-def
+    # produces two raws with the same (rel_file, symbol). The Anonymizer must
+    # collapse them to ONE node (the first def owns the id + its id-map line
+    # payload) — a deterministic collapse, NOT two nodes and NOT a merge of two
+    # distinct methods.
+    first  = Archbuddy::Collect::Raw::RawNode.new(
+      rel_file: "app/models/user.rb", line: 10, symbol: "User#save", kind: "function"
+    )
+    reopen = Archbuddy::Collect::Raw::RawNode.new(
+      rel_file: "app/models/user.rb", line: 42, symbol: "User#save", kind: "function"
+    )
+    adapter_result = Struct.new(:nodes, :edges, :entrypoints).new([first, reopen], [], [])
+    res = Archbuddy::Collect::Anonymizer.new(
+      adapter_result, tool: "t", adapter: "ruby"
+    ).call
+
+    save_nodes = res.graph["nodes"].select { |n| n["id"] == ids.node_id("app/models/user.rb", "User#save") }
+    expect(save_nodes.size).to eq(1)                        # collapsed to one
+    expect(res.id_map["ids"].size).to eq(1)                 # one id-map entry
+    expect(res.id_map["ids"].values.first["line"]).to eq(10) # FIRST def owns the line payload
   end
 
   # --- the verified AR implicit-self gotcha (db_op via class context) ---------
