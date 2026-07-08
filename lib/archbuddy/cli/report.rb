@@ -68,12 +68,24 @@ module Archbuddy
         ranker = Archbuddy::Report::Ranker.new(result)
         top_n  = top&.to_i
 
+        # v0.9 W2: the DEFAULT from_cache path already carries a reassembled
+        # REAL-NAME graph (nodes/edges are real symbols) + an IDENTITY resolver —
+        # so the default report renders real names in the graph WITHOUT an id-map.
+        # The LEGACY opaque path keeps loading graph.yml + the IdMapResolver.
+        if result.real_name?
+          render_graph = result.graph
+          resolver     = Archbuddy::Report::Reconnect::IdentityResolver.new
+        else
+          render_graph = graph && Archbuddy::Report::Reconnect::Serializer.load(graph)
+          resolver     = Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map)
+        end
+
         context = Archbuddy::Report::Formatter::RenderContext.new(
           ranked:        ranker.ranked(top: top_n),
           class_rollups: ranker.class_rollups(top: top_n),
           generator:     result.findings_doc["generator"] || {},
-          graph:         graph && Archbuddy::Report::Reconnect::Serializer.load(graph),
-          resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
+          graph:         render_graph,
+          resolver:      resolver,
           scores:        result.scores,
           connectivity:  result.connectivity,
           multiplexer_proxies: result.multiplexer_proxies,

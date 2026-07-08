@@ -4,6 +4,7 @@ require_relative "cache/canonical_json"
 require_relative "cache/layout"
 require_relative "cache/writer"
 require_relative "cache/reader"
+require_relative "cache/detail_tree"
 require_relative "cache/change_detector"
 require_relative "cache/checker"
 

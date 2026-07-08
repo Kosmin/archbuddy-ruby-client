@@ -4,6 +4,7 @@ require "json"
 require "architecture_auditor"
 require_relative "model"
 require_relative "scores"
+require_relative "../cache/detail_tree"
 
 module Archbuddy
   module Report
@@ -33,11 +34,47 @@ module Archbuddy
       # (findings 1.4 `scores.multiplexer_proxies`, worst-first) — an
       # Array<Scores::MultiplexerProxy> when a scores block is present (possibly
       # EMPTY = scored-but-no-proxy), NIL when absent (pre-1.4 / no scores block).
-      Result = Struct.new(:bottlenecks, :id_map, :findings_doc, :scores, :connectivity, :multiplexer_proxies, keyword_init: true) do
+      # `graph` is the OPTIONAL reassembled REAL-NAME graph (nodes/edges) for the
+      # from_cache path (v0.9 W2) — nil on the legacy opaque path (there the CLI
+      # loads the opaque graph.yml). `real_name` flags the committed path so the
+      # CLI wires an IDENTITY resolver (nodes are already real; no id-map).
+      Result = Struct.new(
+        :bottlenecks, :id_map, :findings_doc, :scores, :connectivity,
+        :multiplexer_proxies, :graph, :real_name,
+        keyword_init: true
+      ) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
         # resolver so repeated lookups don't rebuild the id-map wrapper each call.
+        # On the real-name (from_cache) path this is identity — the id IS the
+        # symbol, so there is nothing to join.
         def resolve(id)
-          (@resolver ||= IdMapResolver.new(id_map)).resolve(id)
+          @resolver ||= real_name ? IdentityResolver.new : IdMapResolver.new(id_map)
+          @resolver.resolve(id)
+        end
+
+        # True for the committed real-name (from_cache) path — the CLI uses this
+        # to pick an IDENTITY resolver + the reassembled real-name graph.
+        def real_name?
+          real_name
+        end
+      end
+
+      # v0.9 W2: the resolver for the COMMITTED real-name path. The node id IS the
+      # real symbol (identity de-anon-at-write), so `resolve` returns a resolved
+      # Location whose symbol == id. No id-map, no `<external …>` placeholder — the
+      # external sink is never a node on this path (the writer excludes it). Kept
+      # duck-type-compatible with IdMapResolver (`#resolve(id) -> Model::Location`).
+      class IdentityResolver
+        def resolve(id)
+          Model::Location.new(
+            id:       id,
+            file:     nil,
+            line:     nil,
+            symbol:   id,
+            kind:     nil,
+            class_id: nil,
+            resolved: true
+          )
         end
       end
 
@@ -98,21 +135,34 @@ module Archbuddy
         )
       end
 
-      # R2-1: build a Result DIRECTLY from the COMMITTED, REAL-NAME root
-      # aggregate (`archbuddy-findings.json`) — the de-anon-at-write cache (CR-1).
-      # This is the DEFAULT report path: a fresh clone reads it with NO id-map
-      # (the committed layer is already real-name; the SECRET id-map stays
-      # gitignored and is NEVER consulted here). `id_map_path` is accepted but
-      # DEFAULTS TO NIL and is intentionally ignored on this path — the signature
-      # documents that the committed read needs no secret.
+      # R2-1 / v0.9 W2: build a Result DIRECTLY from the COMMITTED, REAL-NAME
+      # cache — the de-anon-at-write layer (CR-1). This is the DEFAULT report
+      # path: a fresh clone reads it with NO id-map (the committed layer is
+      # already real-name; the SECRET id-map stays gitignored and is NEVER
+      # consulted here). `id_map_path` is accepted but DEFAULTS TO NIL and is
+      # intentionally ignored on this path — the signature documents that the
+      # committed read needs no secret.
       #
-      # The compact aggregate carries the headline dimension scores + the
-      # multiplexer_proxy smell + source POINTERS — NOT the per-node metric detail
-      # (that lives in the sharded tree and is not expanded for this surface, R11).
-      # So the Result's `bottlenecks` are empty here; `scores`/`multiplexer_proxies`/
-      # `connectivity` come straight from the real-name aggregate, VERBATIM.
-      def self.from_cache(aggregate_path:, id_map_path: nil) # rubocop:disable Lint/UnusedMethodArgument
+      # Two layers are read:
+      #   * the ROOT aggregate — headline dimension scores + the multiplexer_proxy
+      #     smell + source pointers, VERBATIM (no resolver needed), AND
+      #   * the DETAIL TREE — reassembled (Cache::DetailTree) into a REAL-NAME
+      #     node/edge `graph` so the default report renders a clean real-name call
+      #     graph WITHOUT the id-map (the v0.9 headline).
+      #
+      # `bottlenecks` are the committed per-symbol clutter proxies turned into
+      # real-name Model::Bottlenecks (clutter_score = added_coupling, worst-first
+      # from the engine) so the Ranker ranks the graph's `kept_node_ids` by REAL
+      # clutter (top-N real hotspots). The node id IS the symbol (identity) — the
+      # Result is flagged `real_name` so the CLI wires an IdentityResolver.
+      #
+      # @param aggregate_path [String] path to the committed ROOT aggregate.
+      # @param id_map_path     [nil] accepted for signature parity; ignored.
+      # @param project_root    [String,nil] the audited repo root that holds the
+      #   detail tree; defaults to the aggregate's directory.
+      def self.from_cache(aggregate_path:, id_map_path: nil, project_root: nil) # rubocop:disable Lint/UnusedMethodArgument
         doc = JSON.parse(File.read(aggregate_path))
+        root = project_root || File.dirname(File.expand_path(aggregate_path))
 
         # The COMMITTED aggregate shape differs from findings.yml: the headline
         # dimension scores live under `scores` (grade + score, no opaque hotspot
@@ -125,14 +175,45 @@ module Archbuddy
             Scores.multiplexer_proxies_from_committed(doc["multiplexer_proxies"])
           end
 
+        # Reassemble the real-name detail tree into a graph.yml-shaped node/edge
+        # set (identity ids = real symbols). nil when the tree carries no nodes
+        # (a scores-only aggregate, or no detail tree on disk) so the report
+        # degrades to the scores header + table with the "no graph" notice,
+        # exactly as before (graceful degradation).
+        reassembled = Archbuddy::Cache::DetailTree.new(project_root: root).reassemble(aggregate: doc)
+        graph = reassembled["nodes"].empty? ? nil : reassembled
+
         Result.new(
-          bottlenecks:         [],
+          bottlenecks:         bottlenecks_from_committed(smell),
           id_map:              {},
           findings_doc:        doc,
           scores:              Scores.from_findings(doc, nil),
           connectivity:        Scores.connectivity_from_findings(doc),
-          multiplexer_proxies: smell
+          multiplexer_proxies: smell,
+          graph:               graph,
+          real_name:           true
         )
+      end
+
+      # v0.9 W2: turn the committed real-name multiplexer_proxy list (symbol +
+      # added_coupling, worst-first) into ranked-able Model::Bottlenecks so the
+      # graph's node cap ranks by REAL committed clutter. The node id IS the
+      # symbol (identity). `clutter_score` is the VERBATIM engine `added_coupling`
+      # — the client never recomputes it (D17). Nodes with no committed clutter
+      # (not a proxy) simply carry no Bottleneck and rank last in the viz cap.
+      # nil smell (pre-analyze aggregate) → no bottlenecks.
+      def self.bottlenecks_from_committed(proxies)
+        (proxies || []).map do |proxy|
+          Model::Bottleneck.new(
+            id:            proxy.symbol,
+            location:      IdentityResolver.new.resolve(proxy.symbol),
+            kind:          nil,
+            class_id:      nil,
+            metrics:       {},
+            clutter_score: proxy.added_coupling,
+            findings:      []
+          )
+        end
       end
 
       # @param findings_doc [Hash] parsed findings.yml (string keys)

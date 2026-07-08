@@ -4,6 +4,7 @@ require "tmpdir"
 require "fileutils"
 require "stringio"
 require "json"
+require "set"
 require "archbuddy/cache"
 require "archbuddy/cli/report"
 require "archbuddy/report/reconnect"
@@ -71,6 +72,121 @@ RSpec.describe "report reads the committed real-name cache (R2-1)" do
         expect(output).to include("added_coupling=9")
         # scores headline is present too
         expect(output).to include("Architecture Scores")
+      end
+    end
+  end
+
+  # v0.9 W2: the DEFAULT from_cache report builds its interactive graph from the
+  # committed REAL-NAME detail tree — real method names, external sinks excluded,
+  # clutter-ranked by the committed per-symbol proxies — WITHOUT the id-map.
+  describe "v0.9 W2: default from_cache report renders a REAL-NAME graph (no id-map)" do
+    # Parse the <script id="archbuddy-data"> island back into a Ruby hash.
+    def graph_data_from_html(html)
+      island = html[%r{<script id="archbuddy-data" type="application/json">(.*?)</script>}m, 1]
+      JSON.parse(island.gsub('<\/', "</"))
+    end
+
+    def render_html(dir, max_nodes: 100)
+      out = StringIO.new
+      orig = $stdout
+      $stdout = out
+      Dir.chdir(dir) { Archbuddy::CLI::Report.new.call(format: "html", max_nodes: max_nodes) }
+      out.string
+    ensure
+      $stdout = orig
+    end
+
+    it "renders REAL method names as graph nodes (no opaque n_/ext_ ids)" do
+      Dir.mktmpdir do |dir|
+        write_committed_cache(dir)
+        expect(File).not_to exist(File.join(dir, ".archbuddy/id-map.yml"))
+
+        data = graph_data_from_html(render_html(dir))
+        symbols = data["nodes"].map { |n| n["symbol"] }
+
+        # Real symbols from the fixture (Billing::Invoice#…) are present.
+        expect(symbols).to include("Billing::Invoice#total", "Billing::Invoice#subtotal", "Billing::Invoice#tax")
+        # NOTHING opaque: no n_/ext_ ids leaked into the graph node labels.
+        expect(symbols).to all(satisfy { |s| s !~ /\A(n_|ext_|cls_)/ })
+        # Every node resolved (identity de-anon — no <external …> placeholder).
+        expect(data["nodes"]).to all(include("resolved" => true))
+      end
+    end
+
+    it "excludes the <external> sink from the graph nodes + drops its dangling edges" do
+      Dir.mktmpdir do |dir|
+        write_committed_cache(dir)
+        data = graph_data_from_html(render_html(dir))
+        symbols = data["nodes"].map { |n| n["symbol"] }
+
+        # The unresolved external boundary (ExternalTaxApi.compute -> <external>)
+        # is NOT a rendered node...
+        expect(symbols).not_to include("<external>")
+        expect(data["nodes"].map { |n| n["kind"] }).not_to include("external")
+        # ...and no rendered edge references it (both-endpoints-in-set guard).
+        rendered = symbols.to_set
+        expect(data["edges"]).to all(satisfy { |e| rendered.include?(e["from"]) && rendered.include?(e["to"]) })
+      end
+    end
+
+    it "ranks the graph node cap by REAL committed clutter (top proxy first)" do
+      Dir.mktmpdir do |dir|
+        write_committed_cache(dir)
+        # Cap to a single node: the kept node must be the top committed-clutter
+        # hotspot (Billing::Invoice#total, the only proxy — added_coupling 9.0).
+        data = graph_data_from_html(render_html(dir, max_nodes: 1))
+        expect(data["nodes"].map { |n| n["symbol"] }).to eq(["Billing::Invoice#total"])
+        expect(data["node_cap"]).to include("shown" => 1)
+        # The ranked bottleneck table also leads with the real hotspot.
+        expect(data["bottlenecks"].first["symbol"]).to eq("Billing::Invoice#total")
+      end
+    end
+
+    it "Reconnect.from_cache carries a real-name graph + clutter-ranked bottlenecks" do
+      Dir.mktmpdir do |dir|
+        write_committed_cache(dir)
+        agg = File.join(dir, "archbuddy-findings.json")
+
+        result = Archbuddy::Report::Reconnect.from_cache(aggregate_path: agg, id_map_path: nil)
+
+        expect(result).to be_real_name
+        expect(result.graph["nodes"].map { |n| n["id"] }).to include("Billing::Invoice#total")
+        # bottlenecks are the committed proxies, real-name, clutter = added_coupling.
+        expect(result.bottlenecks.map(&:id)).to eq(["Billing::Invoice#total"])
+        expect(result.bottlenecks.first.clutter_score).to eq(9.0)
+        # resolve() is identity on this path — symbol == id, resolved.
+        loc = result.resolve("Billing::Invoice#total")
+        expect(loc.symbol).to eq("Billing::Invoice#total")
+        expect(loc).to be_resolved
+      end
+    end
+  end
+
+  # Back-compat: the LEGACY opaque path (explicit findings.yml + SECRET id-map)
+  # still de-anonymizes at read time and renders real names via the id-map.
+  describe "back-compat: legacy findings.yml + id-map path still works" do
+    it "de-anonymizes the graph via the id-map (Reconnect.from_files)" do
+      Dir.mktmpdir do |dir|
+        adapter = Archbuddy::Collect::Registry.for("ruby").new(fixture_root, config)
+        a = Archbuddy::Collect::Anonymizer.new(adapter.collect, tool: "t", adapter: "ruby").call
+        # Write the opaque interchange to disk (gitignored in real use).
+        FileUtils.mkdir_p(File.join(dir, ".archbuddy"))
+        ser = Archbuddy::Report::Reconnect::Serializer
+        File.write(File.join(dir, ".archbuddy/graph.yml"), ser.dump(a.graph))
+        File.write(File.join(dir, ".archbuddy/id-map.yml"), ser.dump(a.id_map))
+        # A minimal opaque findings doc (one scored node) for the legacy join.
+        node_id, = a.id_map["ids"].find { |_id, d| d["symbol"] == "Billing::Invoice#total" }
+        findings = { "nodes" => { node_id => { "metrics" => {}, "clutter_score" => 5.0 } }, "findings" => [] }
+        File.write(File.join(dir, ".archbuddy/findings.yml"), ser.dump(findings))
+
+        result = Archbuddy::Report::Reconnect.from_files(
+          findings_path: File.join(dir, ".archbuddy/findings.yml"),
+          id_map_path:   File.join(dir, ".archbuddy/id-map.yml")
+        ).call
+
+        expect(result.real_name).to be_falsey
+        # The opaque node id de-anonymizes to the real symbol via the id-map.
+        expect(result.bottlenecks.map { |b| b.location.symbol }).to include("Billing::Invoice#total")
       end
     end
   end
