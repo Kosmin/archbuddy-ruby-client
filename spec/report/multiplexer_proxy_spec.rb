@@ -153,28 +153,23 @@ RSpec.describe "Reporter multiplexer_proxy smell (R1)" do
   end
 
   # --- html -------------------------------------------------------------------
+  # v0.9.1 polish: the standalone "Multiplexer Proxy Smell" SECTION was removed
+  # from the HTML dashboard (the page now shows only score / top-N graph /
+  # top-N list). The smell data is RETAINED in the inlined JSON blob (for graph
+  # annotation + programmatic use) and the terminal/yaml/json formatters still
+  # render it — so no signal is lost, it's just not a visible HTML section.
 
-  describe "html section" do
-    it "renders a Multiplexer Proxy Smell section with the worst-first table" do
+  describe "html: smell removed from the page but retained in the data blob" do
+    it "does NOT render a visible Multiplexer Proxy Smell section" do
       html = render(v14_yml, "html")
-      expect(html).to include("Multiplexer Proxy Smell")
-      expect(html).to include("Billing#charge")
-      expect(html).to include("12.5000")
-      # opaque node id threaded into the data blob for graph annotation
+      expect(html).not_to include("Multiplexer Proxy Smell")
+    end
+
+    it "still embeds the worst-first smell data (id + symbol) in the JSON island" do
+      html = render(v14_yml, "html")
       data = JSON.parse(html[/<script id="archbuddy-data"[^>]*>(.*?)<\/script>/m, 1].gsub('<\/', "</"))
       expect(data["multiplexer_proxies"].first["id"]).to eq("n_e188e5adb49f")
       expect(data["multiplexer_proxies"].first["symbol"]).to eq("Billing#charge")
-    end
-
-    it "renders the section with a (none) notice for a scored-but-empty smell" do
-      html = render(v14_empty, "html")
-      expect(html).to include("Multiplexer Proxy Smell")
-      expect(html).to match(/No multiplexer_proxy detected/)
-    end
-
-    it "omits the section for a doc with no scores block" do
-      html = render(v10_yml, "html")
-      expect(html).not_to include("Multiplexer Proxy Smell")
     end
   end
 end

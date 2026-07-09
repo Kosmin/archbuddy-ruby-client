@@ -49,10 +49,10 @@ module Archbuddy
                       desc: "Output format: terminal|yaml|json|dot|html"
       option :graph, desc: "Path to graph.yml (edge list; default: #{WORKSPACE}/graph.yml; required for --format dot, used by --format html)"
       option :top, type: :integer, desc: "Show only the top N bottlenecks"
-      option :max_nodes, type: :integer, default: 100,
-                         desc: "HTML graph: render only the top N nodes by clutter score (0 = all) so a huge graph doesn't crash the browser (default: 100). Does not affect the bottleneck table (see --top)."
+      option :max_nodes, type: :integer, default: 30,
+                         desc: "HTML report: show only the top N offenders by clutter score in BOTH the graph and the list (0 = all; default: 30). The list paginates the top N."
 
-      def call(format:, findings: nil, id_map: nil, graph: nil, top: nil, max_nodes: 100, **)
+      def call(format:, findings: nil, id_map: nil, graph: nil, top: nil, max_nodes: 30, **)
         graph ||= default_graph_path
 
         formatter_class =

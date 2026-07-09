@@ -52,7 +52,6 @@ module Archbuddy
             <body>
             #{body_header}
             #{scores_header_html}
-            #{multiplexer_proxies_html}
             #{graph_section_html}
             #{bottleneck_table_html}
             <script>#{cytoscape_library}</script>
@@ -183,40 +182,20 @@ module Archbuddy
           end
         end
 
-        # R1: the v0.7 multiplexer_proxy smell as an ADDITIVE section peer to
-        # scores_header_html. Rendered VERBATIM worst-first (D17). "" when absent
-        # (nil — no scores block); an explicit "(none)" note when scored-but-empty
-        # (never a fabricated verdict). Symbol + added-coupling are `escape`d
-        # (trust-boundary text). No opaque id is needed here — the committed path
-        # is real-name; graph annotation uses the opaque-id key in data_json.
-        def multiplexer_proxies_html
-          proxies = context.multiplexer_proxies
-          return "" if proxies.nil?
+        # The "top N offenders" display cap SHARED by both the graph and the
+        # list, so the two show the SAME worst-N nodes. Driven by --max-nodes
+        # (default 30 via the CLI). nil / <= 0 means "all" (uncapped). This is a
+        # VIZ-only cap (D17) — the findings/scores carry every node.
+        def offender_limit
+          lim = context.max_nodes
+          lim && lim.positive? ? lim : nil
+        end
 
-          body =
-            if proxies.empty?
-              %(<div class="notice">No multiplexer_proxy detected, or forward-discoverability is N/A.</div>)
-            else
-              rows = proxies.each_with_index.map do |proxy, i|
-                coupling = proxy.coupling_display
-                coupling_cell = coupling.empty? ? "&mdash;" : escape(coupling)
-                "<tr><td class=\"num\">#{i + 1}</td><td>#{escape(proxy.where)}</td>" \
-                  "<td class=\"num\">#{coupling_cell}</td></tr>"
-              end.join("\n")
-              <<~HTML
-                <table>
-                  <thead><tr><th>#</th><th>Method</th><th>added_coupling</th></tr></thead>
-                  <tbody>#{rows}</tbody>
-                </table>
-              HTML
-            end
-
-          <<~HTML
-            <section id="multiplexer-proxies">
-              <h2>Multiplexer Proxy Smell</h2>
-              #{body}
-            </section>
-          HTML
+        # The bottleneck rows actually shown (top N offenders by clutter, verbatim
+        # from context.ranked which is already clutter-sorted desc). Shared by the
+        # server-rendered table + the data blob so they never disagree.
+        def ranked_offenders
+          @ranked_offenders ||= offender_limit ? context.ranked.first(offender_limit) : context.ranked
         end
 
         def graph_section_html
@@ -233,10 +212,11 @@ module Archbuddy
           hotspot_buttons = (context.scores || []).reject(&:na?).map do |dim|
             %(<button data-hotspot="#{escape(dim.key)}">Highlight #{escape(dim.label)} hotspots</button>)
           end.join
+          heading = offender_limit ? "Top #{offender_limit} Offenders — Call Graph" : "Call Graph"
 
           <<~HTML
             <section id="graph">
-              <h2>Call Graph</h2>
+              <h2>#{escape(heading)}</h2>
               #{node_cap_banner_html}
               <div class="controls">
                 <button id="btn-labels">Toggle labels: real ↔ opaque</button>
@@ -253,12 +233,6 @@ module Archbuddy
                 </label>
                 #{hotspot_buttons}
                 <button id="btn-reset">Reset highlight</button>
-              </div>
-              <div class="controls filter-controls">
-                <label for="rng-minscore">Min clutter score</label>
-                <input type="range" id="rng-minscore" min="0" max="0" step="0.01" value="0">
-                <input type="number" id="num-minscore" min="0" step="0.01" value="0">
-                <span id="minscore-count" class="muted-inline"></span>
               </div>
               <div class="layout">
                 <div id="cy"></div>
@@ -293,15 +267,16 @@ module Archbuddy
             end
           end.join
 
+          heading = offender_limit ? "Top #{offender_limit} Offenders (by clutter_score)" : "Ranked Bottlenecks (by clutter_score)"
+
           <<~HTML
             <section id="table">
-              <h2>Ranked Bottlenecks (by clutter_score)</h2>
+              <h2>#{escape(heading)}</h2>
               <div class="controls table-controls">
                 <label>Rows per page
                   <select id="sel-page-size">
-                    <option value="25">25</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
+                    <option value="10">10</option>
+                    <option value="30">30</option>
                     <option value="all">All</option>
                   </select>
                 </label>
@@ -324,7 +299,7 @@ module Archbuddy
         # escaped content, so the escaping guarantee is preserved end-to-end. Each
         # row carries data-* sort keys (numeric metrics + text symbol/file/kind).
         def table_rows_html(metric_cols)
-          context.ranked.each_with_index.map do |b, i|
+          ranked_offenders.each_with_index.map do |b, i|
             bottleneck_row(b, i + 1, metric_cols)
           end.join("\n")
         end
@@ -361,7 +336,7 @@ module Archbuddy
           payload = {
             "nodes"       => graph_node_data,
             "edges"       => graph_edge_data,
-            "bottlenecks" => context.ranked.map { |b| StructuredExport.node_hash(b, metric_keys) },
+            "bottlenecks" => ranked_offenders.map { |b| StructuredExport.node_hash(b, metric_keys) },
             "scores"      => scores_data,
             "hotspots"    => hotspot_ids_by_dimension,
             "multiplexer_proxies" => multiplexer_proxy_data,
@@ -422,9 +397,8 @@ module Archbuddy
           info = node_cap_info
           return "" unless info
 
-          %(<div class="notice">Graph shows the top #{info["shown"]} of #{info["total"]} nodes ) +
-            %(by clutter score (pass <code>--max-nodes 0</code> for all). ) +
-            %(The bottleneck table below is unaffected.</div>)
+          %(<div class="notice">Showing the top #{info["shown"]} of #{info["total"]} nodes ) +
+            %(by clutter score (pass <code>--max-nodes 0</code> for all).</div>)
         end
 
         # One entry per graph.yml node (capped to kept_node_ids), de-anonymized.
@@ -531,7 +505,7 @@ module Archbuddy
                 var sortKey = 'clutter_score';   // default sort = clutter_score desc
                 var sortDir = 'desc';            //   (matches the pre-sort ranking)
                 var sortType = 'num';
-                var pageSize = 25;               // default page size
+                var pageSize = 10;               // default page size (3 pages of the top 30)
                 var page = 1;
                 var ordered = allRows.slice();
 
@@ -666,11 +640,22 @@ module Archbuddy
                 return 'rgb(' + r + ',' + g + ',' + b + ')';
               }
 
+              // Node size is LOG-scaled against the max clutter in view and CAPPED.
+              // Clutter spans many orders of magnitude (a multiplexer proxy can be
+              // ~1e8 while a leaf is ~1), so a linear `20 + clutter*4` made the worst
+              // node a screen-filling blob and collapsed the layout. Log-normalize to
+              // a fixed [18, 64]px band: relative severity still reads, nothing blows up.
+              var maxClutter = data.nodes.reduce(function (m, n) { return Math.max(m, num(n.clutter_score)); }, 0);
+              var logMax = Math.log(1 + maxClutter);
+              function sizeFor(clutter) {
+                if (logMax <= 0) return 18;
+                return 18 + (Math.log(1 + num(clutter)) / logMax) * 46;
+              }
               var elements = [];
               data.nodes.forEach(function (n) {
                 elements.push({ data: {
                   id: n.id, real: n.symbol, opaque: n.opaque, kind: n.kind,
-                  clutter: num(n.clutter_score), size: 20 + num(n.clutter_score) * 4,
+                  clutter: num(n.clutter_score), size: sizeFor(n.clutter_score),
                   shape: SHAPE[n.kind] || 'ellipse'
                 }});
               });
@@ -724,10 +709,7 @@ module Archbuddy
                     'target-arrow-shape': 'triangle', 'curve-style': 'bezier'
                   }},
                   { selector: '.hot', style: { 'border-color': '#f85149', 'border-width': 4 } },
-                  { selector: '.sel', style: { 'border-color': '#58a6ff', 'border-width': 4 } },
-                  // Min-score filter hides (not deletes) nodes/edges so the filter
-                  // is fully reversible and node data stays intact for tap/recolor.
-                  { selector: '.filtered-out', style: { 'display': 'none' } }
+                  { selector: '.sel', style: { 'border-color': '#58a6ff', 'border-width': 4 } }
                 ],
                 layout: { name: 'cose' }
               });
@@ -747,89 +729,16 @@ module Archbuddy
               var layoutSel = document.getElementById('sel-layout');
               if (layoutSel) layoutSel.onchange = function () { cy.layout({ name: this.value }).run(); };
 
-              // ----- Min clutter-score filter -----------------------------------
-              // DEFAULT HEURISTIC: focus on the worst offenders so the initial graph
-              // isn't an overwhelming hairball. We sort all nodes by clutter desc and
-              // pick the threshold that yields ~the top 120 nodes (midpoint of the
-              // 100–150 target); if there are fewer than 120 scored nodes we keep the
-              // threshold at 0 (show everything). The user can drag the slider to 0
-              // to reveal the full graph. Re-layout is DEBOUNCED so dragging stays
-              // smooth (visibility toggles immediately; layout runs after a pause).
-              var DEFAULT_FOCUS_COUNT = 120;
-              var clutterOf = {}; data.nodes.forEach(function (n) { clutterOf[n.id] = num(n.clutter_score); });
-              var sortedClutter = data.nodes.map(function (n) { return num(n.clutter_score); }).sort(function (a, b) { return b - a; });
-              var maxClutter = sortedClutter.length ? sortedClutter[0] : 0;
-              var defaultThreshold = 0;
-              if (sortedClutter.length > DEFAULT_FOCUS_COUNT) {
-                // threshold = clutter of the (DEFAULT_FOCUS_COUNT)-th worst node, so
-                // roughly the top ~DEFAULT_FOCUS_COUNT survive (>=, ties may add a few).
-                defaultThreshold = sortedClutter[DEFAULT_FOCUS_COUNT - 1];
-              }
-
-              var rng = document.getElementById('rng-minscore');
-              var numIn = document.getElementById('num-minscore');
-              var countEl = document.getElementById('minscore-count');
-              var totalNodes = data.nodes.length;
-              var layoutTimer = null;
-
-              function applyMinScore(threshold, relayout) {
-                var shown = 0;
-                cy.batch(function () {
-                  cy.nodes().forEach(function (node) {
-                    var c = clutterOf[node.id()];
-                    if (c === undefined) c = 0;
-                    if (c >= threshold) { node.removeClass('filtered-out'); shown++; }
-                    else { node.addClass('filtered-out'); }
-                  });
-                  // Hide edges incident to any hidden node.
-                  cy.edges().forEach(function (edge) {
-                    var s = edge.source(), t = edge.target();
-                    if (s.hasClass('filtered-out') || t.hasClass('filtered-out')) edge.addClass('filtered-out');
-                    else edge.removeClass('filtered-out');
-                  });
-                });
-                if (countEl) {
-                  countEl.textContent = shown === 0
-                    ? 'no nodes ≥ ' + (Math.round(threshold * 100) / 100) + ' — showing 0 of ' + totalNodes + ' nodes'
-                    : 'showing ' + shown + ' of ' + totalNodes + ' nodes (min clutter ' + (Math.round(threshold * 100) / 100) + ')';
-                }
-                if (relayout) {
-                  if (layoutTimer) clearTimeout(layoutTimer);
-                  layoutTimer = setTimeout(function () {
-                    var visible = cy.nodes().not('.filtered-out');
-                    if (visible.length) visible.layout({ name: (layoutSel && layoutSel.value) || 'cose' }).run();
-                  }, 200); // debounce: only re-layout after the drag pauses
-                }
-              }
-
-              function setThreshold(v, relayout) {
-                if (rng) rng.value = v;
-                if (numIn) numIn.value = v;
-                applyMinScore(parseFloat(v) || 0, relayout);
-              }
-
-              if (rng) {
-                rng.min = 0; rng.max = maxClutter || 0; rng.step = (maxClutter > 0 ? maxClutter / 200 : 0.01) || 0.01;
-                rng.value = defaultThreshold;
-                rng.oninput = function () { if (numIn) numIn.value = this.value; applyMinScore(parseFloat(this.value) || 0, true); };
-              }
-              if (numIn) {
-                numIn.max = maxClutter || 0;
-                numIn.value = defaultThreshold;
-                numIn.oninput = function () { if (rng) rng.value = this.value; applyMinScore(parseFloat(this.value) || 0, true); };
-              }
-              // Initial focused view (no re-layout needed — cose just ran on init).
-              applyMinScore(defaultThreshold, false);
+              // The graph is already scoped to the top-N offenders server-side
+              // (--max-nodes, default 30), so there is no min-score slider to wire —
+              // every rendered node is worth showing.
 
               document.querySelectorAll('button[data-hotspot]').forEach(function (btn) {
                 btn.onclick = function () {
                   cy.nodes().removeClass('hot');
                   (data.hotspots[this.getAttribute('data-hotspot')] || []).forEach(function (id) {
                     var ele = cy.getElementById(id);
-                    // A hotspot can be below the active min-score threshold; reveal
-                    // it (drop filtered-out) so highlighting always shows it rather
-                    // than silently no-op'ing on a hidden node.
-                    ele.removeClass('filtered-out').addClass('hot');
+                    if (ele && ele.length) ele.addClass('hot');
                   });
                 };
               });
@@ -868,9 +777,6 @@ module Archbuddy
                 var id = tr.getAttribute('data-node');
                 var ele = cy.getElementById(id);
                 if (ele && ele.length) {
-                  // The clicked row may target a node hidden by the min-score
-                  // filter; reveal it so center+highlight is visible.
-                  ele.removeClass('filtered-out');
                   cy.nodes().removeClass('sel'); ele.addClass('sel');
                   cy.animate({ center: { eles: ele }, zoom: 1.5 }, { duration: 300 });
                   showNode(byId(id));

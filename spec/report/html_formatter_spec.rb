@@ -301,16 +301,15 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       expect(html).to include("var sortDir = 'desc'")
     end
 
-    it "renders a page-size selector (25/50/100/All, default 25) + Prev/Next + range indicator" do
+    it "renders a page-size selector (10/30/All, default 10) + Prev/Next + range indicator" do
       expect(html).to include('id="sel-page-size"')
-      expect(html).to include('<option value="25">25</option>')
-      expect(html).to include('<option value="50">50</option>')
-      expect(html).to include('<option value="100">100</option>')
+      expect(html).to include('<option value="10">10</option>')
+      expect(html).to include('<option value="30">30</option>')
       expect(html).to include('<option value="all">All</option>')
       expect(html).to include('id="tbl-prev"')
       expect(html).to include('id="tbl-next"')
       expect(html).to include('id="tbl-range"')
-      expect(html).to include("var pageSize = 25")
+      expect(html).to include("var pageSize = 10")
       # the "showing X–Y of Z" indicator text is produced by the JS
       expect(html).to include("'showing '")
     end
@@ -328,45 +327,60 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     end
   end
 
-  # --- graph: minimum clutter-score filter ------------------------------------
-  context "call graph: minimum clutter-score filter" do
-    subject(:html) { render(findings: v11_yml, graph: graph_doc) }
-
-    it "renders a range slider + synced number input + live count element" do
-      expect(html).to include('id="rng-minscore"')
-      expect(html).to include('type="range"')
-      expect(html).to include('id="num-minscore"')
-      expect(html).to include('type="number"')
-      expect(html).to include('id="minscore-count"')
+  # --- polish (v0.9.1): top-N offenders shared by graph + list ----------------
+  # The min-score slider is gone (the graph is scoped to the top-N offenders
+  # server-side), and --max-nodes now caps BOTH the graph node set AND the
+  # bottleneck list to the SAME worst-N, so the two views agree.
+  context "top-N offenders cap (graph + list share one --max-nodes knob)" do
+    it "removed the min-score slider + its heuristic entirely" do
+      html = render(findings: v11_yml, graph: graph_doc)
+      expect(html).not_to include('id="rng-minscore"')
+      expect(html).not_to include('id="num-minscore"')
+      expect(html).not_to include("DEFAULT_FOCUS_COUNT")
+      expect(html).not_to include("applyMinScore")
+      expect(html).not_to include("filtered-out")
     end
 
-    it "shows a live 'showing N of M nodes' count" do
-      expect(html).to include("' of ' + totalNodes + ' nodes")
+    it "caps the LIST to the top N and titles both sections 'Top N Offenders'" do
+      html = render(findings: v11_yml, graph: graph_doc, max_nodes: 2)
+      # only the top-2 rows are server-rendered (data-node <tr> count)
+      rows = html.scan(/<tr data-node=/).size
+      expect(rows).to eq(2)
+      # both sections advertise the top-N framing
+      expect(html).to include("Top 2 Offenders (by clutter_score)")
+      expect(html).to include("Top 2 Offenders — Call Graph")
+      # and the data blob's bottlenecks are capped to the same N
+      data = graph_data(html)
+      expect(data["bottlenecks"].size).to eq(2)
     end
 
-    it "applies a focused default threshold heuristic (top ~120 by clutter)" do
-      expect(html).to include("DEFAULT_FOCUS_COUNT = 120")
-      expect(html).to include("var defaultThreshold")
-      # the slider/number input start AT the default threshold (focused view)
-      expect(html).to include("rng.value = defaultThreshold")
-      expect(html).to include("numIn.value = defaultThreshold")
+    it "graph node set and list rows are the SAME top-N (agree)" do
+      html = render(findings: v11_yml, graph: graph_doc, max_nodes: 2)
+      data = graph_data(html)
+      list_ids  = html.scan(/<tr data-node="([^"]+)"/).flatten.sort
+      graph_ids = data["nodes"].map { |n| n["id"] }.sort
+      expect(list_ids).to eq(graph_ids)
     end
 
-    it "hides below-threshold nodes and their incident edges (reversible)" do
-      expect(html).to include("addClass('filtered-out')")
-      expect(html).to include("removeClass('filtered-out')")
-      expect(html).to include("'display': 'none'")
-      # incident-edge hide
-      expect(html).to include("s.hasClass('filtered-out') || t.hasClass('filtered-out')")
+    it "shows all offenders (no cap) when max_nodes is 0/nil, keeping the legacy titles" do
+      html = render(findings: v11_yml, graph: graph_doc, max_nodes: 0)
+      expect(html).to include("Ranked Bottlenecks (by clutter_score)")
+      expect(html).to include("Call Graph")
     end
 
-    it "debounces re-layout while dragging the slider" do
-      expect(html).to include("clearTimeout(layoutTimer)")
-      expect(html).to include("setTimeout(function")
+    it "no longer renders the standalone Multiplexer Proxy Smell section" do
+      html = render(findings: v11_yml, graph: graph_doc)
+      expect(html).not_to include("Multiplexer Proxy Smell")
     end
 
-    it "handles a threshold above all scores gracefully (no nodes message, no crash)" do
-      expect(html).to include("no nodes ≥ ")
+    # Node size must be LOG-scaled + capped: on the from-cache path clutter is
+    # added_coupling (can be ~1e8), and the old linear `20 + clutter*4` made the
+    # worst node a screen-filling blob that collapsed the layout.
+    it "bounds node size (log-scaled + capped), never linear in clutter" do
+      html = render(findings: v11_yml, graph: graph_doc)
+      expect(html).to include("function sizeFor(clutter)")
+      expect(html).to include("size: sizeFor(n.clutter_score)")
+      expect(html).not_to include("size: 20 + num(n.clutter_score) * 4")
     end
   end
 
