@@ -2,6 +2,9 @@
 
 require_relative "root_seeder"
 require_relative "root_seeders/job_seeder"
+require_relative "root_seeders/rake_seeder"
+require_relative "root_seeders/middleware_seeder"
+require_relative "root_seeders/script_seeder"
 
 module Archbuddy
   module Collect
@@ -15,15 +18,26 @@ module Archbuddy
         #
         # ORDER MATTERS: `SEEDERS` order is the deterministic ingress
         # precedence for seeded categories (Reconciliation 2 —
-        # jobs -> rake -> middleware -> script as later waves land), because
+        # jobs -> rake -> middleware -> script), because
         # SymbolTable#mark_entrypoint is first-write-wins. New root category
         # = a NEW RootSeeder subclass appended IN PRECEDENCE ORDER here.
         # NOTE: cron (W4b, LINK-only) will be OFF by default when it lands —
         # excluded from the default-on set, not just appended.
+        #
+        # THE RAKE ASYMMETRY (v0.10 W2-B): RakeSeeder is a documenting
+        # no-op — task blocks have no DefNode, so rake roots are MINTED (and
+        # :rake-categorized) in Pass 1 (DefinitionPass#mint_rake_task, F5
+        # parity with ResolutionPass), BEFORE any seeder runs. It is listed
+        # here so the precedence order reads complete and :rake is a known
+        # --root-types name; selection does not gate the mint (rake is
+        # structural, like Grape endpoints).
         module RootSeederRegistry
           # Ordered seeder classes in ingress-precedence order.
           SEEDERS = [
-            RootSeeders::JobSeeder
+            RootSeeders::JobSeeder,
+            RootSeeders::RakeSeeder,
+            RootSeeders::MiddlewareSeeder,
+            RootSeeders::ScriptSeeder
           ].freeze
 
           module_function

@@ -3,6 +3,7 @@
 require "prism"
 require_relative "resolver"
 require_relative "grape_dsl"
+require_relative "root_dsl/rake_dsl"
 
 module Archbuddy
   module Collect
@@ -167,10 +168,15 @@ module Archbuddy
         end
 
         class ResolutionPass < Prism::Visitor
-          def initialize(symbol_table, accumulator, probes: [])
+          # `rel_file` (v0.10 W2-B, optional): the fragment's repo-relative
+          # path. Only consulted by the rake mirror push (RakeDsl.rake_file?
+          # guard) — nil (the historical construction) simply never
+          # recognizes rake, leaving all prior behavior untouched.
+          def initialize(symbol_table, accumulator, probes: [], rel_file: nil)
             @table     = symbol_table
             @acc       = accumulator
             @resolver  = RubyResolver.new(symbol_table, probes: probes)
+            @rel_file  = rel_file
             @namespace = []
             @method_stack = [] # fq symbols of enclosing methods
             # Grape handler-context tracking (W2) — MIRRORS DefinitionPass so the
@@ -179,6 +185,12 @@ module Archbuddy
             # source-order ordinals over the same parsed array in the same order.
             @grape_stack   = [] # class_fq strings of enclosing Grape::API classes
             @verb_ordinals = Hash.new(0) # [class_fq, verb] => next ordinal
+            # Rake task-context tracking (v0.10 W2-B) — MIRRORS DefinitionPass
+            # so the task FQ pushed here is byte-identical to the FQ minted
+            # there (F5 ordinal parity): same per-file lifecycle, same
+            # (namespace, name) ordinal keying over the same AST order.
+            @rake_stack    = [] # literal namespace labels of enclosing `namespace` blocks
+            @task_ordinals = Hash.new(0) # [namespace_path, task_name] => next ordinal
             # Conservative intra-procedural type scope (L1). Per-Pass-instance
             # (per-file) lifecycle, symmetric with @verb_ordinals (F5) — NEVER
             # global. Records ONLY exact `Const.new` assignments so R4.5 can
@@ -264,6 +276,43 @@ module Archbuddy
               return
             end
 
+            # Rake task-handler context (v0.10 W2-B — mirror of the Grape
+            # branch above). A `task NAME do ... end` block has no DefNode,
+            # so without this its body calls would be attributed to no caller
+            # and dropped. Open a synthetic method scope for the block: push
+            # the SAME task FQ DefinitionPass minted (F5 parity — identical
+            # (namespace, name) source-order ordinal), walk the block body so
+            # its calls record through the existing resolver tiers, then pop.
+            # A `namespace :x do` wraps `super` maintaining the same lexical
+            # namespace path Pass 1 saw. Both branches return early (the
+            # task/namespace call itself is a declaration, not an edge).
+            if rake_file? && RootDsl::RakeDsl.namespace_call?(node)
+              @rake_stack.push(RootDsl::RakeDsl.namespace_name(node))
+              begin
+                super
+              ensure
+                @rake_stack.pop
+              end
+              return
+            end
+
+            if rake_file? && RootDsl::RakeDsl.task_call?(node)
+              name    = RootDsl::RakeDsl.task_name(node)
+              key     = [@rake_stack.join(":"), name]
+              ordinal = @task_ordinals[key]
+              @task_ordinals[key] += 1
+
+              @method_stack.push(RootDsl::RakeDsl.rake_fq(@rake_stack, name, ordinal))
+              # A task block is a fresh method scope (L1): reset locals.
+              @local_types = {}
+              begin
+                super # walk the task block body; its calls record as edges
+              ensure
+                @method_stack.pop
+              end
+              return
+            end
+
             from_fq = @method_stack.last
             # Only attribute calls that occur inside a known method body; calls at
             # class body / top level are not edges from a node (no caller node).
@@ -336,6 +385,10 @@ module Archbuddy
 
           def enclosing_class_fq
             current_namespace.empty? ? nil : current_namespace
+          end
+
+          def rake_file?
+            RootDsl::RakeDsl.rake_file?(@rel_file)
           end
 
           # --- L1 type-scope helpers ------------------------------------------

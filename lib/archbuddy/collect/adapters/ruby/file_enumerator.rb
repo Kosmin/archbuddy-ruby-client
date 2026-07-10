@@ -4,15 +4,24 @@ module Archbuddy
   module Collect
     module Adapters
       module Ruby
-        # Enumerate .rb files under a root, honoring the config ignore list.
-        # Yields [absolute_path, rel_file] pairs with deterministic ordering so
-        # the whole capture is reproducible (D30).
+        # Enumerate Ruby source files under a root, honoring the config ignore
+        # list. Yields [absolute_path, rel_file] pairs with deterministic
+        # ordering so the whole capture is reproducible (D30).
+        #
+        # v0.10 W2-B: enumeration admits `**/*.rb` PLUS the rake surfaces —
+        # `**/*.rake` and the extensionless `Rakefile` — which Prism parses as
+        # plain Ruby. This is the PREREQUISITE for rake root detection (`task`
+        # DSL lives in files the old `.rb`-only glob never saw). Repos with no
+        # `.rake`/`Rakefile` enumerate byte-identically to before.
         class FileEnumerator
           # Raised when the capture target cannot produce a meaningful graph —
           # either the path does not exist or it contains zero .rb files. Failing
           # loudly here prevents emitting a near-empty graph (just the external
           # sink) with no signal, which silently masks a misconfigured target.
           class NoSourceError < StandardError; end
+
+          # The glob patterns of the Ruby-source family we enumerate.
+          SOURCE_GLOBS = ["**/*.rb", "**/*.rake", "**/Rakefile"].freeze
 
           def initialize(root, config)
             @root   = File.expand_path(root)
@@ -27,26 +36,35 @@ module Archbuddy
             end
 
             if File.file?(@root)
-              unless @root.end_with?(".rb")
-                raise NoSourceError, "target file is not a .rb file: #{@root}"
+              unless ruby_source?(@root)
+                raise NoSourceError, "target file is not a .rb file (or .rake/Rakefile): #{@root}"
               end
               return [[@root, File.basename(@root)]]
             end
 
             found =
-              Dir.glob(File.join(@root, "**", "*.rb"))
-                 .reject { |path| ignored?(path) }
-                 .sort
-                 .map { |abs| [abs, rel(abs)] }
+              SOURCE_GLOBS
+                .flat_map { |pattern| Dir.glob(File.join(@root, pattern)) }
+                .uniq
+                .reject { |path| ignored?(path) }
+                .sort
+                .map { |abs| [abs, rel(abs)] }
 
             if found.empty?
-              raise NoSourceError, "no .rb files found under #{@root} (after applying the ignore list)"
+              raise NoSourceError,
+                    "no .rb files (or .rake/Rakefile) found under #{@root} (after applying the ignore list)"
             end
 
             found
           end
 
           private
+
+          # The Ruby-source family for a single-file target: .rb, .rake, or
+          # an extensionless Rakefile (all plain Ruby to Prism).
+          def ruby_source?(path)
+            path.end_with?(".rb", ".rake") || File.basename(path) == "Rakefile"
+          end
 
           def rel(abs)
             abs.delete_prefix("#{@root}/")

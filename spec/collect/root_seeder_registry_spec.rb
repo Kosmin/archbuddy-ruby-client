@@ -22,8 +22,15 @@ RSpec.describe "Root-seeder seam (v0.10 W1-B)" do
 
   # --- registry map -------------------------------------------------------------
 
-  it "ships a frozen SEEDERS list holding the W1-B JobSeeder in precedence order" do
-    expect(R::RootSeederRegistry::SEEDERS).to eq([R::RootSeeders::JobSeeder])
+  it "ships a frozen SEEDERS list in ingress-precedence order (jobs -> rake -> middleware -> script)" do
+    expect(R::RootSeederRegistry::SEEDERS).to eq(
+      [
+        R::RootSeeders::JobSeeder,
+        R::RootSeeders::RakeSeeder,
+        R::RootSeeders::MiddlewareSeeder,
+        R::RootSeeders::ScriptSeeder
+      ]
+    )
     expect(R::RootSeederRegistry::SEEDERS).to be_frozen
   end
 
@@ -31,7 +38,7 @@ RSpec.describe "Root-seeder seam (v0.10 W1-B)" do
 
   it "selects every registered seeder for :all (the default)" do
     expect(R::RootSeederRegistry.for(Archbuddy::Collect::Config.new).map(&:root_type))
-      .to eq(%i[jobs])
+      .to eq(%i[jobs rake middleware script])
   end
 
   it "selects nothing for :none" do

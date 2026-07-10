@@ -97,8 +97,8 @@ module Archbuddy
         def assemble(fragments)
           table = Ruby::SymbolTable.new
           run_definition_pass(fragments, table)
-          run_route_catalogue(fragments, table)  # W4: seed routed actions before entrypoints
-          run_root_seeders(table, fragments)     # v0.10 W1-B: categorize ingress roots
+          run_route_catalogue(fragments, table)   # W4: seed routed actions before entrypoints
+          run_root_seeders(table, fragments, root) # v0.10 W1-B/W2-B: categorize ingress roots
 
           acc = Ruby::Accumulator.new
           run_resolution_pass(fragments, table, acc)
@@ -194,24 +194,29 @@ module Archbuddy
           end
         end
 
-        # v0.10 W1-B: run the config-selected root seeders ONCE over the
+        # v0.10 W1-B/W2-B: run the config-selected root seeders ONCE over the
         # fully-built table (they walk table.classes — superclass chains,
         # mixins, methods — so they need Pass 1 + the route catalogue done,
         # not a per-fragment visit). Fragments are passed through for
-        # AST-shaped seeders (rake, later waves); table-walkers ignore them.
+        # AST-shaped seeders (middleware); `root` for disk-shaped evidence
+        # (the script seeder's shebang read); table-walkers ignore both.
         # Empty selection (--root-types none) => [] => no-op.
-        def run_root_seeders(table, fragments)
+        def run_root_seeders(table, fragments, root)
           Ruby::RootSeederRegistry.for(config).each do |seeder|
-            seeder.seed(table, fragments: fragments)
+            seeder.seed(table, fragments: fragments, root: root)
           end
         end
 
         def run_resolution_pass(fragments, table, acc)
           # Build the config-selected probes ONCE (stateless; reused per file).
           # Empty in the seam wave (ProbeRegistry::PROBES == []) -> [] -> no-op.
+          # `rel_file` (v0.10 W2-B) lets the pass recognize rake surfaces so
+          # task-body calls resolve to edges (F5 mirror push).
           probes = Ruby::ProbeRegistry.for(config)
           fragments.each do |fragment|
-            fragment.parsed_value.accept(Ruby::ResolutionPass.new(table, acc, probes: probes))
+            fragment.parsed_value.accept(
+              Ruby::ResolutionPass.new(table, acc, probes: probes, rel_file: fragment.rel_file)
+            )
           end
         end
 

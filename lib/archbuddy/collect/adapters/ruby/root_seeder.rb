@@ -31,15 +31,17 @@ module Archbuddy
         #                              RootSeederRegistry's lenient
         #                              config-driven selection (--root-types).
         # Subclasses SHOULD override:
-        #   #seed(table, fragments: nil) => tag roots. Default is a no-op.
-        #     Table-walker seeders (jobs) ignore `fragments`; AST-shaped
-        #     seeders (rake, later waves) re-walk them.
+        #   #seed(table, fragments: nil, root: nil) => tag roots. Default is
+        #     a no-op. Table-walker seeders (jobs) ignore both kwargs;
+        #     AST-shaped seeders (middleware) re-walk `fragments`;
+        #     disk-shaped evidence (the script seeder's shebang read) also
+        #     needs `root` (the adapter's capture root).
         class RootSeeder
           def root_type
             raise NotImplementedError, "#{self.class}#root_type must return a stable Symbol"
           end
 
-          def seed(table, fragments: nil); end
+          def seed(table, fragments: nil, root: nil); end
         end
       end
     end

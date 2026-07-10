@@ -4,6 +4,7 @@ require "prism"
 require_relative "symbol_table"
 require_relative "grape_dsl"
 require_relative "root_dsl/mixin_dsl"
+require_relative "root_dsl/rake_dsl"
 
 module Archbuddy
   module Collect
@@ -29,6 +30,14 @@ module Archbuddy
             # symmetric with ResolutionPass.
             @grape_stack    = [] # class_fq strings of enclosing Grape::API classes
             @verb_ordinals  = Hash.new(0) # [class_fq, verb] => next ordinal
+            # Rake task discovery (v0.10 W2-B). Mirrors the Grape state: a
+            # lexical `namespace :x do` stack plus a PER-PASS-INSTANCE
+            # (per-file) source-order ordinal per (namespace, task-name) so
+            # the minted task FQ is stable and matches the FQ Pass 2 pushes
+            # (F5 ordinal parity). Only consulted inside .rake/Rakefile
+            # sources (RakeDsl.rake_file? guard).
+            @rake_stack     = [] # literal namespace labels of enclosing `namespace` blocks
+            @task_ordinals  = Hash.new(0) # [namespace_path, task_name] => next ordinal
             super()
           end
 
@@ -67,9 +76,25 @@ module Archbuddy
           #      subclass, each `get/post/... do ... end` verb-block declares an
           #      endpoint handler that has no DefNode; mint a synthetic endpoint
           #      MethodEntry for it.
+          #   3. Rake task NODE discovery (v0.10 W2-B) — inside a
+          #      .rake/Rakefile, each `task NAME do ... end` block declares a
+          #      handler with no DefNode; mint a synthetic :rake MethodEntry
+          #      for it. A `namespace :x do` wraps `super` so nested tasks
+          #      carry the namespace path in their FQ (same push/walk/pop
+          #      shape as the Grape stack in visit_class_node).
           def visit_call_node(node)
             capture_mixins(node) if RootDsl::MixinDsl.mixin_call?(node)
             mint_endpoint(node) if @grape_stack.last && GrapeDsl.endpoint_verb_call?(node)
+            if rake_file? && RootDsl::RakeDsl.namespace_call?(node)
+              @rake_stack.push(RootDsl::RakeDsl.namespace_name(node))
+              begin
+                super # walk the namespace block so nested tasks are minted
+              ensure
+                @rake_stack.pop
+              end
+              return
+            end
+            mint_rake_task(node) if rake_file? && RootDsl::RakeDsl.task_call?(node)
             super
           end
 
@@ -147,6 +172,46 @@ module Archbuddy
                 endpoint:  true
               )
             )
+          end
+
+          # Mint one synthetic :rake MethodEntry for a `task NAME do ... end`
+          # block (v0.10 W2-B — mirror of mint_endpoint). The FQ is stamped
+          # with the namespace path plus a per-(namespace, name) source-order
+          # ordinal so it is stable and IDENTICAL to the FQ ResolutionPass
+          # pushes for the same block (F5). branches/decisions come from the
+          # BranchCounter over the block body — the task's path cost, same
+          # as a def body. The mint IS the evidence (the block exists —
+          # analogous to a Grape verb-block); the category is stamped HERE
+          # via mark_entrypoint (post-mint, so the method?-gate holds), the
+          # ONE entrypoint_category write for this fq (first-write-wins).
+          # owner_fq is nil: a task is top-level-ish; the FQ carries the
+          # namespace path instead.
+          def mint_rake_task(node)
+            name    = RootDsl::RakeDsl.task_name(node)
+            key     = [@rake_stack.join(":"), name]
+            ordinal = @task_ordinals[key]
+            @task_ordinals[key] += 1
+
+            fq_symbol = RootDsl::RakeDsl.rake_fq(@rake_stack, name, ordinal)
+            counter   = BranchCounter.count(node.block&.body)
+
+            @table.add_method(
+              SymbolTable::MethodEntry.new(
+                fq_symbol: fq_symbol,
+                owner_fq:  nil,
+                name:      "#{name}[#{ordinal}]",
+                singleton: false,
+                rel_file:  @rel_file,
+                line:      node.block&.location&.start_line || node.location.start_line,
+                branches:  counter.branches,
+                decisions: counter.decisions
+              )
+            )
+            @table.mark_entrypoint(fq_symbol, :rake)
+          end
+
+          def rake_file?
+            RootDsl::RakeDsl.rake_file?(@rel_file)
           end
 
           def register_class(node, superclass:)

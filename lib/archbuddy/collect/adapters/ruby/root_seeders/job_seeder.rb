@@ -30,7 +30,7 @@ module Archbuddy
 
             def root_type = :jobs
 
-            def seed(table, fragments: nil)
+            def seed(table, fragments: nil, root: nil)
               table.classes.each_key do |class_fq|
                 next unless job_class?(table, class_fq)
 
