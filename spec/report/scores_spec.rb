@@ -356,11 +356,11 @@ RSpec.describe "counter structs (v0.10 W1-A1)" do
       expect(Scores.dynamic_dispatch_from_aggregate({})).to be_nil
     end
 
-    it "parses the coverage tuple verbatim" do
+    it "parses the coverage tuple verbatim (committed key: coverage_ratio — W3 vocab lock)" do
       dd = Scores.dynamic_dispatch_from_aggregate(
         "dynamic_dispatch" => {
           "dynamic_sites" => 3, "resolved_sites" => 7,
-          "total_call_sites" => 100, "ratio" => 0.42
+          "total_call_sites" => 100, "coverage_ratio" => 0.42
         }
       )
       expect(dd.dynamic_sites).to eq(3)

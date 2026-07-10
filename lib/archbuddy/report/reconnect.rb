@@ -38,9 +38,15 @@ module Archbuddy
       # from_cache path (v0.9 W2) — nil on the legacy opaque path (there the CLI
       # loads the opaque graph.yml). `real_name` flags the committed path so the
       # CLI wires an IDENTITY resolver (nodes are already real; no id-map).
+      # `entrypoints` / `egress` / `dynamic_dispatch` (v0.10 W3) are the three
+      # OPTIONAL committed counter blocks parsed off the serializer-v2 aggregate
+      # (Scores::EntrypointCount / Scores::Egress / Scores::DynamicDispatch) —
+      # NIL on a v1 (pre-bump) aggregate or a legacy findings doc (back-compat;
+      # absence, never a fabricated zero).
       Result = Struct.new(
         :bottlenecks, :id_map, :findings_doc, :scores, :connectivity,
         :multiplexer_proxies, :graph, :real_name,
+        :entrypoints, :egress, :dynamic_dispatch,
         keyword_init: true
       ) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
@@ -191,7 +197,12 @@ module Archbuddy
           connectivity:        Scores.connectivity_from_findings(doc),
           multiplexer_proxies: smell,
           graph:               graph,
-          real_name:           true
+          real_name:           true,
+          # v0.10 W3: the three committed counter blocks (serializer v2, doc
+          # ROOT — peers of `scores`). NIL on a v1 aggregate (back-compat).
+          entrypoints:         Scores.entrypoints_from_aggregate(doc),
+          egress:              Scores.egress_from_aggregate(doc),
+          dynamic_dispatch:    Scores.dynamic_dispatch_from_aggregate(doc)
         )
       end
 
@@ -258,7 +269,13 @@ module Archbuddy
           # Optional findings-1.4 multiplexer_proxy smell (worst-first, VERBATIM).
           # On the legacy opaque findings path this resolves opaque node ids via
           # the SAME resolver; NIL when absent, [] when scored-but-no-proxy.
-          multiplexer_proxies: Scores.multiplexer_proxies_from_findings(@findings_doc, @resolver)
+          multiplexer_proxies: Scores.multiplexer_proxies_from_findings(@findings_doc, @resolver),
+          # v0.10 W3: the three committed counter blocks live at the AGGREGATE
+          # doc root; a legacy findings.yml has none → all NIL (nil-tolerant,
+          # keeps this path from raising on the new struct fields).
+          entrypoints:         Scores.entrypoints_from_aggregate(@findings_doc),
+          egress:              Scores.egress_from_aggregate(@findings_doc),
+          dynamic_dispatch:    Scores.dynamic_dispatch_from_aggregate(@findings_doc)
         )
       end
 

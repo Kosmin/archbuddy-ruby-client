@@ -97,8 +97,12 @@ module Archbuddy
 
         # W1: the Emitter writes the COMMITTED cache under the TARGET repo root,
         # not Dir.pwd — so the detail tree + aggregate land in the target.
+        # v0.10 W3 (Reconciliation 1): the collect-time diagnostics carrier rides
+        # along so the committed aggregate's `egress` + `dynamic_dispatch` blocks
+        # fold from the single producer→writer handshake (counts only — the
+        # diagnostics hash NEVER reaches graph.yml).
         paths = Archbuddy::Collect::Emitter.new(out_dir: out_dir, project_root: target_root).emit(
-          graph: anon.graph, id_map: anon.id_map
+          graph: anon.graph, id_map: anon.id_map, diagnostics: adapter_result.diagnostics
         )
 
         skipped = adapter_result.diagnostics[:meta_sites_skipped].to_i

@@ -208,10 +208,12 @@ module Archbuddy
       end
 
       # v0.10 (A1/D): the committed `dynamic_dispatch` coverage block —
-      # {dynamic_sites, resolved_sites, total_call_sites, ratio}. `ratio` is
-      # nil (NOT 0.0 / 1.0) when there are zero call sites — a ratio over an
-      # empty denominator is undefined, and rendering a confident number would
-      # fabricate a coverage claim (L21 / connectivity honesty).
+      # {dynamic_sites, resolved_sites, total_call_sites, coverage_ratio}.
+      # `ratio` (the parsed `coverage_ratio` — the visible share of dispatch,
+      # 1 - dynamic/total) is nil (NOT 0.0 / 1.0) when there are zero call
+      # sites — a ratio over an empty denominator is undefined, and rendering
+      # a confident number would fabricate a coverage claim (L21 /
+      # connectivity honesty).
       DynamicDispatch = Struct.new(
         :dynamic_sites, :resolved_sites, :total_call_sites, :ratio,
         keyword_init: true
@@ -292,7 +294,9 @@ module Archbuddy
           dynamic_sites:    block["dynamic_sites"],
           resolved_sites:   block["resolved_sites"],
           total_call_sites: block["total_call_sites"],
-          ratio:            block["ratio"]
+          # The committed key is `coverage_ratio` (v0.10 W3 vocab lock — the
+          # synthesis gate name, superseding this plan's earlier `ratio`).
+          ratio:            block["coverage_ratio"]
         )
       end
 

@@ -124,6 +124,26 @@ RSpec.describe Archbuddy::Cache::Writer do
     end
   end
 
+  # v0.10 W3 (A1, serializer v2): the fragment node carries the ingress
+  # category string beside the `entrypoint` boolean (from the W1-A1 id-map
+  # stamp) — a category word, NOT a line (C1 line-free invariant untouched).
+  it "stamps entrypoint_kind on fragment nodes beside the entrypoint boolean (serializer v2)" do
+    Dir.mktmpdir do |dir|
+      write_into(dir)
+
+      frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/controllers/orders_controller.rb.json")))
+      expect(frag["serializer_version"]).to eq(2)
+      action = frag["nodes"].find { |n| n["symbol"] == "OrdersController#index" }
+      expect(action["entrypoint"]).to be(true)
+      expect(action["entrypoint_kind"]).to eq("controllers")
+
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      plain = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+      expect(plain["entrypoint"]).to be(false)
+      expect(plain["entrypoint_kind"]).to be_nil
+    end
+  end
+
   it "produces byte-identical committed output across two runs (determinism)" do
     Dir.mktmpdir do |dir|
       write_into(dir)

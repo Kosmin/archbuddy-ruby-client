@@ -36,7 +36,13 @@ module Archbuddy
       # changes, so a fragment written by an OLDER writer is NOT reused verbatim
       # by a newer collector (C2 collector-version stamp). Folded into the
       # fragment `content_hash` (C2 ChangeDetector) so a mismatch forces re-parse.
-      SERIALIZER_VERSION = 1
+      #
+      # v2 (v0.10 W3 / A1 — THE one serializer bump, I10): the aggregate gains
+      # the three committed counter blocks (`entrypoints`, `egress`,
+      # `dynamic_dispatch`) and fragment nodes gain the `entrypoint_kind`
+      # category string beside the `entrypoint` boolean. NOT a contract
+      # (graph/findings) change — the committed cache is a client-owned shape.
+      SERIALIZER_VERSION = 2
 
       # @param project_root [String] the audited repo root (CWD by default).
       def initialize(project_root: Dir.pwd)
@@ -46,8 +52,15 @@ module Archbuddy
       # Transcode + write the committed cache. Returns the repo-relative paths of
       # every committed file written (for the CLI + `--check`).
       #
+      # @param diagnostics [Hash, nil] the collect-time AdapterResult.diagnostics
+      #   carrier (v0.10 W3, Reconciliation 1) — the single producer→writer
+      #   handshake for the `egress` (`:egress_counts`) and `dynamic_dispatch`
+      #   (`:meta_sites_skipped`/`:meta_resolved`/`:total_call_sites`) folds.
+      #   nil on a write without a fresh collect (the analyze path): the
+      #   previously committed blocks are carried forward VERBATIM (never
+      #   zero-clobbered, never recomputed from nothing).
       # @return [Hash] { aggregate: <rel>, fragments: [<rel>, …] }
-      def write(graph:, id_map:, findings: nil)
+      def write(graph:, id_map:, findings: nil, diagnostics: nil)
         resolver  = Deanonymizer.new(id_map)
         by_file   = group_nodes_by_file(graph, resolver)
         edges     = deanonymize_edges(graph, resolver)
@@ -63,7 +76,7 @@ module Archbuddy
           written.concat(files)
         end
 
-        aggregate_rel = write_aggregate(pointers, findings, resolver)
+        aggregate_rel = write_aggregate(pointers, findings, resolver, graph, diagnostics)
         { aggregate: aggregate_rel, fragments: written }
       end
 
@@ -88,7 +101,13 @@ module Archbuddy
             "class"     => resolver.class_symbol(desc["class_id"]),
             # opaque path-cost integers carry no app semantics; keep them
             "branches"  => node["branches"],
-            "decisions" => node["decisions"]
+            "decisions" => node["decisions"],
+            # v0.10 W3 (A1): the ingress category string from the id-map
+            # descriptor (W1-A1 stamp) — rides the committed fragment beside
+            # the `entrypoint` boolean. nil for non-entrypoints and for
+            # category-unknown entrypoints. A category word, NOT a line —
+            # the C1 line-free invariant is untouched.
+            "entrypoint_kind" => desc["entrypoint_kind"]
             # NO line — display-only, resolved at RENDER from the id-map.
           }
         end
@@ -190,7 +209,7 @@ module Archbuddy
 
       # --- root aggregate (compact: scores + smell + POINTERS) -----------------
 
-      def write_aggregate(pointers, findings, resolver)
+      def write_aggregate(pointers, findings, resolver, graph, diagnostics)
         rel = Layout::ROOT_AGGREGATE
 
         doc = {
@@ -198,6 +217,19 @@ module Archbuddy
           # POINTERS into the detail tree — payload NOT inlined (stays small).
           "sources"            => pointers.sort.to_h
         }
+
+        # v0.10 W3 (A1, serializer v2): the three committed counter blocks —
+        # peers of `scores`, refreshed on every write that carries their data
+        # source. `entrypoints` is a pure fold over graph + id-map (always
+        # present). `egress`/`dynamic_dispatch` fold from the collect-time
+        # `diagnostics` carrier (Reconciliation 1 — the writer never re-parses
+        # sink symbols); a diagnostics-free write (analyze re-transcode) carries
+        # the previously committed blocks forward VERBATIM. No block is ever
+        # OMITTED — an explicit honest zero is distinct from absence (I2).
+        prior = diagnostics.nil? ? read_prior_aggregate(rel) : nil
+        doc["entrypoints"]      = entrypoint_counts(graph, resolver)
+        doc["egress"]           = egress_block(diagnostics, graph, prior)
+        doc["dynamic_dispatch"] = dynamic_dispatch_block(diagnostics, prior)
 
         if findings
           # analyze/reset path: fold in the fresh de-anonymized scores + smell.
@@ -224,15 +256,110 @@ module Archbuddy
       # a collect-only (findings nil). No-op if there is no prior aggregate or it
       # carries no scores.
       def preserve_existing_scores(rel, doc)
-        abs = File.join(@project_root, rel)
-        return unless File.exist?(abs)
+        prior = read_prior_aggregate(rel)
+        return if prior.nil?
 
-        prior = JSON.parse(File.read(abs))
         doc["scores"]              = prior["scores"]              if prior.key?("scores")
         doc["multiplexer_proxies"] = prior["multiplexer_proxies"] if prior.key?("multiplexer_proxies")
+      end
+
+      # The already-committed root aggregate, parsed — or nil when absent or
+      # corrupt (a fresh tree / a hand-mangled doc → just write structurally).
+      def read_prior_aggregate(rel)
+        abs = File.join(@project_root, rel)
+        return nil unless File.exist?(abs)
+
+        JSON.parse(File.read(abs))
       rescue StandardError
-        # A corrupt/absent prior aggregate → just write the structural doc.
         nil
+      end
+
+      # --- v0.10 W3 (A1): committed counter blocks ------------------------------
+
+      # The CLOSED ingress category vocabulary (Reconciliation 2) — every key is
+      # seeded to 0 so a category is visible even at zero (L2: jobs/rake/… read 0
+      # until their detectors land). `unknown` is NOT a category: it is the
+      # declared "no category data" bucket for a nil `entrypoint_kind` (an
+      # entrypoint whose category source is absent — bucketed, never guessed).
+      ENTRYPOINT_CATEGORIES = %w[
+        controllers grape routed top_level jobs rake middleware script pattern
+      ].freeze
+
+      # The closed egress category vocabulary (L18/CR-3): `generic` is the
+      # untagged `<external>` bucket (nil-category tally), never `unknown`.
+      EGRESS_CATEGORIES = %w[http gem queue generic].freeze
+
+      # A1 ingress COUNTS: fold the graph `entrypoints:` id list through the
+      # id-map descriptor's `entrypoint_kind` (the W1-A1 categorized stamp).
+      # COUNTS only — `mean`/`median` are engine-published per-category COST
+      # (A2, findings 1.5); until the engine publishes them they are an honest
+      # null, NEVER computed client-side (D17).
+      def entrypoint_counts(graph, resolver)
+        by_category = ENTRYPOINT_CATEGORIES.to_h { |cat| [cat, 0] }
+        ids = graph["entrypoints"] || []
+
+        ids.each do |id|
+          desc = resolver.describe(id)
+          cat  = (desc && desc["entrypoint_kind"]) || "unknown"
+          by_category[cat] = by_category.fetch(cat, 0) + 1
+        end
+
+        {
+          "total"       => ids.length,
+          "count"       => ids.length,
+          "by_category" => by_category,
+          "mean"        => nil,
+          "median"      => nil
+        }
+      end
+
+      # C egress COUNTS: the single read path is `diagnostics[:egress_counts]`
+      # (the Accumulator's per-call-site tally — Reconciliation 1; the writer
+      # never re-parses `<external:*>` sink symbols). Diagnostics-free write →
+      # carry the prior committed block forward; no prior either → the pre-C
+      # fallback fold over the graph's external edges, all `generic` (summing
+      # per-edge `calls` so the fallback keeps the same per-SITE semantics).
+      def egress_block(diagnostics, graph, prior)
+        counts = diagnostics && diagnostics[:egress_counts]
+
+        if counts
+          by_category = EGRESS_CATEGORIES.to_h { |cat| [cat, counts[cat.to_sym].to_i] }
+        elsif (carried = prior && prior["egress"]) && carried.is_a?(Hash) && !carried.empty?
+          return carried
+        else
+          generic = (graph["edges"] || [])
+                    .select { |e| e["to"].to_s.start_with?("ext_") }
+                    .sum { |e| e["calls"].to_i }
+          by_category = EGRESS_CATEGORIES.to_h { |cat| [cat, cat == "generic" ? generic : 0] }
+        end
+
+        total = by_category.values.sum
+        { "total" => total, "count" => total, "by_category" => by_category }
+      end
+
+      # D dynamic-dispatch COVERAGE: promotes the stderr-only diagnostics to a
+      # committed metric (L21). `coverage_ratio` = the visible share of dispatch,
+      # 1 - dynamic_sites/total_call_sites — and NULL on a zero denominator (a
+      # ratio over zero sites is undefined; a confident 0/1 would be a
+      # fabricated coverage claim — I2). Diagnostics-free write → carry the
+      # prior committed block forward (analyze never re-collects).
+      def dynamic_dispatch_block(diagnostics, prior)
+        if diagnostics.nil? && (carried = prior && prior["dynamic_dispatch"]) &&
+           carried.is_a?(Hash) && !carried.empty?
+          return carried
+        end
+
+        d        = diagnostics || {}
+        dynamic  = d[:meta_sites_skipped].to_i
+        resolved = d[:meta_resolved].to_i
+        total    = d.key?(:total_call_sites) ? d[:total_call_sites].to_i : dynamic + resolved
+
+        {
+          "dynamic_sites"    => dynamic,
+          "resolved_sites"   => resolved,
+          "total_call_sites" => total,
+          "coverage_ratio"   => total.zero? ? nil : (1.0 - dynamic.to_f / total).round(4)
+        }
       end
 
       # Headline (compact) dimension scores — grade + score numbers only; drop

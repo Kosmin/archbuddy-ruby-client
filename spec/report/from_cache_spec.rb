@@ -162,6 +162,39 @@ RSpec.describe "report reads the committed real-name cache (R2-1)" do
     end
   end
 
+  # v0.10 W3 (A1): from_cache parses the three committed counter blocks off the
+  # serializer-v2 aggregate into nil-tolerant presentation structs; a v1
+  # (pre-bump) aggregate yields nil fields — back-compat, no raise.
+  describe "v0.10 W3: committed counter blocks on the Result" do
+    it "populates entrypoints/egress/dynamic_dispatch structs from a v2 aggregate" do
+      Dir.mktmpdir do |dir|
+        write_committed_cache(dir)
+        agg = File.join(dir, "archbuddy-findings.json")
+
+        result = Archbuddy::Report::Reconnect.from_cache(aggregate_path: agg, id_map_path: nil)
+
+        expect(result.entrypoints).to be_a(Archbuddy::Report::Scores::EntrypointCount)
+        expect(result.entrypoints.by_category["controllers"]).to eq(1)
+        expect(result.egress).to be_a(Archbuddy::Report::Scores::Egress)
+        expect(result.egress.by_category.keys).to include("http", "gem", "queue", "generic")
+        expect(result.dynamic_dispatch).to be_a(Archbuddy::Report::Scores::DynamicDispatch)
+      end
+    end
+
+    it "returns nil fields (no raise) on a v1 pre-bump aggregate" do
+      Dir.mktmpdir do |dir|
+        agg = File.join(dir, "archbuddy-findings.json")
+        File.write(agg, JSON.generate("serializer_version" => 1, "sources" => {}))
+
+        result = Archbuddy::Report::Reconnect.from_cache(aggregate_path: agg, id_map_path: nil)
+
+        expect(result.entrypoints).to be_nil
+        expect(result.egress).to be_nil
+        expect(result.dynamic_dispatch).to be_nil
+      end
+    end
+  end
+
   # Back-compat: the LEGACY opaque path (explicit findings.yml + SECRET id-map)
   # still de-anonymizes at read time and renders real names via the id-map.
   describe "back-compat: legacy findings.yml + id-map path still works" do

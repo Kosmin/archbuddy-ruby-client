@@ -33,8 +33,14 @@ module Archbuddy
       #   `.archbuddy/` cache (root aggregate + detail tree). Default true; the
       #   opaque graph.yml + SECRET id-map.yml are still written (gitignored
       #   internal interchange the engine `analyze` consumes).
+      # @param diagnostics [Hash, nil] the collect-time AdapterResult.diagnostics
+      #   carrier (v0.10 W3, Reconciliation 1) — counts only (meta/egress/call-site
+      #   tallies), NEVER graph content. Threaded through to the committed
+      #   aggregate writer so the `egress` + `dynamic_dispatch` blocks fold from
+      #   the single producer→writer handshake. Default nil (callers without a
+      #   fresh collect keep today's behavior).
       # @return [Hash] { graph:, id_map:, committed: { aggregate:, fragments: } }
-      def emit(graph:, id_map:, committed: true)
+      def emit(graph:, id_map:, committed: true, diagnostics: nil)
         # D37: validate before writing — a non-conforming graph never reaches disk.
         Validator.validate!(:graph, graph)
 
@@ -58,7 +64,8 @@ module Archbuddy
         # when the aggregate is re-transcoded post-analyze.
         if committed
           result[:committed] = Archbuddy::Cache::Writer.new(project_root: @project_root)
-                                                       .write(graph: graph, id_map: id_map)
+                                                       .write(graph: graph, id_map: id_map,
+                                                              diagnostics: diagnostics)
         end
 
         result
