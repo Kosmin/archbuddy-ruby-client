@@ -13,9 +13,18 @@ module Archbuddy
         # decide whether a call site targets an app symbol we actually know.
         class SymbolTable
           # A defined class or module, with the metadata the resolver needs.
+          # `mixins` (default []) is the L14 general mixin capture: the literal
+          # module constants this class `include`s/`prepend`s/`extend`s, in
+          # source order. Only provable literal-constant arguments land here
+          # (dynamic mixins are declined by the DefinitionPass — L4).
           ClassEntry = Struct.new(
-            :fq_name, :rel_file, :line, :superclass, keyword_init: true
+            :fq_name, :rel_file, :line, :superclass, :mixins, keyword_init: true
           ) do
+            def initialize(*)
+              super
+              self.mixins = [] if mixins.nil?
+            end
+
             def active_record?
               Vocab::ACTIVE_RECORD_BASES.include?(superclass.to_s)
             end
@@ -74,6 +83,16 @@ module Archbuddy
             @methods[entry.fq_symbol] ||= entry
           end
 
+          # L14 general mixin capture: append a module fq onto an ALREADY
+          # registered class entry. `add_class` is first-wins (`||=`), so a
+          # reopened class body ACCUMULATES its mixins onto the original entry.
+          # Unknown class (e.g. a top-level `include`) => no-op, never
+          # fabricated.
+          def add_mixin(class_fq, module_fq)
+            entry = @classes[class_fq]
+            entry.mixins << module_fq if entry
+          end
+
           def class_for(fq_name)
             @classes[fq_name]
           end
@@ -106,6 +125,25 @@ module Archbuddy
             current = @classes[fq_name]
             while current && !seen[current.fq_name]
               return true if yield(current)
+
+              seen[current.fq_name] = true
+              current = @classes[current.superclass]
+            end
+            false
+          end
+
+          # Sibling of `chain_any?` for mixins (L14): walk the SAME superclass
+          # chain, but test the predicate against each class's captured
+          # `mixins` entries — so a base-class mixin
+          # (`class A; include M; end; class B < A; end`) is inherited by
+          # subclasses. A general primitive, not job-specific: consumers decide
+          # which module names matter. Unknown fq / empty chain / no mixins
+          # anywhere => false (never a fabricated true).
+          def chain_any_module?(fq_name)
+            seen = {}
+            current = @classes[fq_name]
+            while current && !seen[current.fq_name]
+              return true if current.mixins.any? { |mixin_fq| yield(mixin_fq) }
 
               seen[current.fq_name] = true
               current = @classes[current.superclass]

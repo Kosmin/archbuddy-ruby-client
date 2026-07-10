@@ -3,6 +3,7 @@
 require "prism"
 require_relative "symbol_table"
 require_relative "grape_dsl"
+require_relative "root_dsl/mixin_dsl"
 
 module Archbuddy
   module Collect
@@ -57,12 +58,17 @@ module Archbuddy
             end
           end
 
-          # Grape endpoint NODE discovery (W2). While inside a Grape::API
-          # subclass, each `get/post/... do ... end` verb-block declares an
-          # endpoint handler that has no DefNode — mint a synthetic endpoint
-          # MethodEntry for it. Always `super` so calls nested inside
-          # resource/namespace blocks (and helper defs) are still walked.
+          # Call-node dispatch. Independent if-guards in order (each new
+          # recognizer adds its own guard; `super` stays LAST so nested calls
+          # are always walked):
+          #   1. L14 general mixin capture (W0) — record literal-constant
+          #      `include`/`prepend`/`extend` args on the enclosing class.
+          #   2. Grape endpoint NODE discovery (W2) — while inside a Grape::API
+          #      subclass, each `get/post/... do ... end` verb-block declares an
+          #      endpoint handler that has no DefNode; mint a synthetic endpoint
+          #      MethodEntry for it.
           def visit_call_node(node)
+            capture_mixins(node) if RootDsl::MixinDsl.mixin_call?(node)
             mint_endpoint(node) if @grape_stack.last && GrapeDsl.endpoint_verb_call?(node)
             super
           end
@@ -98,6 +104,21 @@ module Archbuddy
           end
 
           private
+
+          # L14 general mixin capture (W0): record each provable
+          # literal-constant module argument of a self-receiver
+          # `include`/`prepend`/`extend` onto the ENCLOSING class/module entry.
+          # The class is registered on visit_class_node/visit_module_node entry
+          # BEFORE its body is walked, so the entry exists here; `add_mixin`
+          # appends to it (accumulating across reopened bodies). Dynamic
+          # arguments were already declined by the recognizer (L4); a top-level
+          # `include` (no enclosing class) is a no-op via the add_mixin guard.
+          def capture_mixins(node)
+            class_fq = current_namespace
+            RootDsl::MixinDsl.mixin_constants(node).each do |module_fq|
+              @table.add_mixin(class_fq, module_fq)
+            end
+          end
 
           # Mint one synthetic endpoint MethodEntry for a Grape verb-block. The
           # FQ is stamped with a per-(class,verb) source-order ordinal so it is
