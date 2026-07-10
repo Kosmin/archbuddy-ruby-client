@@ -15,20 +15,22 @@ module Archbuddy
       # Entrypoint strategies (D4 / K-4).
       ENTRYPOINT_STRATEGIES = %i[default controllers all_public none].freeze
 
-      attr_reader :language, :ignore, :entrypoint_strategy, :entrypoint_patterns, :probes
+      attr_reader :language, :ignore, :entrypoint_strategy, :entrypoint_patterns, :probes, :root_types
 
       def initialize(
         language: "ruby",
         ignore: DEFAULT_IGNORE,
         entrypoint_strategy: :default,
         entrypoint_patterns: [],
-        probes: :all
+        probes: :all,
+        root_types: :all
       )
         @language            = language
         @ignore              = Array(ignore)
         @entrypoint_strategy = normalize_strategy(entrypoint_strategy)
         @entrypoint_patterns = Array(entrypoint_patterns).map { |p| p.is_a?(Regexp) ? p : Regexp.new(p.to_s) }
         @probes              = normalize_probes(probes)
+        @root_types          = normalize_root_types(root_types)
       end
 
       private
@@ -60,6 +62,29 @@ module Archbuddy
             Array(probes)
           end
         list.map { |p| p.to_s.strip.to_sym }.reject { |s| s.to_s.empty? }
+      end
+
+      # Root-seeder selection (v0.10 W1-B / --root-types). Same LENIENT
+      # semantics as normalize_probes — NEVER raises on an unknown name:
+      # root-type names are owned by seeder waves this seam can't enumerate,
+      # so an unknown name simply selects nothing (RootSeederRegistry filters
+      # it out). Accepts:
+      #   :all (sentinel — every registered seeder; the default. NOTE: cron,
+      #         when it lands in a later wave, will be excluded from :all's
+      #         default-on set — LINK-only, opt-in)
+      #   :none / nil / [] -> [] (seed no roots)
+      #   Array/Symbol/String/comma-string -> Array<Symbol> selected by root_type
+      def normalize_root_types(root_types)
+        return :all if root_types == :all || root_types.to_s == "all"
+        return [] if root_types.nil? || root_types == :none || root_types.to_s == "none"
+
+        list =
+          if root_types.is_a?(String)
+            root_types.split(",")
+          else
+            Array(root_types)
+          end
+        list.map { |t| t.to_s.strip.to_sym }.reject { |s| s.to_s.empty? }
       end
     end
   end

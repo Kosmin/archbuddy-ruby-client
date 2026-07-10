@@ -35,8 +35,21 @@ module Archbuddy
 
           private
 
+          # :default = request surfaces (controllers/grape/routed) + top-level
+          # defs + SEEDED categorized roots (v0.10 W1-B: jobs; later rake/
+          # middleware/script). The seeded union lives HERE and not in
+          # `controller_actions` because seeded roots are not controller
+          # requests — `:controllers` semantics stay clean. Additive: no
+          # seeders selected => seeded_roots is [] => today's set, unchanged.
           def default_set(table)
-            (controller_actions(table) + top_level_defs(table)).uniq
+            (controller_actions(table) + top_level_defs(table) + seeded_roots(table)).uniq
+          end
+
+          # All category-tagged fqs (root seeders write categories through
+          # SymbolTable#mark_entrypoint, which is gated on table.method? —
+          # L4, so nothing here is fabricated).
+          def seeded_roots(table)
+            table.methods.keys.select { |fq| table.entrypoint_category(fq) }
           end
 
           # Controller actions ∪ Grape endpoint handlers (W2) ∪ routed actions

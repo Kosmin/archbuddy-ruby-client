@@ -27,6 +27,9 @@ module Archbuddy
                                   desc: "Additional entrypoint fq-symbol regex(es)"
       option :probes, default: "all",
                       desc: "Framework probe selection: all|none|comma,list (e.g. grape,sidekiq_dispatch)"
+      option :root_types, default: "all",
+                          desc: "Ingress root-seeder selection: all|none|comma,list (e.g. jobs). " \
+                                "Unknown names select nothing (lenient)."
       option :changed, type: :boolean, default: false,
                        desc: "Incremental collect: reuse unchanged files' cached parse, re-parse only changed"
       option :base_ref, type: :string, default: nil,
@@ -35,7 +38,7 @@ module Archbuddy
                      desc: "CI staleness gate: regenerate the committed cache + assert it matches what is committed (git diff). Exit 1 on drift, 2 when there is no committed baseline."
 
       def call(path:, language:, entrypoints:, entrypoint_pattern:, probes: "all",
-               out_dir: nil, changed: false, base_ref: nil, check: false, **)
+               root_types: "all", out_dir: nil, changed: false, base_ref: nil, check: false, **)
         # W1: `path` is the codebase to scan AND the TARGET repo root. The
         # committed cache (aggregate + detail tree) + the default `.archbuddy/`
         # workspace belong under the TARGET, not Dir.pwd — so `collect <target>`
@@ -50,7 +53,7 @@ module Archbuddy
         # Cache::Checker (baseline + diff policy) with the regenerate step
         # injected, so this command owns only the wiring.
         if check
-          exit run_check(target_root, path, language, entrypoints, entrypoint_pattern, probes)
+          exit run_check(target_root, path, language, entrypoints, entrypoint_pattern, probes, root_types)
         end
         # --out-dir is OPTIONAL: default to the TARGET's `.archbuddy/` workspace so
         # `archbuddy collect .` works with no flags. When we fall back to the
@@ -69,7 +72,8 @@ module Archbuddy
           language:            language,
           entrypoint_strategy: entrypoints,
           entrypoint_patterns: entrypoint_pattern,
-          probes:              probes
+          probes:              probes,
+          root_types:          root_types
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)
@@ -134,7 +138,7 @@ module Archbuddy
       # policy and return the process exit code (0 clean / 1 drift / 2 no
       # baseline). NEVER reads the SECRET id-map — the committed cache is
       # real-name and the check only touches source + committed cache + git.
-      def run_check(target_root, path, language, entrypoints, entrypoint_pattern, probes)
+      def run_check(target_root, path, language, entrypoints, entrypoint_pattern, probes, root_types = "all")
         # W1: the staleness gate baselines + diffs the committed cache in the
         # TARGET repo (the codebase being scanned), not Dir.pwd.
         checker = Archbuddy::Cache::Checker.new(project_root: target_root)
@@ -146,7 +150,8 @@ module Archbuddy
           call(
             path: path, language: language, entrypoints: entrypoints,
             entrypoint_pattern: entrypoint_pattern, probes: probes,
-            out_dir: nil, changed: false, base_ref: nil, check: false
+            root_types: root_types, out_dir: nil, changed: false, base_ref: nil,
+            check: false
           )
         end
       end

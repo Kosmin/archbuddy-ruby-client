@@ -73,6 +73,31 @@ module Archbuddy
           def active_record_method?(name)
             ACTIVE_RECORD.include?(name.to_s)
           end
+
+          # --- Ingress root detection (v0.10 W1-B) -------------------------
+          # Static discriminators for job classes (L8). Consulted by the
+          # JobSeeder root seeder; pure data, appended additively (disjoint
+          # from the resolver vocab above).
+
+          # Modern Sidekiq marks a worker with `include Sidekiq::Job` (or the
+          # older `include Sidekiq::Worker`). Matched against the L14 general
+          # mixin capture (ClassEntry#mixins via chain_any_module?).
+          SIDEKIQ_WORKER_MIXINS = %w[
+            Sidekiq::Job Sidekiq::Worker
+          ].to_set.freeze
+
+          # Legacy Sidekiq subclassing style: `class Foo < Sidekiq::Worker`.
+          # Matched against the superclass chain (chain_any?).
+          SIDEKIQ_WORKER_BASES = %w[
+            Sidekiq::Worker
+          ].to_set.freeze
+
+          # ActiveJob subclassing: `class Foo < ApplicationJob` /
+          # `< ActiveJob::Base`. Matched against the superclass chain, so an
+          # intermediate in-app base class still counts.
+          ACTIVE_JOB_BASES = %w[
+            ApplicationJob ActiveJob::Base
+          ].to_set.freeze
         end
       end
     end

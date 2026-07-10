@@ -13,6 +13,7 @@ require_relative "ruby/definition_pass"
 require_relative "ruby/resolution_pass"
 require_relative "ruby/entrypoint_detector"
 require_relative "ruby/probe_registry"
+require_relative "ruby/root_seeder_registry"
 require_relative "ruby/route_catalogue"
 
 module Archbuddy
@@ -97,6 +98,7 @@ module Archbuddy
           table = Ruby::SymbolTable.new
           run_definition_pass(fragments, table)
           run_route_catalogue(fragments, table)  # W4: seed routed actions before entrypoints
+          run_root_seeders(table, fragments)     # v0.10 W1-B: categorize ingress roots
 
           acc = Ruby::Accumulator.new
           run_resolution_pass(fragments, table, acc)
@@ -174,6 +176,18 @@ module Archbuddy
         def run_route_catalogue(fragments, table)
           fragments.each do |fragment|
             fragment.parsed_value.accept(Ruby::RouteCatalogue.new(table, fragment.rel_file))
+          end
+        end
+
+        # v0.10 W1-B: run the config-selected root seeders ONCE over the
+        # fully-built table (they walk table.classes — superclass chains,
+        # mixins, methods — so they need Pass 1 + the route catalogue done,
+        # not a per-fragment visit). Fragments are passed through for
+        # AST-shaped seeders (rake, later waves); table-walkers ignore them.
+        # Empty selection (--root-types none) => [] => no-op.
+        def run_root_seeders(table, fragments)
+          Ruby::RootSeederRegistry.for(config).each do |seeder|
+            seeder.seed(table, fragments: fragments)
           end
         end
 

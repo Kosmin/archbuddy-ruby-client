@@ -52,9 +52,13 @@ module Archbuddy
           # block minted by the DefinitionPass — it has no DefNode of its own but
           # IS an addressable node (kind:"endpoint") and an entrypoint, and its
           # block body resolves to real edges in Pass 2.
+          # `entrypoint_category` (default nil) is the ingress category a root
+          # seeder stamped on this method (v0.10 W1-B, e.g. :jobs). nil = not a
+          # seeded root. Written ONLY via SymbolTable#mark_entrypoint.
           MethodEntry = Struct.new(
             :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line,
-            :branches, :decisions, :endpoint, keyword_init: true
+            :branches, :decisions, :endpoint, :entrypoint_category,
+            keyword_init: true
           ) do
             def initialize(*)
               super
@@ -69,6 +73,11 @@ module Archbuddy
             # of "ControllerFq#action" strings; gated on table.method? before
             # insertion so only provably-defined pairs land here.
             @routed_actions = Set.new
+            # Categorized ingress roots seeded by root seeders (v0.10 W1-B).
+            # fq_symbol => category symbol (e.g. :jobs). One write per fq —
+            # first write wins, per the deterministic ingress precedence
+            # (seeders run in registry order = precedence order).
+            @entrypoint_categories = {}
           end
 
           attr_reader :classes, :methods
@@ -115,6 +124,29 @@ module Archbuddy
 
           def routed_action?(fq_symbol)
             @routed_actions.include?(fq_symbol)
+          end
+
+          # Categorized-entrypoint accessors (v0.10 W1-B — root seeders).
+          # Records that `fq_symbol` is an ingress root of `category` (plural
+          # vocab, e.g. :jobs). Guarded twice:
+          #   - L4 belt-and-braces: records ONLY when the method provably
+          #     exists in the table (seeders also gate before calling here).
+          #   - ONE write per fq: the FIRST category stamped wins (registry
+          #     order = the deterministic ingress precedence); later marks
+          #     for an already-categorized fq are IGNORED, so per-category
+          #     sums never double-count.
+          def mark_entrypoint(fq_symbol, category)
+            return unless method?(fq_symbol)
+            return if @entrypoint_categories.key?(fq_symbol)
+
+            @entrypoint_categories[fq_symbol] = category
+            method_for(fq_symbol).entrypoint_category = category
+          end
+
+          # The seeded ingress category for `fq_symbol`, or nil when the
+          # method is not a categorized root (nil-tolerant read — L2).
+          def entrypoint_category(fq_symbol)
+            @entrypoint_categories[fq_symbol]
           end
 
           # Walk the superclass chain (within known app classes) testing a
