@@ -103,17 +103,24 @@ module Archbuddy
           acc = Ruby::Accumulator.new
           run_resolution_pass(fragments, table, acc)
 
+          # v0.10 W1-A1: ONE categorized detection ({fq => category}, ordered,
+          # first-match-wins precedence). The keys ARE the entrypoint set (the
+          # detector's flat contract); the values are stamped onto the method
+          # RawNodes as entrypoint_kind so the category rides the id-map (and
+          # graph.yml once the engine schema declares the field).
+          ep_categories = Ruby::EntrypointDetector.new(config).detect_categorized(table)
+
           # Build nodes first, indexing each by its fq symbol -> real_key so edges
           # and entrypoints reference the exact same keys.
           nodes      = []
           key_for_fq = {}
 
-          add_method_nodes(table, nodes, key_for_fq)
+          add_method_nodes(table, nodes, key_for_fq, ep_categories)
           add_db_op_nodes(table, acc, nodes, key_for_fq)
           external_key = add_external_sink(nodes)
 
           edges       = build_edges(acc, key_for_fq, external_key)
-          entrypoints = build_entrypoints(table, key_for_fq)
+          entrypoints = build_entrypoints(ep_categories.keys, key_for_fq)
 
           AdapterResult.new(
             nodes: nodes, edges: edges, entrypoints: entrypoints,
@@ -208,7 +215,10 @@ module Archbuddy
           end
         end
 
-        def add_method_nodes(table, nodes, key_for_fq)
+        # `ep_categories` (v0.10 W1-A1): the detector's ordered {fq => category}
+        # map. A method that IS a detected entrypoint gets its category (which
+        # may be nil — honest "unknown"); a non-entrypoint stays nil.
+        def add_method_nodes(table, nodes, key_for_fq, ep_categories)
           table.methods.values.each do |m|
             class_ref = m.owner_fq && table.class_for(m.owner_fq)
             node = Raw::RawNode.new(
@@ -222,7 +232,8 @@ module Archbuddy
               # Path-cost integers from the BranchCounter (P3+P9). db_op and
               # external sinks omit these and rely on the RawNode defaults (1/0).
               branches:       m.branches,
-              decisions:      m.decisions
+              decisions:      m.decisions,
+              entrypoint_kind: ep_categories[m.fq_symbol]
             )
             nodes << node
             key_for_fq[m.fq_symbol] = node.real_key
@@ -281,8 +292,11 @@ module Archbuddy
           end
         end
 
-        def build_entrypoints(table, key_for_fq)
-          Ruby::EntrypointDetector.new(config).detect(table).filter_map do |fq|
+        # v0.10 W1-A1: consumes the fq list from the ONE categorized detection
+        # in `assemble` (== the detector's flat #detect output) so detection
+        # runs once. Return shape unchanged: Array<RawEntrypoint>.
+        def build_entrypoints(entrypoint_fqs, key_for_fq)
+          entrypoint_fqs.filter_map do |fq|
             key = key_for_fq[fq]
             key && Raw::RawEntrypoint.new(node_key: key)
           end

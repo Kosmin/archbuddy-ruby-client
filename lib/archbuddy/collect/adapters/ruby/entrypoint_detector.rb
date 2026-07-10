@@ -15,13 +15,41 @@ module Archbuddy
         # Plus an optional regex list: any method whose fq symbol matches is
         # additionally included.
         class EntrypointDetector
+          # v0.10 (A1, Reconciliation 2): the deterministic ingress-category
+          # precedence — most-specific evidence first, FIRST MATCH WINS, one
+          # category per fq. Seeded categories (jobs/rake/middleware/script)
+          # come from SymbolTable#entrypoint_category (written once per fq by
+          # the root seeders, L4-gated) and slot between the framework-explicit
+          # surfaces and the loose top_level/pattern buckets.
+          CATEGORY_PRECEDENCE = %w[
+            grape routed controllers jobs rake middleware script top_level pattern
+          ].freeze
+
+          # The seeded (root-seeder-written) subset of the precedence vocab.
+          SEEDED_CATEGORIES = %w[jobs rake middleware script].freeze
+
           def initialize(config)
             @strategy = config.entrypoint_strategy
             @patterns = config.entrypoint_patterns
           end
 
           # @return [Array<String>] fq symbols of entrypoint methods.
+          #
+          # Delegates to detect_categorized so selection stays single-sourced;
+          # the flat-array contract (content AND order) is unchanged.
           def detect(table)
+            detect_categorized(table).keys
+          end
+
+          # v0.10 (A1): the categorized selection — an ORDERED {fq => category}
+          # map over exactly the set #detect returns. `category` is a string
+          # from CATEGORY_PRECEDENCE chosen by first-match-wins, or nil when no
+          # category source matches (unknown is declared, never guessed — L4).
+          # Seeded categories are read NIL-TOLERANTLY from the table so this
+          # works before/without Deliverable-B seeders.
+          #
+          # @return [Hash{String => String, nil}]
+          def detect_categorized(table)
             base =
               case @strategy
               when :controllers then controller_actions(table)
@@ -30,10 +58,47 @@ module Archbuddy
               else                   default_set(table)
               end
 
-            (base + pattern_matches(table)).uniq
+            patterns = pattern_matches(table)
+
+            (base + patterns).uniq.each_with_object({}) do |fq, map|
+              map[fq] = category_for(fq, table, patterns)
+            end
           end
 
           private
+
+          # THE PRECEDENCE (Reconciliation 2, first match wins, stop):
+          #   grape -> routed -> controllers -> jobs -> rake -> middleware ->
+          #   script -> top_level -> pattern
+          def category_for(fq, table, pattern_fqs)
+            entry = table.methods[fq]
+
+            return "grape"       if entry&.endpoint
+            return "routed"      if table.routed_action?(fq)
+            return "controllers" if controller_action?(table, entry)
+
+            seeded = seeded_category(table, fq)
+            return seeded if seeded && SEEDED_CATEGORIES.include?(seeded)
+
+            return "top_level"   if entry && entry.owner_fq.nil?
+            return "pattern"     if pattern_fqs.include?(fq)
+
+            nil
+          end
+
+          def controller_action?(table, entry)
+            !entry.nil? && !entry.singleton && entry.owner_fq &&
+              table.controller_class?(entry.owner_fq)
+          end
+
+          # Nil-tolerant seeded-category read (L2): a table without the W1-B
+          # category API, or an fq no seeder marked, yields nil. Categories are
+          # stored as symbols (:jobs) — normalize to the A1 string vocab.
+          def seeded_category(table, fq)
+            return nil unless table.respond_to?(:entrypoint_category)
+
+            table.entrypoint_category(fq)&.to_s
+          end
 
           # :default = request surfaces (controllers/grape/routed) + top-level
           # defs + SEEDED categorized roots (v0.10 W1-B: jobs; later rake/
@@ -49,6 +114,8 @@ module Archbuddy
           # SymbolTable#mark_entrypoint, which is gated on table.method? —
           # L4, so nothing here is fabricated).
           def seeded_roots(table)
+            return [] unless table.respond_to?(:entrypoint_category)
+
             table.methods.keys.select { |fq| table.entrypoint_category(fq) }
           end
 

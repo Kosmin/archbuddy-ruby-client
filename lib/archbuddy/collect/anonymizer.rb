@@ -17,9 +17,47 @@ module Archbuddy
     # This is the ONLY collector code that mints ids, and it mints them solely
     # via ArchitectureAuditor::Contract::Ids (D25/D41 — never reimplemented).
     class Anonymizer
-      Ids = ArchitectureAuditor::Contract::Ids
+      Ids       = ArchitectureAuditor::Contract::Ids
+      Validator = ArchitectureAuditor::Contract::Validator
 
       Result = Struct.new(:graph, :id_map, keyword_init: true)
+
+      # v0.10 W1-A1 emission gate probe: a minimal, otherwise-valid graph whose
+      # single node carries `entrypoint_kind`. VERIFIED against the live engine
+      # (v0.6, graph 1.2): the node schema sets additionalProperties:false
+      # (graph.v1.schema.json:44) and Emitter runs Validator.validate! before
+      # writing — so an undeclared `entrypoint_kind` key would FAIL D37
+      # validation, NOT be ignored. Until the engine declares the OPTIONAL
+      # field (W6/graph 1.3), the category is held CLIENT-SIDE (RawNode +
+      # id-map descriptor); this probe makes the graph.yml passthrough light
+      # up automatically once the installed engine schema accepts the key.
+      ENTRYPOINT_KIND_PROBE_GRAPH = {
+        "schema_version" => ArchitectureAuditor::Contract::SCHEMA_VERSION,
+        "generator"      => {
+          "tool" => "archbuddy-probe", "adapter" => "ruby", "capture" => "static"
+        },
+        "nodes"       => [{
+          "id"              => "n_000000000000",
+          "kind"            => "function",
+          "class_id"        => nil,
+          "loc"             => nil,
+          "self_time_ms"    => nil,
+          "total_time_ms"   => nil,
+          "count"           => nil,
+          "entrypoint_kind" => "controllers"
+        }],
+        "edges"       => [],
+        "entrypoints" => []
+      }.freeze
+
+      # True when the installed engine's graph schema accepts an
+      # `entrypoint_kind` node property (memoized once per process).
+      def self.graph_schema_accepts_entrypoint_kind?
+        return @graph_schema_accepts_entrypoint_kind unless @graph_schema_accepts_entrypoint_kind.nil?
+
+        @graph_schema_accepts_entrypoint_kind =
+          Validator.valid?(:graph, ENTRYPOINT_KIND_PROBE_GRAPH)
+      end
 
       def initialize(adapter_result, tool:, adapter:)
         @adapter_result = adapter_result
@@ -76,14 +114,27 @@ module Archbuddy
           # and keeps it DECLARED-but-optional in the graph schema (graph stays
           # 1.2 — absent `sink_open` validates).
 
+          # v0.10 W1-A1: emit the ingress category onto the shareable graph node
+          # ONLY when non-nil AND the installed engine schema declares the field
+          # (see ENTRYPOINT_KIND_PROBE_GRAPH — a 1.2 engine REJECTS unknown node
+          # keys, it does not ignore them). The category is a non-secret string
+          # (no app symbols), so it is safe on both surfaces.
+          if raw.entrypoint_kind && self.class.graph_schema_accepts_entrypoint_kind?
+            node_hash["entrypoint_kind"] = raw.entrypoint_kind
+          end
+
           graph_nodes << node_hash
 
           @id_map_ids[node_id] = {
-            "file"     => raw.rel_file,
-            "line"     => raw.line,
-            "symbol"   => raw.symbol,
-            "kind"     => raw.kind,
-            "class_id" => class_id
+            "file"            => raw.rel_file,
+            "line"            => raw.line,
+            "symbol"          => raw.symbol,
+            "kind"            => raw.kind,
+            "class_id"        => class_id,
+            # v0.10 W1-A1: ingress category (nil for non-entrypoints and for
+            # category-unknown entrypoints) — read back by the aggregate
+            # writer (W3) via the Deanonymizer descriptor.
+            "entrypoint_kind" => raw.entrypoint_kind
           }
         end
 

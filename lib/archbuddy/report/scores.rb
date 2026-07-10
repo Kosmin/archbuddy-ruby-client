@@ -155,6 +155,74 @@ module Archbuddy
         end
       end
 
+      # v0.10 (A1): shared display helper for the {category => count} maps on
+      # the EntrypointCount / Egress counter structs. Skips zero buckets for
+      # brevity; an all-zero (or absent) map renders "(none)" — an honest zero,
+      # distinct from an absent block (which parses to nil upstream).
+      module ByCategoryDisplay
+        def by_category_display
+          present = (by_category || {}).reject { |_cat, count| count.to_i.zero? }
+          return "(none)" if present.empty?
+
+          present.map { |cat, count| "#{cat} #{count}" }.join(", ")
+        end
+      end
+
+      # v0.10 (A1): the committed `entrypoints` aggregate block — ingress
+      # COUNTS by category. `mean`/`median` are engine-published per-category
+      # cost (A2) copied VERBATIM at analyze time; nil on a collect-only cache
+      # (never computed client-side — D17). Written by Cache::Writer in W3.
+      EntrypointCount = Struct.new(
+        :total, :count, :by_category, :mean, :median,
+        keyword_init: true
+      ) do
+        include ByCategoryDisplay
+
+        def mean_display
+          cost_display(mean)
+        end
+
+        def median_display
+          cost_display(median)
+        end
+
+        private
+
+        # "—" when the engine has not published cost (collect-only cache /
+        # pre-A2 engine) — an honest absence, never a fabricated number.
+        def cost_display(value)
+          return "—" if value.nil?
+
+          format("%.1f", value)
+        end
+      end
+
+      # v0.10 (A1/C): the committed `egress` aggregate block — exit COUNTS by
+      # egress category ({http, gem, queue, generic}; generic = the untagged
+      # `<external>` bucket). Counts only; written by Cache::Writer in W3.
+      Egress = Struct.new(
+        :total, :count, :by_category,
+        keyword_init: true
+      ) do
+        include ByCategoryDisplay
+      end
+
+      # v0.10 (A1/D): the committed `dynamic_dispatch` coverage block —
+      # {dynamic_sites, resolved_sites, total_call_sites, ratio}. `ratio` is
+      # nil (NOT 0.0 / 1.0) when there are zero call sites — a ratio over an
+      # empty denominator is undefined, and rendering a confident number would
+      # fabricate a coverage claim (L21 / connectivity honesty).
+      DynamicDispatch = Struct.new(
+        :dynamic_sites, :resolved_sites, :total_call_sites, :ratio,
+        keyword_init: true
+      ) do
+        def ratio_display
+          return "N/A" if ratio.nil?
+
+          format("%.1f%%", ratio * 100)
+        end
+      end
+
       module_function
 
       # Parse the OPTIONAL top-level scores.connectivity object. Returns a
@@ -174,6 +242,57 @@ module Archbuddy
           reverse:      conn["reverse"],
           scored_nodes: conn["scored_nodes"],
           total_nodes:  conn["total_nodes"]
+        )
+      end
+
+      # v0.10 (A1): parse the OPTIONAL top-level `entrypoints` aggregate block.
+      # Returns an EntrypointCount, or NIL when absent/empty (a pre-SERIALIZER-2
+      # doc) — graceful back-compat, exactly like connectivity_from_findings.
+      #
+      # @param doc [Hash] parsed committed-aggregate doc (string keys)
+      # @return [EntrypointCount, nil]
+      def entrypoints_from_aggregate(doc)
+        block = (doc || {})["entrypoints"]
+        return nil if block.nil? || block.empty?
+
+        EntrypointCount.new(
+          total:       block["total"],
+          count:       block["count"],
+          by_category: block["by_category"],
+          mean:        block["mean"],
+          median:      block["median"]
+        )
+      end
+
+      # v0.10 (A1/C): parse the OPTIONAL top-level `egress` aggregate block.
+      #
+      # @param doc [Hash] parsed committed-aggregate doc (string keys)
+      # @return [Egress, nil]
+      def egress_from_aggregate(doc)
+        block = (doc || {})["egress"]
+        return nil if block.nil? || block.empty?
+
+        Egress.new(
+          total:       block["total"],
+          count:       block["count"],
+          by_category: block["by_category"]
+        )
+      end
+
+      # v0.10 (A1/D): parse the OPTIONAL top-level `dynamic_dispatch` coverage
+      # block.
+      #
+      # @param doc [Hash] parsed committed-aggregate doc (string keys)
+      # @return [DynamicDispatch, nil]
+      def dynamic_dispatch_from_aggregate(doc)
+        block = (doc || {})["dynamic_dispatch"]
+        return nil if block.nil? || block.empty?
+
+        DynamicDispatch.new(
+          dynamic_sites:    block["dynamic_sites"],
+          resolved_sites:   block["resolved_sites"],
+          total_call_sites: block["total_call_sites"],
+          ratio:            block["ratio"]
         )
       end
 

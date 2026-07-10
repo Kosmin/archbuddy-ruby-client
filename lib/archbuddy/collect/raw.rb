@@ -31,10 +31,15 @@ module Archbuddy
       #              model consumes (P3+P9). Defaults to 1 so non-method sinks
       #              (db_op / external) contribute a single path.
       # - decisions: d(n) = raw decision-point count. Defaults to 0.
+      # - entrypoint_kind: v0.10 (A1) OPTIONAL ingress category string for
+      #              detected entrypoints — one of controllers|grape|routed|
+      #              top_level|pattern|jobs|rake|middleware|script (plural
+      #              vocab, Reconciliation 2). nil for non-entrypoints and for
+      #              entrypoints with no category evidence (never guessed).
       RawNode = Struct.new(
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
-        :branches, :decisions,
+        :branches, :decisions, :entrypoint_kind,
         keyword_init: true
       ) do
         def initialize(*)

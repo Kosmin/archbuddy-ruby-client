@@ -61,3 +61,44 @@ RSpec.describe Archbuddy::Collect::Emitter do
     end
   end
 end
+
+# v0.10 W1-A1: the emitted artifacts carry the ingress category on the SECRET
+# side only (id-map descriptor); graph.yml stays a VALID document for the
+# installed engine schema (a 1.2 node schema rejects unknown keys, so the
+# graph stamp is gated until the engine declares the OPTIONAL field in 1.3).
+RSpec.describe "Emitter entrypoint_kind carry (v0.10 W1-A1)" do
+  let(:fixture_root) { File.expand_path("../fixtures/sample", __dir__) }
+
+  def build_anon
+    adapter = Archbuddy::Collect::Registry.for("ruby").new(
+      fixture_root, Archbuddy::Collect::Config.new(language: "ruby")
+    )
+    Archbuddy::Collect::Anonymizer.new(adapter.collect, tool: "t", adapter: "ruby").call
+  end
+
+  it "writes a schema-VALID graph.yml and an id-map whose entrypoint descriptors carry the category" do
+    Dir.mktmpdir do |project|
+      File.write(File.join(project, ".gitignore"), "id-map.yml\n/out/\n")
+
+      anon    = build_anon
+      out     = File.join(project, "out")
+      paths   = Archbuddy::Collect::Emitter.new(out_dir: out, project_root: project)
+                                            .emit(graph: anon.graph, id_map: anon.id_map)
+
+      loaded = ArchitectureAuditor::Contract::Serializer.load(paths[:graph])
+      expect(ArchitectureAuditor::Contract::Validator.valid?(:graph, loaded)).to be(true)
+
+      id_map = ArchitectureAuditor::Contract::Serializer.load(paths[:id_map])
+      action = id_map["ids"].values.find { |d| d["symbol"] == "OrdersController#index" }
+      expect(action["entrypoint_kind"]).to eq("controllers")
+
+      non_ep = id_map["ids"].values.find { |d| d["symbol"] == "Billing::Invoice#total" }
+      expect(non_ep).to have_key("entrypoint_kind")
+      expect(non_ep["entrypoint_kind"]).to be_nil
+
+      unless Archbuddy::Collect::Anonymizer.graph_schema_accepts_entrypoint_kind?
+        loaded["nodes"].each { |n| expect(n).not_to have_key("entrypoint_kind") }
+      end
+    end
+  end
+end

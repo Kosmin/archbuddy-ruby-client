@@ -272,3 +272,108 @@ RSpec.describe "Reporter dimension scores (R-8)" do
     end
   end
 end
+
+# v0.10 W1-A1: the three committed-aggregate counter structs + parsers
+# (EntrypointCount / Egress / DynamicDispatch). Pure presentation — parsed
+# VERBATIM from the aggregate doc, nil on absence (pre-SERIALIZER-2 docs),
+# honest zero when present-but-empty. The Cache::Writer wires the producing
+# fold in W3; these are the consuming halves.
+RSpec.describe "counter structs (v0.10 W1-A1)" do
+  Scores = Archbuddy::Report::Scores
+
+  describe ".entrypoints_from_aggregate" do
+    it "returns nil for an absent block (pre-bump doc), empty block, and nil doc" do
+      expect(Scores.entrypoints_from_aggregate({})).to be_nil
+      expect(Scores.entrypoints_from_aggregate(nil)).to be_nil
+      expect(Scores.entrypoints_from_aggregate("entrypoints" => {})).to be_nil
+      expect(Scores.entrypoints_from_aggregate("scores" => { "x" => 1 })).to be_nil
+    end
+
+    it "parses a full block verbatim" do
+      ep = Scores.entrypoints_from_aggregate(
+        "entrypoints" => {
+          "total" => 4, "count" => 4,
+          "by_category" => { "controllers" => 3, "top_level" => 1, "jobs" => 0 },
+          "mean" => nil, "median" => nil
+        }
+      )
+      expect(ep.total).to eq(4)
+      expect(ep.count).to eq(4)
+      expect(ep.by_category).to eq("controllers" => 3, "top_level" => 1, "jobs" => 0)
+      expect(ep.mean).to be_nil
+      expect(ep.median).to be_nil
+    end
+  end
+
+  describe Scores::EntrypointCount do
+    it "by_category_display skips zero buckets" do
+      ep = described_class.new(
+        total: 4, count: 4,
+        by_category: { "controllers" => 3, "top_level" => 1, "jobs" => 0, "rake" => 0 }
+      )
+      expect(ep.by_category_display).to eq("controllers 3, top_level 1")
+    end
+
+    it "renders an honest '(none)' when every bucket is zero (distinct from absence)" do
+      ep = described_class.new(
+        total: 0, count: 0, by_category: { "controllers" => 0, "jobs" => 0 }
+      )
+      expect(ep.by_category_display).to eq("(none)")
+    end
+
+    it "mean/median display an em-dash when the engine has not published cost" do
+      ep = described_class.new(total: 1, count: 1, by_category: {}, mean: nil, median: nil)
+      expect(ep.mean_display).to eq("—")
+      expect(ep.median_display).to eq("—")
+    end
+
+    it "mean/median format engine-published cost verbatim (never computed client-side)" do
+      ep = described_class.new(total: 1, count: 1, by_category: {}, mean: 12.34, median: 6.0)
+      expect(ep.mean_display).to eq("12.3")
+      expect(ep.median_display).to eq("6.0")
+    end
+  end
+
+  describe ".egress_from_aggregate / Egress" do
+    it "returns nil on an absent block" do
+      expect(Scores.egress_from_aggregate({})).to be_nil
+    end
+
+    it "parses the http/gem/queue/generic buckets verbatim" do
+      eg = Scores.egress_from_aggregate(
+        "egress" => {
+          "total" => 5, "count" => 5,
+          "by_category" => { "http" => 2, "gem" => 1, "queue" => 0, "generic" => 2 }
+        }
+      )
+      expect(eg.total).to eq(5)
+      expect(eg.by_category_display).to eq("http 2, gem 1, generic 2")
+    end
+  end
+
+  describe ".dynamic_dispatch_from_aggregate / DynamicDispatch" do
+    it "returns nil on an absent block" do
+      expect(Scores.dynamic_dispatch_from_aggregate({})).to be_nil
+    end
+
+    it "parses the coverage tuple verbatim" do
+      dd = Scores.dynamic_dispatch_from_aggregate(
+        "dynamic_dispatch" => {
+          "dynamic_sites" => 3, "resolved_sites" => 7,
+          "total_call_sites" => 100, "ratio" => 0.42
+        }
+      )
+      expect(dd.dynamic_sites).to eq(3)
+      expect(dd.resolved_sites).to eq(7)
+      expect(dd.total_call_sites).to eq(100)
+      expect(dd.ratio_display).to eq("42.0%")
+    end
+
+    it "ratio_display is 'N/A' on a nil ratio (zero call sites — never a fabricated 0/1)" do
+      dd = Scores::DynamicDispatch.new(
+        dynamic_sites: 0, resolved_sites: 0, total_call_sites: 0, ratio: nil
+      )
+      expect(dd.ratio_display).to eq("N/A")
+    end
+  end
+end
