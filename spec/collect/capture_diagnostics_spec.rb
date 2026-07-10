@@ -60,13 +60,16 @@ RSpec.describe "Capture diagnostics & fail-clear behavior" do
 
   # --- WARNING 2: metaprogramming sites surface as a diagnostic count ----------
 
-  it "counts metaprogramming call sites as a non-semantic diagnostic" do
+  # v0.10 W1-D re-baseline: R1 was NARROWED to dynamic-arg meta only — a
+  # literal `send(:work)` is now RESOLVED by the MetaSendProbe (an edge, not a
+  # blind spot), so the flagged fixtures below use DYNAMIC arguments.
+  it "counts DYNAMIC metaprogramming call sites as a non-semantic diagnostic" do
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "meta.rb"), <<~RUBY)
         class Dispatcher
-          def run
-            send(:work)        # metaprogramming -> no edge, flagged
-            public_send(:work) # metaprogramming -> no edge, flagged
+          def run(name)
+            send(name)        # dynamic metaprogramming -> no edge, flagged
+            public_send(name) # dynamic metaprogramming -> no edge, flagged
           end
 
           def work
@@ -77,6 +80,27 @@ RSpec.describe "Capture diagnostics & fail-clear behavior" do
 
       result = collect(dir)
       expect(result.diagnostics[:meta_sites_skipped]).to eq(2)
+    end
+  end
+
+  it "no longer flags a LITERAL send (resolved by the MetaSendProbe instead)" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "meta.rb"), <<~RUBY)
+        class Dispatcher
+          def run
+            send(:work)        # literal -> MetaSendProbe edge, NOT flagged
+            public_send(:work) # literal -> MetaSendProbe edge, NOT flagged
+          end
+
+          def work
+            1
+          end
+        end
+      RUBY
+
+      result = collect(dir)
+      expect(result.diagnostics[:meta_sites_skipped]).to eq(0)
+      expect(result.diagnostics[:probe_edges][:meta_send]).to eq(2)
     end
   end
 
@@ -103,8 +127,8 @@ RSpec.describe "Capture diagnostics & fail-clear behavior" do
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "meta.rb"), <<~RUBY)
         class Dispatcher
-          def run
-            send(:work)
+          def run(name)
+            send(name)
           end
 
           def work

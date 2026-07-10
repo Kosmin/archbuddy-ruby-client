@@ -126,7 +126,15 @@ module Archbuddy
               # Per-probe-name tally of framework-probe-resolved call sites
               # (L5/P4). CLI/diagnostics-only — NEVER serialized into graph.yml.
               # {} when no probes are selected / none resolve a call.
-              probe_edges: acc.probe_edges
+              probe_edges: acc.probe_edges,
+              # v0.10 W1-D coverage tuple producers (L21, Reconciliation 1):
+              # meta_resolved = literal meta-dispatch sites the MetaSendProbe
+              # rewrote to real edges; total_call_sites = every call site the
+              # resolution pass recorded (the coverage denominator). Consumed
+              # by the A1 aggregate writer in W3 — additive sibling keys
+              # (egress_counts joins in W2-C, entrypoints in W1-A1).
+              meta_resolved: acc.meta_resolved,
+              total_call_sites: acc.total_call_sites
             }
           )
         end

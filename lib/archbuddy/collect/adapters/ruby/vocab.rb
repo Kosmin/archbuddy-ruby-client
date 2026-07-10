@@ -34,6 +34,17 @@ module Archbuddy
             const_get const_set define_singleton_method
           ].to_set.freeze
 
+          # v0.10 W1-D (L21): dispatch verbs whose FIRST literal Symbol/String
+          # argument names a resolvable target (`x.send(:foo)` → `x.foo`). A
+          # meta verb in THIS set with a literal arg is NOT a dynamic blind
+          # spot — the MetaSendProbe (R5) resolves it, gated on table.method?.
+          # `try`/`try!` live ONLY here (never in METAPROGRAMMING): a dynamic
+          # `.try(name)` falls through to R9 <external> exactly as before —
+          # they are resolvable-literal candidates, not metaprogramming flags.
+          META_RESOLVABLE = %w[
+            send public_send __send__ try try!
+          ].to_set.freeze
+
           # ActiveRecord query/persistence vocabulary. A call to one of these
           # whose class context is an AR subclass is a db_op (D24). This is
           # consulted alongside class context, never on receiver shape alone —
@@ -68,6 +79,10 @@ module Archbuddy
 
           def metaprogramming?(name)
             METAPROGRAMMING.include?(name.to_s)
+          end
+
+          def meta_resolvable?(name)
+            META_RESOLVABLE.include?(name.to_s)
           end
 
           def active_record_method?(name)

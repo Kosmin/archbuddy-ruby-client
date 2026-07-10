@@ -21,17 +21,31 @@ module Archbuddy
           # db_op / external targets discovered, keyed by their real symbol.
           #   db_ops:   { "Invoice.where" => {class_fq:} }
           #   externals flagged via the single sink (no per-target node).
-          attr_reader :calls, :db_ops, :meta_sites, :probe_edges
+          attr_reader :calls, :db_ops, :meta_sites, :probe_edges,
+                      :total_call_sites, :meta_resolved
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
             @db_ops      = {}          # real_symbol => {class_fq:}
             @meta_sites  = []          # [{from_fq:, name:, line:}] (flagged, no edge)
             @probe_edges = Hash.new(0) # { probe_name(Symbol) => count } (diagnostics-only)
+            # v0.10 W1-D coverage tallies (L21): the committed dynamic-dispatch
+            # coverage tuple's denominator (every call site reaching #record)
+            # and the meta-recovered numerator (MetaSendProbe edges).
+            @total_call_sites = 0
+            @meta_resolved    = 0
           end
 
           def tally_probe_edge(probe_name)
             @probe_edges[probe_name] += 1
+          end
+
+          def tally_call_site
+            @total_call_sites += 1
+          end
+
+          def tally_meta_resolved
+            @meta_resolved += 1
           end
 
           def add_method_edge(from_fq, to_fq)
@@ -292,6 +306,12 @@ module Archbuddy
           private
 
           def record(resolution, from_fq, node)
+            # v0.10 W1-D coverage tallies (L21): denominator = every call site
+            # that reached the pass inside a known method body (from_fq
+            # guaranteed non-nil by the caller); numerator = call sites the
+            # MetaSendProbe rewrote to a direct edge. Diagnostics-only.
+            @acc.tally_call_site
+            @acc.tally_meta_resolved if resolution.provenance == :meta_send
             # Provenance tally is orthogonal to action dispatch: a probe-resolved
             # call is counted by probe name regardless of whether it emitted a
             # method edge or a db_op. Base-tier resolutions have provenance == nil

@@ -63,7 +63,17 @@ module Archbuddy
             return drop(:operator) if Vocab.operator?(name)
 
             # R1: metaprogramming — flag, emit NO edge (we can't know the target).
-            return meta(:metaprogramming) if Vocab.metaprogramming?(name)
+            # NARROWED (v0.10 W1-D, L21): flag ONLY when the meta call is
+            # DYNAMIC. A META_RESOLVABLE verb (`send`/`public_send`/`__send__`)
+            # with a literal Symbol/String first arg is statically resolvable —
+            # it falls through the tiers to R5 where MetaSendProbe rewrites it
+            # to the direct call (gated on table.method?), else R9 <external>.
+            # This also fixes the latent name-before-receiver FP: a domain
+            # class's OWN `def send`/`try` invoked with a literal arg now
+            # resolves via the normal machinery instead of being mis-flagged.
+            # `define_method`/`method_missing`/`*_eval`/`instance_exec`/
+            # `const_get`... stay ALWAYS-flagged (not in META_RESOLVABLE).
+            return meta(:metaprogramming) if dynamic_meta?(ctx, name)
 
             # R2: db_op via CLASS CONTEXT. The verified gotcha: `where` inside
             # `def self.x` of an AR subclass has receiver = nil (implicit self),
@@ -152,6 +162,25 @@ module Archbuddy
           end
 
           private
+
+          # R1 gate (v0.10 W1-D): a meta call is a DYNAMIC blind spot unless it
+          # is a resolvable dispatch verb carrying a literal Symbol/String first
+          # argument (MetaSendProbe territory). Verbs in META_RESOLVABLE but NOT
+          # in METAPROGRAMMING (`try`/`try!`) are never flagged here at all.
+          def dynamic_meta?(ctx, name)
+            return false unless Vocab.metaprogramming?(name)
+            # send/public_send/__send__ with a leading literal Symbol/String arg
+            # are RESOLVABLE (MetaSendProbe handles them at R5) — not a blind spot.
+            return false if Vocab.meta_resolvable?(name) && literal_dispatch_arg?(ctx.node)
+
+            true # eval/*_eval/method_missing/const_get/define_method/computed send → dynamic
+          end
+
+          # True iff the call node's FIRST argument is a literal Symbol/String.
+          def literal_dispatch_arg?(node)
+            arg = node&.arguments&.arguments&.first
+            arg.is_a?(Prism::SymbolNode) || arg.is_a?(Prism::StringNode)
+          end
 
           def active_record_context?(ctx)
             ctx.enclosing_class && @table.active_record_class?(ctx.enclosing_class)
