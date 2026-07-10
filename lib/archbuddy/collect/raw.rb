@@ -36,10 +36,15 @@ module Archbuddy
       #              top_level|pattern|jobs|rake|middleware|script (plural
       #              vocab, Reconciliation 2). nil for non-entrypoints and for
       #              entrypoints with no category evidence (never guessed).
+      # - terminal_kind: v0.10 (C, CR-5) OPTIONAL egress category string for
+      #              category-bearing external sinks — one of http|gem|queue
+      #              (the sink-side twin of entrypoint_kind; NOT a 5th node
+      #              kind). nil everywhere else, INCLUDING the generic
+      #              `<external>` sink (absent → uncategorized).
       RawNode = Struct.new(
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
-        :branches, :decisions, :entrypoint_kind,
+        :branches, :decisions, :entrypoint_kind, :terminal_kind,
         keyword_init: true
       ) do
         def initialize(*)

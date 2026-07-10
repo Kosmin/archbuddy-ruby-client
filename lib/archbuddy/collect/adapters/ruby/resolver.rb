@@ -45,8 +45,15 @@ module Archbuddy
           #   provenance => Symbol naming the probe that produced this resolution
           #                 (e.g. :grape), or nil for base tiers. Trust/diagnostics
           #                 ONLY — never reaches graph.yml.
+          #   egress_category => v0.10 W2-C (L16/L18): OPTIONAL egress category
+          #                 (:http / :gem / :queue) enriching an :external
+          #                 action. Set ONLY by the EgressProbe on a provable
+          #                 literal-constant receiver; nil everywhere else
+          #                 (base tiers never set it — the call stays the
+          #                 generic <external> bucket).
           Resolution = Struct.new(
-            :tier, :action, :target_fq, :kind, :provenance, keyword_init: true
+            :tier, :action, :target_fq, :kind, :provenance, :egress_category,
+            keyword_init: true
           )
 
           def initialize(table, probes: [])

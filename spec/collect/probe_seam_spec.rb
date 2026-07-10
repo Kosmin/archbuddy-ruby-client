@@ -221,10 +221,11 @@ RSpec.describe "Probe seam (W1 / P1)" do
   # --- ProbeRegistry selection -------------------------------------------------
 
   it "ships a frozen PROBES list holding the concrete probes in priority order" do
-    # v0.10 W1-D re-baseline: MetaSendProbe registers AFTER DispatchProbe
-    # (EgressProbe joins LAST in W2-C).
+    # v0.10 W2-C re-baseline: EgressProbe registers LAST (final order — the
+    # edge-recovering probes always win before egress classification).
     expect(M::ProbeRegistry::PROBES).to eq(
-      [M::Probes::GrapeProbe, M::Probes::DispatchProbe, M::Probes::MetaSendProbe]
+      [M::Probes::GrapeProbe, M::Probes::DispatchProbe,
+       M::Probes::MetaSendProbe, M::Probes::EgressProbe]
     )
     expect(M::ProbeRegistry::PROBES).to be_frozen
   end
@@ -232,7 +233,7 @@ RSpec.describe "Probe seam (W1 / P1)" do
   it "selects from the real PROBES map by config (W3 registry populated)" do
     # :all selects every registered probe in order.
     expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new).map(&:name))
-      .to eq(%i[grape sidekiq_dispatch meta_send])
+      .to eq(%i[grape sidekiq_dispatch meta_send egress])
     # an unknown name selects nothing (F2 — lenient, no raise).
     expect(M::ProbeRegistry.for(Archbuddy::Collect::Config.new(probes: %i[fake]))).to eq([])
     # :none selects nothing.

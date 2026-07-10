@@ -4,6 +4,7 @@ require_relative "probe"
 require_relative "probes/grape_probe"
 require_relative "probes/dispatch_probe"
 require_relative "probes/meta_send_probe"
+require_relative "probes/egress_probe"
 
 module Archbuddy
   module Collect
@@ -16,19 +17,21 @@ module Archbuddy
         #
         # The single ordered KNOWN map holds the concrete probes: the Grape
         # mount-tree probe (`grape`), the Sidekiq/ActiveJob dispatch probe
-        # (`sidekiq_dispatch`), and the literal meta-dispatch probe
-        # (`meta_send`, v0.10 W1-D). Each call site is offered to them in this
-        # order; they never claim the same call shape (mount vs perform_*
-        # dispatch vs send/try literal), so order is incidental — first non-nil
-        # still wins. Rails-routes is a SEEDER, not a probe, and is
-        # deliberately NOT in this map.
+        # (`sidekiq_dispatch`), the literal meta-dispatch probe (`meta_send`,
+        # v0.10 W1-D), and the egress classifier (`egress`, v0.10 W2-C). Each
+        # call site is offered to them in this order. EgressProbe MUST stay
+        # LAST: edge-recovering probes (dispatch/meta_send) win before egress
+        # classification, so an in-tree enqueue or resolvable `.send` becomes
+        # a real edge and never a mis-bucketed egress. Rails-routes is a
+        # SEEDER, not a probe, and is deliberately NOT in this map.
         module ProbeRegistry
           # Ordered probe classes in priority order (P3: Grape before dispatch,
-          # meta_send after dispatch; EgressProbe joins LAST in v0.10 W2-C).
+          # meta_send after dispatch, egress LAST — v0.10 W2-C final order).
           PROBES = [
             Probes::GrapeProbe,
             Probes::DispatchProbe,
-            Probes::MetaSendProbe
+            Probes::MetaSendProbe,
+            Probes::EgressProbe
           ].freeze
 
           module_function

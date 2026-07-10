@@ -141,15 +141,23 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
 
   # --- single shared external sink --------------------------------------------
 
-  it "routes an unresolved call to a single shared external sink" do
+  it "routes an unresolved call to a shared external sink (v0.10 W2-C re-baseline: categorized)" do
+    # v0.10 W2-C re-baseline (planned, VALIDATION CAVEAT): the fixture's
+    # `ExternalTaxApi.compute` is a literal OUT-OF-TREE constant, so the
+    # EgressProbe now classifies it :gem and it routes to the category-bearing
+    # `<external:gem>` sink. The generic `<external>` sink is still always
+    # minted (back-compat decline bucket). Both stay kind:"external" (I6).
     external_nodes = graph["nodes"].select { |n| n["kind"] == "external" }
-    expect(external_nodes.length).to eq(1)
-    expect(external_nodes.first["id"]).to start_with("ext_")
+    expect(external_nodes.length).to eq(2)
+    external_nodes.each { |n| expect(n["id"]).to start_with("ext_") }
 
-    # tax -> external sink edge exists.
+    symbols = external_nodes.map { |n| id_map["ids"].fetch(n["id"])["symbol"] }
+    expect(symbols).to contain_exactly("<external>", "<external:gem>")
+
+    # tax -> <external:gem> sink edge exists (routed by category).
     tax_id, = id_map_entry_for_symbol("Billing::Invoice#tax")
-    ext_id  = external_nodes.first["id"]
-    edge    = graph["edges"].find { |e| e["from"] == tax_id && e["to"] == ext_id }
+    gem_id, = id_map_entry_for_symbol("<external:gem>")
+    edge    = graph["edges"].find { |e| e["from"] == tax_id && e["to"] == gem_id }
     expect(edge).not_to be_nil
     expect(edge["calls"]).to be >= 1
   end
@@ -171,10 +179,13 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
 
   # --- probe seam diagnostic (W1 / P1) ----------------------------------------
 
-  it "exposes a probe_edges diagnostic (empty until a probe is registered)" do
+  it "exposes a probe_edges diagnostic (v0.10 W2-C re-baseline: egress claims the gem call)" do
     diagnostics = collect_raw.diagnostics
     expect(diagnostics).to have_key(:probe_edges)
-    expect(diagnostics[:probe_edges]).to eq({})
+    # v0.10 W2-C re-baseline: the fixture's out-of-tree `ExternalTaxApi.compute`
+    # is now claimed by the EgressProbe (provenance :egress) — the tally is no
+    # longer empty for this fixture.
+    expect(diagnostics[:probe_edges]).to eq({ egress: 1 })
   end
 
   # --- id-map secret content + class rollups (D42) ----------------------------

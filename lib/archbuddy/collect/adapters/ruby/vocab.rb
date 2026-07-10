@@ -71,6 +71,24 @@ module Archbuddy
             ApplicationController ActionController::Base ActionController::API
           ].to_set.freeze
 
+          # --- Egress detection (v0.10 W2-C, L16/L18) -----------------------
+          # Known HTTP-client constant ROOTS. Consulted by the EgressProbe on a
+          # provable literal-constant receiver only. `Aws::*` is matched by
+          # prefix (the service/client segment varies) — see
+          # egress_http_constant?. Deliberately SMALL and closed; config
+          # extensibility is a deferred open question, not shipped here.
+          EGRESS_HTTP_CONSTANTS = %w[
+            Faraday Net::HTTP HTTParty RestClient Typhoeus HTTP Excon
+          ].to_set.freeze
+
+          # HTTP verb guard for the constants above. `HTTP` (http.rb) is a
+          # plausible LOCAL const name, so an EGRESS_HTTP_CONSTANTS match is
+          # never enough on its own — the called method must ALSO be one of
+          # these verbs (`HTTP.something_nonverb` is NOT classified :http).
+          EGRESS_HTTP_VERBS = %w[
+            get post put patch delete head request start open new
+          ].to_set.freeze
+
           module_function
 
           def operator?(name)
@@ -87,6 +105,16 @@ module Archbuddy
 
           def active_record_method?(name)
             ACTIVE_RECORD.include?(name.to_s)
+          end
+
+          # v0.10 W2-C: exact-match against the known HTTP-client roots OR an
+          # `Aws::` root-prefix (`Aws::S3::Client`, `Aws::SNS::Client`, ...).
+          def egress_http_constant?(fq)
+            EGRESS_HTTP_CONSTANTS.include?(fq.to_s) || fq.to_s.start_with?("Aws::")
+          end
+
+          def egress_http_verb?(name)
+            EGRESS_HTTP_VERBS.include?(name.to_s)
           end
 
           # --- Ingress root detection (v0.10 W1-B) -------------------------

@@ -23,7 +23,7 @@ module Archbuddy
           #   db_ops:   { "Invoice.where" => {class_fq:} }
           #   externals flagged via the single sink (no per-target node).
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges,
-                      :total_call_sites, :meta_resolved
+                      :total_call_sites, :meta_resolved, :egress_counts
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
@@ -35,6 +35,11 @@ module Archbuddy
             # and the meta-recovered numerator (MetaSendProbe edges).
             @total_call_sites = 0
             @meta_resolved    = 0
+            # v0.10 W2-C egress tally (L16, CR-3): { category(Symbol) => count }
+            # over every recorded external edge. The untagged/declined bucket
+            # is :generic (NOT :unknown — CR-3 vocab lock; :unknown is reserved
+            # for "no category data" on the ingress side).
+            @egress_counts = Hash.new(0)
           end
 
           def tally_probe_edge(probe_name)
@@ -49,6 +54,12 @@ module Archbuddy
             @meta_resolved += 1
           end
 
+          # v0.10 W2-C: one tally per recorded external edge; a nil category
+          # (base-tier R9 fallthrough / probe decline) buckets under :generic.
+          def tally_egress(category)
+            @egress_counts[category || :generic] += 1
+          end
+
           def add_method_edge(from_fq, to_fq)
             @calls << { from_fq: from_fq, to: { type: :method, fq: to_fq } }
           end
@@ -61,8 +72,12 @@ module Archbuddy
             @calls << { from_fq: from_fq, to: { type: :db_op, fq: symbol } }
           end
 
-          def add_external_edge(from_fq)
-            @calls << { from_fq: from_fq, to: { type: :external } }
+          # `category` (v0.10 W2-C, optional): the EgressProbe's egress
+          # category (:http/:gem/:queue) or nil for the generic bucket. Rides
+          # the call record so the adapter can route the edge to the matching
+          # category-bearing external sink.
+          def add_external_edge(from_fq, category: nil)
+            @calls << { from_fq: from_fq, to: { type: :external, category: category } }
           end
 
           def flag_metaprogramming(from_fq, name, line)
@@ -378,7 +393,10 @@ module Archbuddy
                 # L3: a db_op is a plain COST-1 terminal — no sink spec derived.
                 @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq)
               else
-                @acc.add_external_edge(from_fq)
+                # v0.10 W2-C: carry the EgressProbe's category (nil for the
+                # generic R9 fallthrough) and tally it (nil → :generic, CR-3).
+                @acc.add_external_edge(from_fq, category: resolution.egress_category)
+                @acc.tally_egress(resolution.egress_category)
               end
             end
           end

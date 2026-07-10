@@ -29,9 +29,22 @@ module Archbuddy
       # entrypoints reference nodes by their RawNode#real_key, computed once per
       # node so the wiring stays internally consistent.
       class RubyAdapter < Adapter
-        # Real-space symbol for the single shared external sink (D24). One sink
-        # for the whole graph; every unresolved call points here.
+        # Real-space symbol for the shared GENERIC external sink (D24). Always
+        # minted (back-compat: exactly one <external> node when no categorized
+        # egress exists); every unresolved/uncategorized call points here.
         EXTERNAL_SINK_SYMBOL = "<external>"
+
+        # v0.10 W2-C (L18): category-bearing external sink symbols, one per
+        # egress category the EgressProbe can prove. Each is still
+        # kind:"external" (closed 4-kind vocab untouched, I6); the category
+        # ALSO rides RawNode#terminal_kind (CR-5) so the engine can group
+        # egress cost without parsing symbols. Fixed iteration order keeps
+        # node emission deterministic.
+        CATEGORY_SINK_SYMBOLS = {
+          http:  "<external:http>",
+          gem:   "<external:gem>",
+          queue: "<external:queue>"
+        }.freeze
 
         # v0.8 (C1-1/C2): the whole-project capture is a two-phase pipeline —
         # a PER-FILE fragment builder (`collect_file_fragment`, the only per-file
@@ -117,9 +130,9 @@ module Archbuddy
 
           add_method_nodes(table, nodes, key_for_fq, ep_categories)
           add_db_op_nodes(table, acc, nodes, key_for_fq)
-          external_key = add_external_sink(nodes)
+          external_keys = add_external_sinks(nodes, acc)
 
-          edges       = build_edges(acc, key_for_fq, external_key)
+          edges       = build_edges(acc, key_for_fq, external_keys)
           entrypoints = build_entrypoints(ep_categories.keys, key_for_fq)
 
           AdapterResult.new(
@@ -141,7 +154,13 @@ module Archbuddy
               # by the A1 aggregate writer in W3 — additive sibling keys
               # (egress_counts joins in W2-C, entrypoints in W1-A1).
               meta_resolved: acc.meta_resolved,
-              total_call_sites: acc.total_call_sites
+              total_call_sites: acc.total_call_sites,
+              # v0.10 W2-C egress producer (L16, Reconciliation 1): per-category
+              # external-edge tally { :http/:gem/:queue/:generic => count }.
+              # {} when no external edges exist. Consumed by the A1 aggregate
+              # writer in W3 (the single egress read path — the writer never
+              # re-parses sink symbols).
+              egress_counts: acc.egress_counts
             }
           )
         end
@@ -265,16 +284,46 @@ module Archbuddy
           end
         end
 
-        def add_external_sink(nodes)
-          node = Raw::RawNode.new(
+        # v0.10 W2-C (L18/CR-5): mint the GENERIC `<external>` sink always
+        # (back-compat — a repo with no categorized egress keeps exactly one
+        # external node, byte-identical to the pre-C behavior) plus ONE
+        # category-bearing sink per category that ACTUALLY appears in the
+        # recorded external edges (never an empty-category sink). Category
+        # sinks are stamped with terminal_kind (the sink-side twin of
+        # entrypoint_kind); the generic sink carries NONE (absent →
+        # uncategorized). All sinks stay kind:"external" (I6).
+        # Returns { nil => generic_real_key, http:/gem:/queue: => real_key }.
+        def add_external_sinks(nodes, acc)
+          keys    = {}
+          generic = Raw::RawNode.new(
             rel_file: nil, line: nil, symbol: EXTERNAL_SINK_SYMBOL, kind: "external"
           )
-          nodes << node
-          node.real_key
+          nodes << generic
+          keys[nil] = generic.real_key
+
+          present = acc.calls.filter_map do |call|
+            call[:to][:category] if call[:to][:type] == :external
+          end.uniq
+
+          CATEGORY_SINK_SYMBOLS.each do |category, symbol|
+            next unless present.include?(category)
+
+            node = Raw::RawNode.new(
+              rel_file: nil, line: nil, symbol: symbol, kind: "external",
+              terminal_kind: category.to_s
+            )
+            nodes << node
+            keys[category] = node.real_key
+          end
+
+          keys
         end
 
         # Collapse duplicate (from,to) call pairs into one edge with calls >= 1.
-        def build_edges(acc, key_for_fq, external_key)
+        # `external_keys` (v0.10 W2-C): the category→real_key sink map from
+        # add_external_sinks; an external edge routes to its category's sink,
+        # falling back to the generic sink for a nil/unminted category.
+        def build_edges(acc, key_for_fq, external_keys)
           counts = Hash.new(0)
 
           acc.calls.each do |call|
@@ -285,7 +334,7 @@ module Archbuddy
               case call[:to][:type]
               when :method   then key_for_fq[call[:to][:fq]]
               when :db_op    then key_for_fq[call[:to][:fq]]
-              when :external then external_key
+              when :external then external_keys[call[:to][:category]] || external_keys[nil]
               end
             next if to_key.nil?
 

@@ -59,6 +59,42 @@ module Archbuddy
           Validator.valid?(:graph, ENTRYPOINT_KIND_PROBE_GRAPH)
       end
 
+      # v0.10 W2-C (CR-5) emission gate probe — the terminal_kind twin of
+      # ENTRYPOINT_KIND_PROBE_GRAPH. Same verified reality: the 1.2 engine
+      # node schema is additionalProperties:false, so an undeclared
+      # `terminal_kind` key FAILS validation (it is NOT ignored). Until the
+      # engine declares the OPTIONAL field (W5/graph 1.3) the egress category
+      # is held CLIENT-SIDE (RawNode + id-map descriptor); this probe lights
+      # the graph.yml passthrough up automatically once the installed engine
+      # schema accepts the key.
+      TERMINAL_KIND_PROBE_GRAPH = {
+        "schema_version" => ArchitectureAuditor::Contract::SCHEMA_VERSION,
+        "generator"      => {
+          "tool" => "archbuddy-probe", "adapter" => "ruby", "capture" => "static"
+        },
+        "nodes"       => [{
+          "id"            => "ext_000000000000",
+          "kind"          => "external",
+          "class_id"      => nil,
+          "loc"           => nil,
+          "self_time_ms"  => nil,
+          "total_time_ms" => nil,
+          "count"         => nil,
+          "terminal_kind" => "http"
+        }],
+        "edges"       => [],
+        "entrypoints" => []
+      }.freeze
+
+      # True when the installed engine's graph schema accepts a
+      # `terminal_kind` node property (memoized once per process).
+      def self.graph_schema_accepts_terminal_kind?
+        return @graph_schema_accepts_terminal_kind unless @graph_schema_accepts_terminal_kind.nil?
+
+        @graph_schema_accepts_terminal_kind =
+          Validator.valid?(:graph, TERMINAL_KIND_PROBE_GRAPH)
+      end
+
       def initialize(adapter_result, tool:, adapter:)
         @adapter_result = adapter_result
         @tool           = tool
@@ -123,6 +159,14 @@ module Archbuddy
             node_hash["entrypoint_kind"] = raw.entrypoint_kind
           end
 
+          # v0.10 W2-C (CR-5): the egress category on category-bearing external
+          # sinks — same gate discipline as entrypoint_kind above (a 1.2 engine
+          # REJECTS unknown node keys). A fixed-vocab word (http|gem|queue),
+          # never a real symbol — SECRET-safe on the opaque graph (I8).
+          if raw.terminal_kind && self.class.graph_schema_accepts_terminal_kind?
+            node_hash["terminal_kind"] = raw.terminal_kind
+          end
+
           graph_nodes << node_hash
 
           @id_map_ids[node_id] = {
@@ -134,7 +178,11 @@ module Archbuddy
             # v0.10 W1-A1: ingress category (nil for non-entrypoints and for
             # category-unknown entrypoints) — read back by the aggregate
             # writer (W3) via the Deanonymizer descriptor.
-            "entrypoint_kind" => raw.entrypoint_kind
+            "entrypoint_kind" => raw.entrypoint_kind,
+            # v0.10 W2-C (CR-5): egress category (http|gem|queue) — non-nil
+            # ONLY on category-bearing external sinks; the generic <external>
+            # sink and every non-sink node carry nil.
+            "terminal_kind"   => raw.terminal_kind
           }
         end
 

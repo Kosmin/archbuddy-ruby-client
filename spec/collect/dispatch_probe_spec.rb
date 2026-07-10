@@ -93,7 +93,7 @@ RSpec.describe "Sidekiq/ActiveJob dispatch probe (W3 e2e)" do
     end
   end
 
-  it "declines (-> <external>) when the dispatched const has no #perform node" do
+  it "declines when the dispatched const has no #perform node (v0.10 W2-C: -> <external:queue>)" do
     source = <<~RUBY
       class Caller
         def go
@@ -103,14 +103,16 @@ RSpec.describe "Sidekiq/ActiveJob dispatch probe (W3 e2e)" do
     RUBY
     in_repo(source) do |dir|
       result = anonymize(dir)
-      # No fabricated #perform node.
+      # No fabricated #perform node (the dispatch decline is unchanged).
       expect(result.id_map["ids"].any? { |_i, d| d["symbol"] == "NoPerformJob#perform" }).to be(false)
-      # The call resolves to the shared external sink instead.
+      # v0.10 W2-C re-baseline: the declined enqueue shape is exactly the
+      # EgressProbe's :queue evidence, so the call now routes to the
+      # category-bearing `<external:queue>` sink (still kind:"external").
       id_for = ->(sym) { result.id_map["ids"].find { |_i, d| d["symbol"] == sym }&.first }
-      go_id  = id_for.call("Caller#go")
-      ext_id = external_id(result)
-      expect(ext_id).not_to be_nil
-      ext_edge = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == ext_id }
+      go_id    = id_for.call("Caller#go")
+      queue_id = id_for.call("<external:queue>")
+      expect(queue_id).not_to be_nil
+      ext_edge = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == queue_id }
       expect(ext_edge).not_to be_nil
     end
   end
