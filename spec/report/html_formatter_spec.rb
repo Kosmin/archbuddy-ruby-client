@@ -32,7 +32,7 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     ).call
   end
 
-  def render(findings:, graph: nil, max_nodes: nil)
+  def render(findings:, graph: nil, max_nodes: nil, entrypoints: nil, egress: nil, dynamic_dispatch: nil)
     result = result_for(findings)
     ranker = Archbuddy::Report::Ranker.new(result)
     context = Archbuddy::Report::Formatter::RenderContext.new(
@@ -43,7 +43,11 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
       scores:        result.scores,
       connectivity:  result.connectivity,
-      max_nodes:     max_nodes
+      max_nodes:     max_nodes,
+      # v0.10 (W4): the three committed counter blocks (nil = v1 aggregate).
+      entrypoints:      entrypoints,
+      egress:           egress,
+      dynamic_dispatch: dynamic_dispatch
     )
     Archbuddy::Report::Formatter.for("html").new(context).render
   end
@@ -497,6 +501,70 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       expect(all_zero["nodes"].size).to eq(5) # 6 fixture nodes − 1 excluded external sink
       expect(all_zero["node_cap"]).to be_nil
       expect(all_big["nodes"].size).to eq(5)
+    end
+  end
+
+  # --- v0.10 (W4): the three committed counter banners --------------------------
+  #
+  # A SERIALIZER-v2 aggregate carries `entrypoints`/`egress`/`dynamic_dispatch`;
+  # the HTML header renders each as a `<div>` banner beside connectivity. A v1
+  # doc parses all three to nil → NO banner markup, header byte-identical to
+  # pre-v0.10 (the banners join into the ONE former connectivity interpolation).
+  describe "v0.10 counter banners (W4)" do
+    let(:scores_mod) { Archbuddy::Report::Scores }
+    let(:entrypoints) do
+      scores_mod::EntrypointCount.new(
+        total: 4, count: 4,
+        by_category: { "controllers" => 3, "jobs" => 1, "rake" => 0 },
+        mean: 27.14, median: 12.0
+      )
+    end
+    let(:egress) do
+      scores_mod::Egress.new(total: 5, count: 5,
+                             by_category: { "http" => 2, "gem" => 3, "queue" => 0, "generic" => 0 })
+    end
+    let(:dynamic_dispatch) do
+      scores_mod::DynamicDispatch.new(dynamic_sites: 2, resolved_sites: 8,
+                                      total_call_sites: 10, ratio: 0.8)
+    end
+
+    it "renders all three banner divs on a v2 aggregate (beside connectivity)" do
+      html = render(findings: v13_yml, entrypoints: entrypoints, egress: egress,
+                    dynamic_dispatch: dynamic_dispatch)
+
+      expect(html).to include('<div class="connectivity">')
+      expect(html).to include('<div class="entrypoints">Entrypoints: 4 total ' \
+                              "(controllers 3, jobs 1) — mean 27.1, median 12.0</div>")
+      expect(html).to include('<div class="egress">Egress: 5 total (http 2, gem 3)</div>')
+      expect(html).to include('<div class="dynamic-dispatch">Dynamic dispatch: ' \
+                              "8/10 resolved, 2 dynamic (coverage 80.0%)</div>")
+    end
+
+    it "renders the banners on a COLLECT-ONLY aggregate (no scores — relaxed gate, empty cards)" do
+      html = render(findings: v10_yml, entrypoints: entrypoints, egress: egress)
+
+      expect(html).to include('<section id="scores">')
+      expect(html).to include('<div class="entrypoints">')
+      expect(html).to include('<div class="egress">')
+      expect(html).to include('<div class="cards"></div>') # no dimension cards yet
+    end
+
+    it "renders NO banner markup on a v1 doc and keeps the header shape byte-stable" do
+      html = render(findings: v13_yml)
+
+      expect(html).not_to include('class="entrypoints"')
+      expect(html).not_to include('class="egress"')
+      expect(html).not_to include('class="dynamic-dispatch"')
+      # connectivity div is IMMEDIATELY followed by the cards div — no stray
+      # blank lines / placeholders were introduced by the banner seam.
+      expect(html).to match(
+        %r{<h2>Project Scores</h2>\n  <div class="connectivity">[^<]*</div>\n  <div class="cards">}
+      )
+    end
+
+    it "keeps a scores-less v1 doc header-free (returns no scores section at all)" do
+      html = render(findings: v10_yml)
+      expect(html).not_to include('<section id="scores">')
     end
   end
 end

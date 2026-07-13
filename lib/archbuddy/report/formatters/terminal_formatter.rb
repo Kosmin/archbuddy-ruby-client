@@ -18,7 +18,7 @@ module Archbuddy
         def render
           lines = []
           lines << header
-          lines.concat(scores_section) if context.scores && !context.scores.empty?
+          lines.concat(scores_section) if scores_section?
           lines.concat(multiplexer_proxy_section) unless context.multiplexer_proxies.nil?
           lines.concat(bottleneck_sections)
           lines.concat(rollup_section) unless context.class_rollups.empty?
@@ -40,13 +40,29 @@ module Archbuddy
         # hotspots as the TOP CONTRIBUTORS to the dimension (relative to the
         # graph) — NOT inherently-broken nodes. On a high-scoring project the top
         # contributors may be entirely benign; the grade is the headline.
+        # v0.10 (W4): the section now also fires on a COLLECT-ONLY v2 aggregate —
+        # no engine `scores` yet, but the three committed counter blocks ARE
+        # present and worth surfacing. A v1 aggregate / legacy doc has neither
+        # → section skipped, output byte-identical to pre-v0.10.
+        def scores_section?
+          (context.scores && !context.scores.empty?) ||
+            !context.entrypoints.nil? || !context.egress.nil? || !context.dynamic_dispatch.nil?
+        end
+
         def scores_section
           lines = ["", "Architecture Scores", "-" * 60]
           lines.concat(connectivity_lines)  # V8 banner ABOVE the dimension rows
-          # Summary rows first, score/grade leading.
-          context.scores.each { |dim| lines << score_row(dim) }
+          # v0.10 (W4) counter banners, connectivity-style: each is [] when its
+          # committed block is absent (v1 aggregate — back-compat, no render).
+          lines.concat(entrypoint_lines)
+          lines.concat(egress_lines)
+          lines.concat(dynamic_dispatch_lines)
+          # Summary rows first, score/grade leading. `scores` may be nil/empty
+          # on a collect-only v2 aggregate (banners only — guard the loops).
+          scores = context.scores || []
+          scores.each { |dim| lines << score_row(dim) }
           # Then per-dimension top contributors.
-          context.scores.each { |dim| lines.concat(dimension_detail(dim)) }
+          scores.each { |dim| lines.concat(dimension_detail(dim)) }
           lines
         end
 
@@ -65,6 +81,46 @@ module Archbuddy
           parts << "nodes scored (#{pct})"
           banner = "Connectivity: #{parts.join(' ')}"
           ["  #{banner}", ""]  # trailing "" separates banner from dimension rows
+        end
+
+        # v0.10 (W4/A1): ingress counter banner — the committed `entrypoints`
+        # block (SERIALIZER v2), counts by category (L7). mean/median are the
+        # ENGINE-published per-category cost copied verbatim at analyze time
+        # (A2); on a collect-only cache both are nil and the suffix is DROPPED
+        # entirely (an honest absence — never "mean —, median —" noise).
+        # [] when the block is absent (v1 aggregate) — nothing rendered.
+        def entrypoint_lines
+          ep = context.entrypoints
+          return [] if ep.nil?
+
+          banner = "Entrypoints: #{ep.total} total (#{ep.by_category_display})"
+          unless ep.mean.nil? && ep.median.nil?
+            banner += " — mean #{ep.mean_display}, median #{ep.median_display}"
+          end
+          ["  #{banner}", ""]
+        end
+
+        # v0.10 (W4/C): egress counter banner — the committed `egress` block,
+        # exit counts by category ({http, gem, queue, generic}). [] when absent.
+        def egress_lines
+          eg = context.egress
+          return [] if eg.nil?
+
+          ["  Egress: #{eg.total} total (#{eg.by_category_display})", ""]
+        end
+
+        # v0.10 (W4/D): dynamic-dispatch coverage banner — the committed
+        # `dynamic_dispatch` block. `ratio_display` is the COVERAGE ratio
+        # (1 - dynamic/total, the visible share of dispatch — M7 vocab), so the
+        # copy says "coverage", not "resolved share". "N/A" on a zero
+        # denominator (honest-undefined, never a fabricated confidence).
+        def dynamic_dispatch_lines
+          dd = context.dynamic_dispatch
+          return [] if dd.nil?
+
+          banner = "Dynamic dispatch: #{dd.resolved_sites}/#{dd.total_call_sites} resolved, " \
+                   "#{dd.dynamic_sites} dynamic (coverage #{dd.ratio_display})"
+          ["  #{banner}", ""]
         end
 
         def score_row(dim)

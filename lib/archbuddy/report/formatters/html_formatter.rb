@@ -131,17 +131,37 @@ module Archbuddy
           HTML
         end
 
+        # v0.10 (W4): the header now also renders on a COLLECT-ONLY v2 aggregate
+        # — no engine `scores` yet, but the three committed counter blocks ARE
+        # present (banners only, no cards). A v1 aggregate / legacy doc has
+        # neither → "" (byte-identical to pre-v0.10). The banners are joined
+        # into ONE interpolation so absent banners add no stray blank lines.
         def scores_header_html
-          return "" if context.scores.nil? || context.scores.empty?
+          scores  = context.scores || []
+          banners = scores_banners_html
+          return "" if scores.empty? && banners.empty?
 
-          cards = context.scores.map { |dim| score_card(dim) }.join("\n")
+          cards = scores.map { |dim| score_card(dim) }.join("\n")
           <<~HTML
             <section id="scores">
               <h2>Project Scores</h2>
-              #{connectivity_banner_html}
+              #{banners}
               <div class="cards">#{cards}</div>
             </section>
           HTML
+        end
+
+        # All header banners (connectivity + the three v0.10 counters) joined
+        # newline-separated, empties dropped. On a v1 doc with connectivity this
+        # is exactly the old connectivity line; with nothing present it is ""
+        # (the same blank interpolation line as before — byte-stable).
+        def scores_banners_html
+          [
+            connectivity_banner_html,
+            entrypoints_banner_html,
+            egress_banner_html,
+            dynamic_dispatch_banner_html
+          ].reject(&:empty?).join("\n")
         end
 
         # Connectivity banner (V8) ABOVE the dimension cards. Engine-emitted
@@ -156,6 +176,43 @@ module Archbuddy
           pct   = conn.forward_pct_display
           text  = "Connectivity: #{[ratio, "nodes scored (#{pct})"].compact.join(' ')}"
           %(<div class="connectivity">#{escape(text)}</div>)
+        end
+
+        # v0.10 (W4/A1): ingress counter banner mirroring connectivity_banner_html
+        # — the committed `entrypoints` block (SERIALIZER v2). VERBATIM counts
+        # (D17); mean/median suffix only when the ENGINE published cost (A2);
+        # "" when the block is absent (v1 aggregate — back-compat).
+        def entrypoints_banner_html
+          ep = context.entrypoints
+          return "" if ep.nil?
+
+          text = "Entrypoints: #{ep.total} total (#{ep.by_category_display})"
+          unless ep.mean.nil? && ep.median.nil?
+            text += " — mean #{ep.mean_display}, median #{ep.median_display}"
+          end
+          %(<div class="entrypoints">#{escape(text)}</div>)
+        end
+
+        # v0.10 (W4/C): egress counter banner — exit counts by category
+        # ({http, gem, queue, generic}). "" when absent.
+        def egress_banner_html
+          eg = context.egress
+          return "" if eg.nil?
+
+          text = "Egress: #{eg.total} total (#{eg.by_category_display})"
+          %(<div class="egress">#{escape(text)}</div>)
+        end
+
+        # v0.10 (W4/D): dynamic-dispatch COVERAGE banner (M7 vocab — the ratio
+        # is the visible share of dispatch, 1 - dynamic/total; "N/A" on a zero
+        # denominator). "" when absent.
+        def dynamic_dispatch_banner_html
+          dd = context.dynamic_dispatch
+          return "" if dd.nil?
+
+          text = "Dynamic dispatch: #{dd.resolved_sites}/#{dd.total_call_sites} resolved, " \
+                 "#{dd.dynamic_sites} dynamic (coverage #{dd.ratio_display})"
+          %(<div class="dynamic-dispatch">#{escape(text)}</div>)
         end
 
         def score_card(dim)

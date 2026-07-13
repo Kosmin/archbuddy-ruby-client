@@ -180,6 +180,18 @@ headline**; the letter grade is a tentative secondary indicator:
   block (findings 1.3): `Connectivity: N/total nodes scored (P%)`. A low percentage (e.g. 5/1672,
   0.3%) flags that only a small sample of the graph was reachable from entrypoints — treat the
   dimension scores as indicative, not representative.
+- **v0.10 counter banners** — when the committed aggregate is SERIALIZER v2 it carries three
+  counter blocks, each rendered as a nil-tolerant banner beside connectivity (absent on an older
+  aggregate — back-compat):
+  - `Entrypoints: N total (controllers 3, jobs 1, …)` — ingress counts by category; once the
+    engine publishes per-category cost the banner appends `— mean M, median D` (median is the
+    antidote to the outlier-dominated mean).
+  - `Egress: N total (http 2, gem 3, …)` — non-DB exit points by category
+    (`http`/`gem`/`queue`/`generic`).
+  - `Dynamic dispatch: R/T resolved, D dynamic (coverage P%)` — the visible share of dispatch
+    (`1 - dynamic/total`); `N/A` when there are no call sites (honest-undefined).
+  These render even on a collect-only cache (no engine scores yet). Counts come straight from the
+  committed cache — the report never recomputes them.
 
 **Interpreting the cost:** the score is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost — an **unbounded architectural cost** (≥ 0, no upper

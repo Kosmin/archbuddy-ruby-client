@@ -159,6 +159,102 @@ RSpec.describe "Reporter end-to-end (R-1..R-7)" do
     end
   end
 
+  # --- v0.10 (W4): the three committed counter banners (terminal) -------------
+  #
+  # SERIALIZER-v2 aggregates carry `entrypoints`/`egress`/`dynamic_dispatch`;
+  # the terminal formatter renders each as a nil-guarded banner mirroring the
+  # connectivity banner. A v1 aggregate parses all three to nil → NO banner and
+  # NO "Architecture Scores" section change (byte-identical back-compat).
+  describe "v0.10 counter banners (terminal, W4)" do
+    S = Archbuddy::Report::Scores unless defined?(S)
+
+    let(:entrypoints) do
+      S::EntrypointCount.new(
+        total: 4, count: 4,
+        by_category: { "controllers" => 3, "jobs" => 1, "rake" => 0, "script" => 0 },
+        mean: nil, median: nil
+      )
+    end
+    let(:egress) do
+      S::Egress.new(total: 5, count: 5,
+                    by_category: { "http" => 2, "gem" => 3, "queue" => 0, "generic" => 0 })
+    end
+    let(:dynamic_dispatch) do
+      S::DynamicDispatch.new(dynamic_sites: 2, resolved_sites: 8,
+                             total_call_sites: 10, ratio: 0.8)
+    end
+
+    def render(**fields)
+      context = Archbuddy::Report::Formatter::RenderContext.new(
+        ranked:        ranker.ranked,
+        class_rollups: ranker.class_rollups,
+        generator:     result.findings_doc["generator"],
+        graph:         nil,
+        resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
+        **fields
+      )
+      Archbuddy::Report::Formatter.for("terminal").new(context).render
+    end
+
+    it "renders all three banners on a COLLECT-ONLY v2 aggregate (scores nil — relaxed gate, no raise)" do
+      out = render(entrypoints: entrypoints, egress: egress, dynamic_dispatch: dynamic_dispatch)
+
+      expect(out).to include("Architecture Scores")
+      expect(out).to include("Entrypoints: 4 total (controllers 3, jobs 1)") # zero buckets elided
+      expect(out).to include("Egress: 5 total (http 2, gem 3)")
+      expect(out).to include("Dynamic dispatch: 8/10 resolved, 2 dynamic (coverage 80.0%)")
+    end
+
+    it "drops the mean/median suffix entirely on a collect-only cache (both nil — honest absence)" do
+      out = render(entrypoints: entrypoints)
+      expect(out).to include("Entrypoints: 4 total (controllers 3, jobs 1)\n")
+      expect(out).not_to include("mean")
+      expect(out).not_to include("median")
+    end
+
+    it "shows engine-published mean AND median verbatim when present (L7)" do
+      ep  = S::EntrypointCount.new(total: 4, count: 4,
+                                   by_category: { "controllers" => 4 }, mean: 27.14, median: 12.0)
+      out = render(entrypoints: ep)
+      expect(out).to include("Entrypoints: 4 total (controllers 4) — mean 27.1, median 12.0")
+    end
+
+    it "renders honest degenerate values: 0 total => (none); nil ratio => coverage N/A (I2)" do
+      out = render(
+        entrypoints: S::EntrypointCount.new(total: 0, count: 0, by_category: {}),
+        dynamic_dispatch: S::DynamicDispatch.new(dynamic_sites: 0, resolved_sites: 0,
+                                                 total_call_sites: 0, ratio: nil)
+      )
+      expect(out).to include("Entrypoints: 0 total (none)")
+      expect(out).to include("Dynamic dispatch: 0/0 resolved, 0 dynamic (coverage N/A)")
+    end
+
+    it "renders NO banner and NO scores section on a v1 aggregate (nil blocks — back-compat)" do
+      out = render
+
+      expect(out).not_to include("Entrypoints:")
+      expect(out).not_to include("Egress:")
+      expect(out).not_to include("Dynamic dispatch:")
+      expect(out).not_to include("Architecture Scores") # gate stays closed, as today
+      # Byte-identity: an explicit-nil context renders the SAME bytes as one
+      # that never set the fields (the pre-v0.10 construction shape).
+      expect(out).to eq(render(entrypoints: nil, egress: nil, dynamic_dispatch: nil))
+    end
+
+    it "keeps a v1 SCORES-bearing doc byte-stable: dimension rows render, banners absent" do
+      v11 = Archbuddy::Report::Reconnect.from_files(
+        findings_path: File.join(fixtures, "findings_v11_fixture.yml"),
+        id_map_path:   id_map_yml
+      ).call
+      out = render(scores: v11.scores)
+
+      expect(out).to include("Architecture Scores")
+      expect(out).not_to include("Entrypoints:")
+      expect(out).not_to include("Egress:")
+      expect(out).not_to include("Dynamic dispatch:")
+    end
+  end
+
   # --- R-6: structured exports ------------------------------------------------
 
   describe "yaml/json exports" do

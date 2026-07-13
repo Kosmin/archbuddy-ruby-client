@@ -27,6 +27,22 @@ module Archbuddy
     #   archbuddy-findings.json                  ROOT compact aggregate (pointers)
     #   .archbuddy/<mirrored-src>[.json | /…]    adaptively-sharded detail tree
     #
+    # v0.10 (SERIALIZER v2): the root aggregate additionally carries the three
+    # committed counter blocks — ALWAYS present, honest-zero / null, never
+    # fabricated (I2):
+    #   entrypoints      — ingress counts {total, count, by_category, mean,
+    #                      median}; by_category seeds the closed category set to
+    #                      0; mean/median are ENGINE-published per-category cost
+    #                      copied verbatim at analyze (A2) — null until then.
+    #   egress           — exit counts {total, count, by_category} over
+    #                      {http, gem, queue, generic} (generic = untagged).
+    #   dynamic_dispatch — {dynamic_sites, resolved_sites, total_call_sites,
+    #                      coverage_ratio}; coverage_ratio = 1 - dynamic/total
+    #                      (the VISIBLE share of dispatch), NULL on zero denom.
+    # Fragment nodes additionally carry `entrypoint_kind` (the ingress category
+    # string) beside the `entrypoint` boolean. The report surfaces all three
+    # blocks as nil-tolerant banners (terminal + HTML — v0.10 W4).
+    #
     # Canonical serialization (Cache::CanonicalJson): sorted object keys; arrays
     # canonically ordered HERE (nodes by symbol; edges by [from,to,calls] — the
     # C3 provably-total tiebreaker; proxies worst-first as the engine emits them);

@@ -25,9 +25,17 @@ module Archbuddy
       #                       smell (findings 1.4), worst-first, VERBATIM; nil when
       #                       absent (pre-1.4 / no scores block), [] when scored
       #                       but no proxy / forward N/A (renders an explicit note)
+      # @param entrypoints   [Scores::EntrypointCount,nil] the committed v0.10
+      #                       `entrypoints` counter block (SERIALIZER v2); nil on a
+      #                       v1 aggregate / legacy doc → no banner (back-compat)
+      # @param egress        [Scores::Egress,nil] the committed v0.10 `egress`
+      #                       counter block; nil when absent → no banner
+      # @param dynamic_dispatch [Scores::DynamicDispatch,nil] the committed v0.10
+      #                       `dynamic_dispatch` coverage block; nil when absent
       RenderContext = Struct.new(
         :ranked, :class_rollups, :generator, :graph, :resolver, :scores, :connectivity,
         :max_nodes, :multiplexer_proxies,
+        :entrypoints, :egress, :dynamic_dispatch,
         keyword_init: true
       )
 

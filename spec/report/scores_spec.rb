@@ -314,11 +314,11 @@ RSpec.describe "counter structs (v0.10 W1-A1)" do
       expect(ep.by_category_display).to eq("controllers 3, top_level 1")
     end
 
-    it "renders an honest '(none)' when every bucket is zero (distinct from absence)" do
+    it "renders an honest 'none' when every bucket is zero (distinct from absence; W4 banners add the parens)" do
       ep = described_class.new(
         total: 0, count: 0, by_category: { "controllers" => 0, "jobs" => 0 }
       )
-      expect(ep.by_category_display).to eq("(none)")
+      expect(ep.by_category_display).to eq("none")
     end
 
     it "mean/median display an em-dash when the engine has not published cost" do

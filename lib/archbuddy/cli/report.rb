@@ -89,7 +89,13 @@ module Archbuddy
           scores:        result.scores,
           connectivity:  result.connectivity,
           multiplexer_proxies: result.multiplexer_proxies,
-          max_nodes:     max_nodes&.to_i
+          max_nodes:     max_nodes&.to_i,
+          # v0.10 (W4): the three committed counter blocks (SERIALIZER v2),
+          # parsed nil-tolerantly by Reconnect — nil on a v1 aggregate / legacy
+          # doc, so the formatters render no banner (back-compat).
+          entrypoints:      result.entrypoints,
+          egress:           result.egress,
+          dynamic_dispatch: result.dynamic_dispatch
         )
 
         puts formatter_class.new(context).render

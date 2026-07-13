@@ -157,12 +157,14 @@ module Archbuddy
 
       # v0.10 (A1): shared display helper for the {category => count} maps on
       # the EntrypointCount / Egress counter structs. Skips zero buckets for
-      # brevity; an all-zero (or absent) map renders "(none)" — an honest zero,
-      # distinct from an absent block (which parses to nil upstream).
+      # brevity; an all-zero (or absent) map renders "none" — an honest zero,
+      # distinct from an absent block (which parses to nil upstream). Callers
+      # (the W4 banners) supply the surrounding parentheses, so the empty case
+      # reads "(none)", never "((none))".
       module ByCategoryDisplay
         def by_category_display
           present = (by_category || {}).reject { |_cat, count| count.to_i.zero? }
-          return "(none)" if present.empty?
+          return "none" if present.empty?
 
           present.map { |cat, count| "#{cat} #{count}" }.join(", ")
         end

@@ -22,13 +22,14 @@ RSpec.describe "Root-seeder seam (v0.10 W1-B)" do
 
   # --- registry map -------------------------------------------------------------
 
-  it "ships a frozen SEEDERS list in ingress-precedence order (jobs -> rake -> middleware -> script)" do
+  it "ships a frozen SEEDERS list in ingress-precedence order (jobs -> rake -> middleware -> script -> cron LAST)" do
     expect(R::RootSeederRegistry::SEEDERS).to eq(
       [
         R::RootSeeders::JobSeeder,
         R::RootSeeders::RakeSeeder,
         R::RootSeeders::MiddlewareSeeder,
-        R::RootSeeders::ScriptSeeder
+        R::RootSeeders::ScriptSeeder,
+        R::RootSeeders::CronLinkSeeder
       ]
     )
     expect(R::RootSeederRegistry::SEEDERS).to be_frozen
@@ -36,9 +37,19 @@ RSpec.describe "Root-seeder seam (v0.10 W1-B)" do
 
   # --- config-driven selection (lenient — mirror ProbeRegistry) ------------------
 
-  it "selects every registered seeder for :all (the default)" do
+  it "selects every DEFAULT-ON seeder for :all (the default) — cron EXCLUDED (W4b/R10)" do
     expect(R::RootSeederRegistry.for(Archbuddy::Collect::Config.new).map(&:root_type))
       .to eq(%i[jobs rake middleware script])
+  end
+
+  it "keeps CronLinkSeeder registered-but-default-off: :all skips it, naming :cron selects it" do
+    expect(R::RootSeederRegistry::DEFAULT_OFF).to eq([R::RootSeeders::CronLinkSeeder])
+
+    all = R::RootSeederRegistry.for(Archbuddy::Collect::Config.new(root_types: :all))
+    expect(all.map(&:root_type)).not_to include(:cron)
+
+    named = R::RootSeederRegistry.for(Archbuddy::Collect::Config.new(root_types: "jobs,cron"))
+    expect(named.map(&:root_type)).to eq(%i[jobs cron]) # cron still ordered LAST
   end
 
   it "selects nothing for :none" do
