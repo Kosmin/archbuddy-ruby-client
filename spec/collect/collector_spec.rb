@@ -235,14 +235,32 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
 
     # Real file paths / extensions and fixture symbol names must not appear in
     # the shareable, supposedly-agnostic graph. Only opaque ids, kinds,
-    # class_id refs, and null/numeric weights are allowed.
+    # class_id refs, null/numeric weights, and the closed-vocab
+    # entrypoint_kind/terminal_kind category words are allowed.
+    #
+    # v0.10 W6 re-baseline: "controllers" left this needle list — it is now a
+    # legitimate FIXED-VOCAB `entrypoint_kind` value (client ingress taxonomy,
+    # entrypoint_detector.rb) riding the graph node since the engine's 1.3
+    # schema declared the OPTIONAL field (CR-5 posture: category words are
+    # non-secret, exactly unlike real paths/symbols).
     %w[
       app/ .rb
       Invoice Orders overdue subtotal ApplicationRecord ExternalTaxApi
-      Billing controllers models
+      Billing models
     ].each do |needle|
       expect(serialized).not_to include(needle),
         "graph.yml leaked app semantics: found #{needle.inspect}"
+    end
+
+    # "controllers" may appear ONLY as an entrypoint_kind category value,
+    # never as part of a path or symbol.
+    graph["nodes"].each do |node|
+      node.each do |key, value|
+        next if key == "entrypoint_kind"
+
+        expect(value.to_s).not_to include("controllers"),
+          "graph.yml leaked 'controllers' outside entrypoint_kind (node #{node['id']}, key #{key})"
+      end
     end
 
     # Belt-and-suspenders regex covering the same boundary.
