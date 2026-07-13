@@ -60,7 +60,7 @@ end
      ../architecture-auditor` makes bundler resolve the *git* gem from that local checkout
      (it must be on the same branch — `main`).
 - The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.2"` (pessimistic bound,
-  maintained at the 0.2.x floor; the engine is already at 0.3.0 in development but the gemspec bound
+  maintained at the 0.2.x floor; the sibling engine is at 0.7.0 in development but the gemspec bound
   has not been bumped since the client's `metric_kernel_consistency_spec` verifies compatibility at
   test time rather than via a hard version pin).
 
@@ -74,11 +74,31 @@ remote.
 
 ## Versions and release sequence
 
-The client is at **0.7.0** (v0.8 committed-cache + multiplexer_proxy surface work; the report-polish
-branch adds the html graph-readability fix on top). The mandatory release sequence is **engine
-`main` first, then client**: the client's `metric_kernel_consistency_spec` loads the live engine
-`METRIC_KEYS` constant at test time, so the engine must already carry a matching version before the
-client suite can be verified green. (The `### v0.4.0` … entries below are the historical changelog.)
+The client is at **0.9.0** (the v0.10 ingress/egress release, branch `feat/v0.10-ingress-egress`);
+the sibling engine is at **0.7.0** (graph schema **1.3**, findings schema **1.5**,
+`SUPPORTED_VERSIONS` 1.0–1.5). The mandatory release sequence is **engine `main` first, then
+client**: the client's `metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS` constant
+at test time, so the engine must already carry a matching version before the client suite can be
+verified green. (The `### v0.10` … entries below are the historical changelog, newest first.)
+
+### v0.10 client bump (0.9.0) — engine 0.7.0 (graph 1.3 / findings 1.5)
+
+The v0.10 contract posture is **gated-additive in both directions**:
+
+- **Client → engine (graph 1.3):** the client stamps `entrypoint_kind` (ingress category) on
+  entrypoint nodes and `terminal_kind` (`http|gem|queue`) on category-bearing egress sinks — but
+  ONLY behind the Anonymizer's **schema-acceptance gate** (`graph_schema_accepts_entrypoint_kind?` /
+  `…_terminal_kind?` validate a probe graph against the INSTALLED engine schema). Against a 1.2
+  engine (`additionalProperties:false` rejects unknown node keys) the stamps auto-disable; both
+  fields always ride the id-map regardless. No version sniffing, no hard dependency bump.
+- **Engine → client (findings 1.5):** the client reads the optional 1.5 cost surfaces
+  (`forward_discoverability.median`, `forward_discoverability_by_category`) **nil-tolerantly and
+  verbatim** (D17) into the committed aggregate's `entrypoints` block (mean = the dimension `score`);
+  pre-1.5 findings yield null/{} — honest absence, never fabricated.
+- The committed aggregate's SERIALIZER v2 counter blocks (`entrypoints`/`egress`/`dynamic_dispatch`)
+  are a **client-owned shape**, not a contract change.
+- Leak-guard note (W6): `controllers` etc. are a FIXED-VOCAB `entrypoint_kind` on graph 1.3, not app
+  semantics — the collector spec's zero-leak guard was re-baselined accordingly.
 
 ### v0.4.0 client bump (W4+W5) — engine 0.3.0
 
@@ -131,8 +151,10 @@ The one place the two repos must stay in exact agreement at the code level is th
 order). If either side adds/removes/renames a metric without the other following, CI fails. **Any metric
 change is a two-repo change.**
 
-**Important:** `branches`/`decisions` (graph 1.1), `sink_open` (graph 1.2), and the `connectivity`
-object in `scores` (findings 1.3) are all **graph/findings INPUT fields**, not metric-kernel keys.
+**Important:** `branches`/`decisions` (graph 1.1), `sink_open` (graph 1.2), `entrypoint_kind`/
+`terminal_kind` (graph 1.3, v0.10), the `connectivity` object (findings 1.3), `multiplexer_proxies`
+(findings 1.4), and the 1.5 cost surfaces (`median`/`forward_discoverability_by_category`) are all
+**graph/findings INPUT/summary fields**, not metric-kernel keys.
 They are NOT added to `METRIC_KEYS`; the kernel remains 8 keys. The `metric_kernel_consistency_spec`
 files in both repos are **untouched** and stay green without any edit. `sink_open` is the engine's
 INPUT for deriving U (undifferentiated sink paths via `in_degree`); the engine never emits it back as

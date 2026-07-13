@@ -32,7 +32,9 @@ AdapterResult.new(
 1. **Real-symbol space only.** Adapters carry real file/line/symbol. **Do NOT mint ids** — that is the
    Anonymizer's sole job (D25/D41). Producing your own ids would bypass the single mint and is forbidden.
 2. **Use the contract kinds.** Map your language's constructs onto `function/endpoint/db_op/external`.
-   Use a single shared `external` sink for unresolved calls (mirror `RubyAdapter::EXTERNAL_SINK_SYMBOL`).
+   Use ONE shared generic `external` sink for unresolved calls (mirror
+   `RubyAdapter::EXTERNAL_SINK_SYMBOL`); provable egress MAY additionally get category sinks
+   (`<external:http|gem|queue>` + `terminal_kind`, mirror `CATEGORY_SINK_SYMBOLS` — v0.10).
 3. **Never fabricate edges.** Unknown/dynamic call targets go to the external sink; constructs you can't
    statically resolve should be flagged into `diagnostics`, not invented as edges.
 4. **Keep diagnostics non-semantic and out of the graph.** They are for CLI stderr only.
@@ -57,9 +59,10 @@ of source language; and `report` reconnects findings the same way. None of that 
 ## What to model on
 
 `lib/archbuddy/collect/adapters/ruby_adapter.rb` is the reference implementation: enumerate sources →
-build a symbol catalogue → resolve call sites with a tiered, never-fabricating resolver → assemble `Raw*`
-+ a single external sink → return the `AdapterResult`. Mirror that structure; only the parsing and
-resolution heuristics are language-specific.
+build a symbol catalogue → seed/categorize ingress roots → resolve call sites with a tiered,
+never-fabricating resolver → assemble `Raw*` + the shared external sink (plus, v0.10, one
+category-bearing egress sink per proven category) → return the `AdapterResult`. Mirror that structure;
+only the parsing and resolution heuristics are language-specific.
 
 ---
 
@@ -76,7 +79,8 @@ purely from the id-map, so it does not care which language produced the graph.
 | **`Cache`** — `canonical_json`, `layout`, `writer`, `reader`, `change_detector`, `checker` | **`SymbolTable`** (+ `ClassEntry`/`MethodEntry`) — the discovered-symbol catalogue |
 | The **committed-cache flow** (de-anon-at-write, adaptive sharding, `--check` gate) | **`RubyResolver`** — the tiered R0–R9 call-site resolver + `Vocab` |
 | **`Fragment`** — the per-file incremental cache unit (AST-backed; only `parsed_value` is language-shaped) | **`EntrypointDetector`** — the entrypoint strategies |
-| **`Report`** — `Reconnect`, `Ranker`, all formatters (terminal/yaml/json/dot/html), `Scores` | The **probes** (`GrapeProbe`, `DispatchProbe`) + `GrapeDsl` recognizer |
+| **`Report`** — `Reconnect`, `Ranker`, all formatters (terminal/yaml/json/dot/html), `Scores` (incl. the v0.10 counter-block structs) | The **probes** (`GrapeProbe`, `DispatchProbe`, `MetaSendProbe`, `EgressProbe`) + the pure recognizers (`GrapeDsl`, `root_dsl/`) |
+| The **committed counter blocks** (`Cache::Writer` folds `entrypoints`/`egress`/`dynamic_dispatch` from graph + id-map + diagnostics — language-neutral counts) | The **root seeders** (`RootSeeder` + `RootSeederRegistry` + `root_seeders/` — jobs/rake/middleware/script/cron are Ruby-ecosystem shapes) |
 | The **engine** `analyze` (opaque graph → findings) | The **parser choice** (Prism) + all parse/resolution heuristics |
 
 `Fragment` is *mostly* neutral: its `content_hash` (SHA-256 of source bytes) and `rel_file` are
@@ -90,9 +94,15 @@ Produce, in real-symbol space, an `AdapterResult`:
 
 - **nodes** — `RawNode`s with `kind ∈ function | endpoint | db_op | external`, carrying `branches`
   (business control-flow count) and `decisions`, plus the owning-class def site for the `cls_` rollup.
+  v0.10 optional stamps: `entrypoint_kind` (the ingress category string on detected entrypoints) and
+  `terminal_kind` (`http|gem|queue` on category-bearing external sinks). Both are fixed-vocab words —
+  the Anonymizer forwards them to the id-map always and to `graph.yml` behind its schema-acceptance
+  gate; you never need to gate them yourself.
 - **edges** — `RawEdge`s (directed `from_key → to_key` between `RawNode#real_key`s, `calls` count).
 - **entrypoints** — `RawEntrypoint`s (reachability roots by `real_key`).
-- **diagnostics** — non-semantic, CLI-only (never in the graph).
+- **diagnostics** — non-semantic, CLI-only (never in the graph). v0.10 keys the aggregate writer
+  consumes if you supply them: `meta_sites_skipped`, `meta_resolved`, `total_call_sites` (the
+  dynamic-dispatch coverage tuple) and `egress_counts` (`{http/gem/queue/generic => count}`).
 
 That is the entire boundary. The Anonymizer mints ids; the Emitter validates against the **same** contract
 schema regardless of source language; the Cache de-anonymizes + shards + commits identically; the engine
@@ -140,12 +150,15 @@ The Ruby adapter's shape is language-neutral and you should mirror it exactly:
 
 1. **Pass 1 (definition):** walk every file building a **symbol table** of classes/modules/functions with
    **first-def-wins** (a re-declared name keeps its first def site — a stable node). Record owning
-   module/class for the `cls_` rollup.
-2. **Pass 1b (route/entrypoint seeder):** the framework-route analog (see §5) — seed entrypoints for
-   known-defined symbols only (never fabricate).
+   module/class for the `cls_` rollup — and (v0.10/L14) each class's **literal mixin list** (`include`
+   analog: `Object.assign`/decorator/HOC shapes), since mixin evidence is what table-walker root
+   seeders discriminate on.
+2. **Pass 1b (route/entrypoint seeder) + Pass 1c (root seeders, v0.10):** the framework-route analog
+   (see the entrypoints section) — seed/categorize entrypoints for known-defined symbols only (never
+   fabricate); one category per node, registry order = precedence.
 3. **Pass 2 (resolution):** walk call sites inside function bodies; resolve each against the symbol table
-   with a **tiered, never-fabricating resolver**. Unknown/dynamic targets → the `external` sink; never
-   guess an edge.
+   with a **tiered, never-fabricating resolver**. Unknown/dynamic targets → the `external` sink (v0.10:
+   sub-classified into egress categories when provable); never guess an edge.
 
 The **typed-receiver tier (Ruby's R4.5)** maps directly: TS gives you *better* type info than Ruby's
 intra-procedural inference — use the TS compiler's checker (option A/TS) or a conservative local
@@ -187,21 +200,40 @@ Same as React, plus:
   **entrypoint seeder** (screens are reachability roots) + a dispatch **probe** (`navigate("X")` →
   the `X` screen component), mirroring Ruby's `RouteCatalogue` + `GrapeProbe`.
 
-### Entrypoints for JS/TS
+### Entrypoints for JS/TS — mirror the v0.10 root-seeder seam
 
-The `EntrypointDetector` analog seeds reachability roots from framework surface:
+The `EntrypointDetector` analog seeds reachability roots from framework surface. As of v0.10 the Ruby
+adapter structures this as a **`RootSeeder` registry** (mirror of the probe registry: seeders TAG
+already-existing nodes with an ingress **category**, add NO nodes/edges, are `method?`-gated, and
+registry order is the category precedence — one category per node, first write wins). A JS adapter
+should mirror the same seam, with its own category vocabulary:
 
-- **HTTP routes** — Express/Koa/Fastify handlers, **Next.js** `pages/`/`app/` route files & API routes.
-- **Exported React components** (especially screen/page components).
+- **HTTP routes** — Express/Koa/Fastify handlers, **Next.js** `pages/`/`app/` route files & API routes
+  (the `routed`/`controllers` analog — an `express-routes` seeder reading `app.get("/x", handler)`).
+- **Exported React components** (especially screen/page components) — a `components` category
+  (the RN navigation seeder below is its screen-level sibling).
+- **Workers/queues** — BullMQ/bee-queue processors (the `jobs` analog: mark the processor callback).
+- **Scripts/bins** — `package.json` `bin` entries + shebanged `scripts/**` (the `script` analog).
 - **Event handlers** (`onClick`, DOM/RN listeners) as leaf entrypoints where relevant.
 
-### `db_op` and `external` analogs
+Stamp the chosen category on each root's `RawNode#entrypoint_kind` so the committed `entrypoints`
+counter block and the report's `Entrypoints:` banner group your categories for free (the writer's
+category fold is language-neutral).
+
+### `db_op` and `external` analogs — mirror the v0.10 egress classification
 
 - **`db_op`** — ORM calls: **Prisma** (`prisma.user.findMany`), **TypeORM**, **Sequelize**, plus raw
   query builders. Synthesize a `db_op` node the same way Ruby does for ActiveRecord (a plain COST-1
   terminal). RN local stores (`AsyncStorage`, SQLite) are `db_op` candidates too.
-- **`external`** — anything in `node_modules` / out-of-tree, and network I/O (`fetch`/`axios`) whose
-  target is not an app symbol → the single shared `external` sink.
+- **`external`** — anything in `node_modules` / out-of-tree, and network I/O whose target is not an
+  app symbol → the shared `external` sink. As of v0.10 the Ruby adapter sub-classifies provable
+  egress into **category-bearing sinks** (`<external:http|gem|queue>`, still `kind:"external"`, with
+  `terminal_kind` stamped) via an `EgressProbe` that runs LAST so it never shadows a recoverable
+  edge. The JS mirror: `fetch`/`axios`/`got`/`node-fetch` calls → `<external:http>`; queue producers
+  (`queue.add(...)` whose processor is out-of-tree) → `<external:queue>`; any other out-of-tree
+  import call → `<external:gem>` (the npm-package analog). Tally per-category counts into
+  `diagnostics[:egress_counts]` (untagged bucket = `generic`) and the committed `egress` block +
+  report banner light up unchanged.
 
 ---
 

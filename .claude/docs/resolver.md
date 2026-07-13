@@ -14,19 +14,22 @@ is for debugging/tests.
 | Tier | Fires when | Action | Result |
 |------|-----------|--------|--------|
 | **R0** operator | name ∈ `Vocab::OPERATOR_DENY` (`+ - * / == < []` …, D36) | `:drop` | No node, no edge — operators carry no architectural signal. |
-| **R1** metaprogramming | name ∈ `Vocab::METAPROGRAMMING` (`send`, `public_send`, `define_method`, `*_eval`, …) | `:metaprogramming` | **Flagged, NO edge** — target is statically unknowable; counted in `diagnostics[:meta_sites_skipped]`. Fabricating an edge would be a lie. |
+| **R1** metaprogramming — **narrowed to DYNAMIC meta (v0.10 W1-D/L21)** | name ∈ `Vocab::METAPROGRAMMING` **AND** it is NOT a `Vocab::META_RESOLVABLE` verb (`send`/`public_send`/`__send__`) with a **literal Symbol/String first arg** (`dynamic_meta?`/`literal_dispatch_arg?` in `resolver.rb`) | `:metaprogramming` | **Flagged, NO edge** — target is statically unknowable; counted in `diagnostics[:meta_sites_skipped]`. A LITERAL-arg dispatch falls through to R5 where `MetaSendProbe` resolves it; `define_method`/`method_missing`/`*_eval`/`const_get`/… stay ALWAYS-flagged. `try`/`try!` are only in `META_RESOLVABLE` (never flagged): dynamic `try` falls to R9 as pre-v0.10. |
 | **R2** db_op via **class context** | enclosing class is an AR subclass **AND** name ∈ `Vocab::ACTIVE_RECORD` | `:external`, `kind: "db_op"` | Synthesize a `db_op` node `"<EnclosingClass>.<name>"`. **The verified gotcha** — see below. |
 | **R3** self method | receiver is nil or `SelfNode` **AND** enclosing class has a known `#name` (then `.name`) method | `:edge` | Edge to `EnclosingClass#name` / `EnclosingClass.name`. |
 | **R4** app `Const.method` | receiver is a `ConstantReadNode`/`ConstantPathNode` for a known class | `:edge` (or `:db_op` if the const is a known AR class + AR method) | Edge to `Const.name` / `Const#name`; or a `db_op` `"Const.name"`. |
 | **R4.5** typed receiver (L1, v0.6) | receiver's type is PROVABLE from the conservative intra-procedural type scope (`ctx.type_scope`): an intra-method local / same-class ivar / memoized-accessor whose tracked value is exactly `Const.new`, or an inline `Const.new.method` / `Const::Path.new.method` chain — **AND** `table.method?(fq)` is true | `:edge` (or `:db_op` if the inferred const is a known AR class + AR method) | Edge to `Const#name` (instance, preferred for `.new`) / `Const.name`; or a `db_op` `"Const.name"` (mirrors R4's AR branch). **NEVER-FABRICATE:** declines (→ R5 → R9) unless the method provably exists. Pure resolution, NOT a whitelist; AR/Looker/Snowflake are not special-cased. |
-| *(R5 probe tier)* | recognized framework DSL (Grape mount / Sidekiq-ActiveJob dispatch) — see ARCHITECTURE.md | `:edge` | Real edge the framework provably wires; runs after R4.5, before R9. |
-| **R9** fallthrough | anything else (unresolved, third-party, unknown receiver) | `:external`, `kind: "external"` | Route to the **single shared external sink** (`RubyAdapter::EXTERNAL_SINK_SYMBOL = "<external>"`, one `ext_` node for the whole graph). |
+| *(R5 probe tier)* | recognized framework/dispatch shape, offered in `ProbeRegistry` order `Grape → Dispatch → MetaSend → Egress` (first non-nil wins) — see ARCHITECTURE.md | `:edge` (Grape/Dispatch/MetaSend) or `:external` + `egress_category:` (Egress) | Grape mount / Sidekiq-ActiveJob dispatch / literal `send`/`try` rewrite (v0.10 `MetaSendProbe`, `table.method?`-gated) emit a REAL edge; the v0.10 `EgressProbe` (deliberately LAST) never emits an edge — it only ENRICHES the external action with `:http`/`:queue`/`:gem` on a provably out-of-tree literal-const receiver. Runs after R4.5, before R9. |
+| **R9** fallthrough | anything else (unresolved, third-party, unknown receiver) | `:external`, `kind: "external"` | Route to the **generic shared external sink** (`RubyAdapter::EXTERNAL_SINK_SYMBOL = "<external>"`). v0.10: an R5 egress-categorized call routes instead to its category sink (`RubyAdapter::CATEGORY_SINK_SYMBOLS` → `<external:http\|gem\|queue>`, minted per PRESENT category, `terminal_kind`-stamped, still `kind:"external"`). |
 
 Two other classifications happen in the adapter (not the resolver):
 - **endpoint**: `RubyAdapter#endpoint?` marks a node `endpoint` when it is a non-singleton method on a
   controller class (`SymbolTable#controller_class?` — superclass ∈ `CONTROLLER_BASES` or name ends in
   `Controller`).
-- **entrypoints**: chosen by `EntrypointDetector` per strategy (see ARCHITECTURE.md / CLI), not the resolver.
+- **entrypoints**: chosen by `EntrypointDetector` per strategy (see ARCHITECTURE.md / CLI), not the
+  resolver. v0.10: `detect_categorized` also assigns each entrypoint ONE ingress category
+  (`grape → routed → controllers → jobs → rake → middleware → script → top_level → pattern`, first
+  match wins) from the framework surfaces + the root seeders (see ARCHITECTURE.md → Root seeders).
 
 ## The AR implicit-self gotcha (R2)
 

@@ -7,9 +7,10 @@ All three shapes are owned canonically by the **engine Contract** (`Architecture
 authoritative JSON schemas live in the sibling repo at
 `../architecture-auditor/lib/architecture_auditor/contract/schemas/{graph,findings}.v1.schema.json`.
 This doc summarizes those shapes for quick reference — **the schemas are the source of truth; do not let
-this doc drift from them.** Graph schema is `"1.2"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
-is `"1.3"` (`Contract::FINDINGS_SCHEMA_VERSION`). Both are MINOR / additive; old 1.0/1.1/1.2 docs still
-validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3]` (explicit retain-list, never derived).
+this doc drift from them.** Graph schema is `"1.3"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
+is `"1.5"` (`Contract::FINDINGS_SCHEMA_VERSION`). All bumps are MINOR / additive; old 1.0–1.4 docs still
+validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3 1.4 1.5]` (explicit retain-list, never
+derived). Verified against the live sibling engine (0.7.0).
 
 Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minted only by `Contract::Ids`).
 
@@ -20,9 +21,9 @@ Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minte
 Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `Collect::Anonymizer`.
 
 ```yaml
-schema_version: "1.2"
+schema_version: "1.3"
 generator:               # all 3 keys required
-  tool: "archbuddy 0.7.0"      # "archbuddy #{Archbuddy::VERSION}"
+  tool: "archbuddy 0.9.0"      # "archbuddy #{Archbuddy::VERSION}"
   adapter: "ruby"
   capture: "static"      # static capture ⇒ all timing fields below are null (D4)
 nodes:                    # array; each node:
@@ -40,17 +41,36 @@ nodes:                    # array; each node:
     decisions: 0          # OPTIONAL (graph 1.1+); integer ≥ 0; raw decision-point count (all constructs)
                           # NOTE (v0.6/L3): the client NO LONGER emits `sink_open`. A db_op is now a
                           # plain COST-1 terminal — no write-specificity / customizable-sink proxy. The
-                          # field stays DECLARED-but-optional in the engine graph schema (graph stays
-                          # 1.2; a node OMITTING it validates), so old 1.2 graphs WITH it still load.
+                          # field stays DECLARED-but-optional in the engine graph schema (a node
+                          # OMITTING it validates), so old graphs WITH it still load.
+    entrypoint_kind: "controllers"  # OPTIONAL (graph 1.3, v0.10 A1); fixed-vocab ingress category
+                          # (grape|routed|controllers|jobs|rake|middleware|script|top_level|pattern)
+                          # on entrypoint nodes only. Emitted BEHIND THE ACCEPTANCE GATE (below).
+    terminal_kind: "http" # OPTIONAL (graph 1.3, v0.10 CR-5); fixed-vocab egress category
+                          # (http|gem|queue) on category-bearing external sinks only; the generic
+                          # <external> sink and every non-sink node omit it. Same acceptance gate.
 edges:                    # array; each edge:
   - from: "n_…"
-    to: "n_…"             # unresolved calls all point at the single shared ext_ sink
+    to: "n_…"             # unresolved calls point at the shared generic ext_ sink; v0.10: a call the
+                          # EgressProbe categorized points at its category sink (<external:http|gem|
+                          # queue> in the id-map — one extra ext_ node per PRESENT category)
     calls: 1              # integer >= 1 (duplicate (from,to) pairs collapsed)
     count: null
     self_time_ms: null
 entrypoints:              # array of node_id (may be EMPTY → M3 warning)
   - "n_…"
 ```
+
+### v0.10: `entrypoint_kind` / `terminal_kind` — the schema-acceptance gate
+
+The two graph-1.3 category fields are emitted **only when the INSTALLED engine schema accepts them**:
+`Collect::Anonymizer.graph_schema_accepts_entrypoint_kind?` / `…_terminal_kind?` validate a minimal
+probe graph (`ENTRYPOINT_KIND_PROBE_GRAPH` / `TERMINAL_KIND_PROBE_GRAPH`, memoized per process) via
+`Contract::Validator.valid?`. A 1.2 engine's node schema is `additionalProperties: false`, so an
+undeclared key would FAIL D37 validation, not be ignored — the gate auto-disables the stamp against
+an old engine with no version sniffing. **Both fields always ride the id-map descriptor regardless**
+(the aggregate writer reads categories from there, schema-independent). Category words are fixed
+vocab, never app symbols — safe on the opaque graph (I8).
 
 ### v0.6.0: variable-receiver type inference (L1) + sink-cost revert (L3) — graph stays 1.2
 
@@ -101,8 +121,10 @@ Why no schema change was needed:
 - **Edges are framework-neutral topology.** Every probe-resolved call is emitted as a plain `(from, to)`
   edge — the same shape as any other edge. The framework that wired it is not recorded in graph.yml.
 - **The `endpoint` node kind pre-exists.** `kind: "endpoint"` is already in the schema enum and was
-  already emitted for Rails controller actions (`ruby_adapter.rb:88`). v0.3.0 additionally mints it for
-  Grape endpoint handler blocks. No new kind value is introduced.
+  already emitted for Rails controller actions (`ruby_adapter.rb` — `endpoint?`, consumed in
+  `add_method_nodes`). v0.3.0 additionally mints it for Grape endpoint handler blocks. No new kind
+  value is introduced. (v0.10 keeps the 4-kind vocab closed too: category egress sinks are
+  `kind: "external"` with `terminal_kind`, NOT a 5th kind.)
 - **Provenance is diagnostics-only.** Per-probe-name edge counts (`probe_edges: { grape: N, ... }`)
   ride `AdapterResult#diagnostics` and the CLI's stderr note only — they are NEVER serialized into
   `graph.yml`. The schema's `additionalProperties: false` constraint remains satisfied with zero edits.
@@ -122,17 +144,23 @@ Only `collect` produces it; only `report` reads it. **The engine's `analyze` nev
 ```yaml
 ids:
   "n_…":                  # one entry per opaque node id minted into the graph
-    file: "app/models/user.rb"     # repo-relative; null for the external sink
-    line: 12                       # 1-based; null for the external sink
-    symbol: "User#save"            # fully-qualified real symbol
+    file: "app/models/user.rb"     # repo-relative; null for the external sinks
+    line: 12                       # 1-based; null for the external sinks
+    symbol: "User#save"            # fully-qualified real symbol; egress sinks are
+                                   # "<external>" / "<external:http|gem|queue>"
     kind: "function"               # function | endpoint | db_op | external
     class_id: "cls_…"              # owning class rollup id, or null
+    entrypoint_kind: null          # v0.10 (A1): ingress category string, or null for
+                                   # non-entrypoints / category-unknown entrypoints.
+                                   # ALWAYS present here (unlike graph.yml — no gate).
+    terminal_kind: null            # v0.10 (CR-5): egress category (http|gem|queue) —
+                                   # non-null ONLY on category-bearing external sinks.
   "cls_…":                # one entry per class rollup (D42) — id-map ONLY
     file: "app/models/user.rb"
     line: 1
     symbol: "User"
     kind: "class_rollup"
-    class_id: null
+    class_id: null       # (cls_ entries carry NO entrypoint_kind/terminal_kind keys)
 ```
 
 `gitignore-before-secret`: `Collect::Emitter` refuses to write this unless the path is gitignored. The
@@ -149,7 +177,7 @@ intentionally NOT ignored — a runtime dependency, not a secret.)
 are copied **verbatim** (D17); the reporter never recomputes.
 
 ```yaml
-schema_version: "1.3"
+schema_version: "1.5"
 generator: { tool, adapter, capture }     # same shape as graph
 nodes:                                      # map: opaque_id => entry
   "n_…":
@@ -172,13 +200,14 @@ findings:                                   # array; EXACTLY 7 types (D38), oneO
 == `ArchitectureAuditor::Analyze::METRIC_KEYS`. Asserted by `spec/report/metric_kernel_consistency_spec.rb`.
 Changing the metric set requires changing **both repos** together.
 
-### Optional `scores` block (findings 1.3 — additive, back-compat)
+### Optional `scores` block (findings 1.1–1.5 — additive, back-compat)
 
 `findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1, extended in 1.2
-and 1.3; a 1.0/1.1/1.2 doc without the newer fields still validates and `report` still works unchanged).
-The block is **owned canonically by the engine** — `findings.v1.schema.json` `#/properties/scores` →
-`#/definitions/dimension_score` is the source of truth; this is a quick-reference summary only. It carries
-two **project-level** dimension scores plus the connectivity object (findings 1.3):
+[raw_value/overflow], 1.3 [connectivity], 1.4 [multiplexer_proxies], 1.5 [median +
+forward_discoverability_by_category]; an older doc without the newer fields still validates and `report`
+still works unchanged). The block is **owned canonically by the engine** — `findings.v1.schema.json`
+`#/properties/scores` → `#/definitions/dimension_score` is the source of truth; this is a quick-reference
+summary only. It carries two **project-level** dimension scores plus the optional sibling objects:
 
 ```yaml
 scores:                                # OPTIONAL; absent in 1.0 docs
@@ -192,12 +221,28 @@ scores:                                # OPTIONAL; absent in 1.0 docs
     score: null                        # null/"N/A" when collection found NO entrypoints (N1/M3)
     grade: "N/A"
     hotspots: []
+    median: null                       # OPTIONAL (1.5+, v0.10 W6): the per-entrypoint cost MEDIAN
+                                       # beside the mean (`score`) — the antidote to an
+                                       # outlier-dominated mean. Read nil-tolerantly.
+  forward_discoverability_by_category: # OPTIONAL (1.5+, v0.10 W6): the engine's per-category
+    controllers:                       # ingress-cost lens — one dimension_score per
+      score: 3.0                       # entrypoint_kind group (keys are the ENGINE's grouping of
+      median: 3.0                      # the client-stamped categories; nil-stamped entrypoints
+      grade: "B"                       # bucket under the engine's "uncategorized"). The client
+      hotspots: []                     # compacts it VERBATIM into the committed aggregate's
+                                       # entrypoints.by_category_cost {cat=>{mean,median,grade}}.
+  multiplexer_proxies: []              # OPTIONAL (1.4+): the worst-first smell list (see R1)
   connectivity:                        # OPTIONAL (1.3+); absent in 1.0/1.1/1.2 docs
     forward: 0.003                     # |reachable-from-entrypoints| / |total nodes| (0..1 ratio or null)
     reverse: 0.003                     # |connected-to-a-db_op-sink| / |total nodes| (0..1 ratio or null)
     scored_nodes: 5                    # integer ≥ 0: nodes that contributed to the score mean
     total_nodes: 1672                  # integer ≥ 1: total graph nodes (excluding <external>)
 ```
+
+**v0.10 read posture:** the client reads every 1.4/1.5 optional block NIL-TOLERANTLY and copies it
+VERBATIM (D17 — mean = the dimension `score`, median its 1.5 sibling, `by_category_cost` compacted from
+`forward_discoverability_by_category` with hotspots dropped). Absent blocks → null/{} in the committed
+aggregate and no banner/line in the report — an honest absence, never a fabricated number.
 
 **Score semantics (findings 1.3):** `score` is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost to a `db_op` terminal — an **unbounded architectural cost**
@@ -240,7 +285,7 @@ Rendered by the Formatter strategy; all carry real symbols → gitignored, never
 
 | `--format` | Output | Shape |
 |------------|--------|-------|
-| `terminal` (default) | stdout text | When findings carry `scores` (1.1): an `Architecture Scores` summary header FIRST — each dimension's `score/grade` + framing question (the headline), then its de-anonymized hotspots as "top contributors to this dimension (worst-first)" with real symbol + `file:line` + driving metric(s), or `N/A` + reason. Then ranked bottlenecks: symbol, `file:line`, `clutter_score`, 8-metric breakdown, finding explanations (with real `A → B` chains), class rollups. |
+| `terminal` (default) | stdout text | When findings carry `scores` (1.1) OR the committed aggregate is SERIALIZER v2 (v0.10): an `Architecture Scores` summary header FIRST — the connectivity banner + the three v0.10 counter banners (`Entrypoints:`/`Egress:`/`Dynamic dispatch:`, each nil-guarded; entrypoints appends engine mean/median + a per-category cost line when published), then each dimension's `score/grade` + framing question (the headline), then its de-anonymized hotspots as "top contributors to this dimension (worst-first)" with real symbol + `file:line` + driving metric(s), or `N/A` + reason. Then ranked bottlenecks: symbol, `file:line`, `clutter_score`, 8-metric breakdown, finding explanations (with real `A → B` chains), class rollups. |
 | `yaml` | `report.yml` | `{ generator, bottlenecks[ {id,symbol,file,line,kind,class_id,resolved,clutter_score,metrics{8},findings[]} ], class_rollups[ {class_id,symbol,file,line,resolved,clutter_score,member_count} ] }` via `StructuredExport`; plus, when present (1.1), `scores{ <dimension> => {score,grade,question,na_reason?,hotspots[ {symbol,file,line,resolved,metrics} ]} }` (de-anonymized; the key is omitted entirely for a 1.0 doc). |
 | `json` | `report.json` | Same structured shape (incl. the optional de-anonymized `scores`), `JSON.pretty_generate`. |
 | `dot` | `*.dot` | Graphviz digraph with de-anonymized labels. **Requires `--graph graph.yml`** (edge list source). |

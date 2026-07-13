@@ -276,7 +276,9 @@ file/line/symbol** names.
 ```
 archbuddy collect PATH [--out-dir .archbuddy] \
   [--language ruby] [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...] \
-  [--probes all|none|grape,sidekiq_dispatch] [--changed [--base-ref origin/main]] [--check]
+  [--probes all|none|grape,sidekiq_dispatch,meta_send,egress] \
+  [--root-types all|none|jobs,rake,middleware,script,cron] \
+  [--changed [--base-ref origin/main]] [--check]
 
 archbuddy analyze     # engine analyze + de-anon-at-write the committed real-name cache
 
@@ -328,11 +330,32 @@ reaches `graph.yml` (the schema is unchanged).
 |-------|----------|-----------------|
 | `grape` | `mount Const` | A `mount` call inside a `Grape::API` resolves to the mounted API's representative endpoint node. |
 | `sidekiq_dispatch` | `Const.perform_async` / `.perform_later` / `.perform_in` / `.perform_at` | An async-dispatch call resolves to a `caller → Const#perform` edge (with a single `.set(...)` hop unwrapped). |
+| `meta_send` (v0.10) | `recv.send(:m)` / `public_send("m")` / `__send__(:m)` / `try(:m)` | A meta-dispatch with a **literal** Symbol/String first arg rewrites to the direct call (`caller → Target#m`) when the receiver is provable (const / typed var / self) AND the target exists in-tree. Dynamic-arg meta stays flagged-no-edge. |
+| `egress` (v0.10) | any call on a provably **out-of-tree literal constant** | Classifies the external fallthrough into an egress category — `http` (known HTTP-client const + verb), `queue` (enqueue verb, `#perform` not in-tree), `gem` (any other out-of-tree const) — routed to a category-bearing sink `<external:http\|gem\|queue>`. Runs LAST so it never shadows a recoverable real edge. |
 
 Rails route entries (`config/routes.rb`) are handled by the **RouteCatalogue** entrypoint seeder, which
 reads `to: "controller#action"` strings and `resources`/`resource` RESTful expansions and seeds those
 actions as entrypoints (Pass 1). It emits no new edges — it only confirms that already-known controller
 actions are reachable as entrypoints.
+
+### Ingress root seeders — `--root-types` (v0.10)
+
+The entrypoint side has a mirror seam: **root seeders** tag methods that are provably execution
+roots with an ingress **category** (they add no nodes and no edges — they only categorize methods
+that already exist). Selection via `--root-types all|none|comma,list` (lenient — unknown names
+select nothing):
+
+| Root type | Evidence | What it tags |
+|-----------|----------|--------------|
+| `jobs` | `include Sidekiq::Job/Worker`, `< Sidekiq::Worker`, `< ApplicationJob/ActiveJob::Base` (chain-walked) | the job's `#perform` |
+| `rake` | `task NAME do … end` in `.rake`/`Rakefile` (minted in Pass 1, not seeder-gated — structural like Grape) | the synthetic `rake:ns:name[N]` node |
+| `middleware` | `def call(env)` + `@app` write in `initialize` + a `use`/`insert_before/after` registration (all three required) | the middleware's `#call` |
+| `script` | file under `scripts/`/`script/`/`bin/` + shebang + non-loader-only body | the file's top-level defs |
+| `cron` | **default OFF** — sidekiq-cron YAML / whenever `schedule.rb`; LINK-only: confirms already-seeded jobs/rake roots, never mints. Enable explicitly: `--root-types jobs,rake,cron` | nothing (confirm-or-decline ledger only) |
+
+The detected category rides each entrypoint as `entrypoint_kind` (category precedence:
+grape → routed → controllers → jobs → rake → middleware → script → top_level → pattern, one
+category per method, first match wins) and feeds the `Entrypoints:` counter banner in the report.
 
 ### NEVER-FABRICATE invariant
 
@@ -387,5 +410,3 @@ gem build archbuddy.gemspec     # installability check (delete the .gem after)
 See [`AGENTS.md`](AGENTS.md) for the docs pyramid, [`ARCHITECTURE.md`](ARCHITECTURE.md) for the
 as-built code map, [`CONTRACT.md`](CONTRACT.md) for the data contracts, and
 [`.claude/docs/cross-repo.md`](.claude/docs/cross-repo.md) for the client ↔ engine relationship.
-</content>
-</invoke>

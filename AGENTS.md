@@ -80,9 +80,13 @@ reads it directly with **no id-map** — a fresh clone works.
 6. **Metric kernel lockstep (D43/D39).** `Archbuddy::Report::METRIC_KEYS_FOR_DISPLAY` (a named constant) is
    asserted by `spec/report/metric_kernel_consistency_spec.rb` to equal the engine's
    `ArchitectureAuditor::Analyze::METRIC_KEYS` (exactly 8 keys, same order). Keep them in lockstep.
-7. **The resolver never fabricates edges (D24).** Operators dropped, metaprogramming flagged-no-edge,
-   AR vocab → `db_op` via **class context** (incl. the implicit-self `where`-in-`def self.x` gotcha),
-   Controller convention → `endpoint`, everything unresolved → a **single shared `external` sink**.
+7. **The resolver never fabricates edges (D24).** Operators dropped, metaprogramming flagged-no-edge
+   (v0.10: R1 flags only **dynamic-arg** meta — a literal `send(:m)`/`try(:m)` resolves via the
+   `MetaSendProbe`, gated on `table.method?`), AR vocab → `db_op` via **class context** (incl. the
+   implicit-self `where`-in-`def self.x` gotcha), Controller convention → `endpoint`, everything
+   unresolved → the **generic shared `external` sink** — except a provably out-of-tree literal-const
+   receiver, which the `EgressProbe` routes to a **category-bearing sink** `<external:http|gem|queue>`
+   (still `kind:"external"`; the category also rides `terminal_kind`). Never a guessed edge.
 8. **Empty-entrypoints warning (M3).** The default entrypoint strategy can find none in a non-Rails gem;
    `collect` then **WARNS on stderr** (never in graph content) and suggests `--entrypoints all_public`.
    It does NOT auto-switch strategies.
@@ -134,11 +138,15 @@ For rationale/decision history (D1–D48, M1–M3) see [`docs/IMPLEMENTATION_PLA
 | **Trust boundary** | The `Anonymizer` — the ONE place that mints opaque ids and splits data into the opaque graph vs the secret id-map. |
 | **opaque id** | `n_` (function/endpoint/db_op node), `ext_` (external sink), `cls_` (class rollup, id-map only). |
 | **db_op** | A synthesized node for an ActiveRecord query/persistence call, classified by class context. |
-| **external sink** | A single shared `ext_` node every unresolved call points to (D24). |
+| **external sink** | The shared generic `<external>` `ext_` node every unresolved/uncategorized call points to (D24). v0.10 adds up to three **category-bearing** siblings `<external:http\|gem\|queue>` (still `kind:"external"`), minted only when the `EgressProbe` proves the category. |
 | **class rollup** | A `cls_` aggregate over a class's member nodes (D9); de-anonymized + summed by the Ranker. |
 | **clutter_score** | The engine's per-node score; the reporter ranks by it and shows it **verbatim** (D17). |
 | **findings** | The engine's output (`findings.yml`): per-node metrics/scores + 7 finding types (D38). |
 | **entrypoint** | A method the engine treats as a reachability root (controller actions, top-level defs, …). |
+| **root seeder** (v0.10) | Ingress mirror of a probe: tags an already-existing method as an execution root with a category (`:jobs`/`:middleware`/`:script`; `:rake` is minted in Pass 1; `:cron` is LINK-only, default OFF). NO nodes, NO edges; `table.method?`-gated (never fabricates). Selected via `--root-types`; registry order = category precedence (first write wins). |
+| **entrypoint_kind** (v0.10) | The ingress category stamped per entrypoint (`grape\|routed\|controllers\|jobs\|rake\|middleware\|script\|top_level\|pattern`, one per fq). Rides the id-map + committed fragments always; rides `graph.yml` only when the installed engine schema accepts it (acceptance-gate probe in the Anonymizer). |
+| **terminal_kind** (v0.10) | The egress category (`http\|gem\|queue`) stamped on category-bearing external sinks — the sink-side twin of `entrypoint_kind`, same acceptance gate. |
+| **coverage tuple** (v0.10) | The committed `dynamic_dispatch` block: `{dynamic_sites, resolved_sites, total_call_sites, coverage_ratio = 1 − dynamic/total}` — the visible share of dispatch; null ratio on a zero denominator. |
 
 ## Task workflow (every task ends with this)
 
@@ -148,6 +156,8 @@ A task is complete only when implementation + tests pass **AND** docs are update
 □ Added/changed an Adapter or Raw* shape         → ARCHITECTURE.md (Collector section)
 □ Changed the Anonymizer / graph / id-map shape  → ARCHITECTURE.md + CONTRACT.md (emitted shapes)
 □ Changed the resolver tiers / vocab             → .claude/docs/resolver.md (tier table)
+□ Added/changed a probe or root seeder           → ARCHITECTURE.md (probe/seeder registries) + .claude/docs/resolver.md (R5) + README (probe/root-type tables)
+□ Changed the committed counter blocks (entrypoints/egress/dynamic_dispatch) or SERIALIZER_VERSION → ARCHITECTURE.md (Cache Writer) + README (banner docs)
 □ Added a new language adapter                   → ARCHITECTURE.md + .claude/docs/adapter-extension.md + Registry note
 □ Changed what `report` consumes (findings shape)→ CONTRACT.md (consumed shape) — coordinate with the engine repo
 □ Added/changed a Formatter                      → ARCHITECTURE.md (Reporter section, formats table)
@@ -173,6 +183,8 @@ bundle exec rspec                                     # full suite
 bundle exec exe/archbuddy collect .                   # --out-dir defaults to .archbuddy/
   # [--out-dir DIR] [--language ruby]
   # [--entrypoints default|controllers|all_public|none] [--entrypoint-pattern REGEX ...]
+  # [--probes all|none|grape,sidekiq_dispatch,meta_send,egress]
+  # [--root-types all|none|jobs,rake,middleware,script,cron]   (cron: default OFF, LINK-only)
 
 # Reporter: de-anonymize + rank the engine's findings → clutter report
 bundle exec exe/archbuddy report                      # FINDINGS/--id-map/--graph default to .archbuddy/
