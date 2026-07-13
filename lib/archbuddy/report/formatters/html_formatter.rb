@@ -181,7 +181,10 @@ module Archbuddy
         # v0.10 (W4/A1): ingress counter banner mirroring connectivity_banner_html
         # — the committed `entrypoints` block (SERIALIZER v2). VERBATIM counts
         # (D17); mean/median suffix only when the ENGINE published cost (A2);
-        # "" when the block is absent (v1 aggregate — back-compat).
+        # "" when the block is absent (v1 aggregate — back-compat). W6 adds a
+        # per-category cost div (engine findings-1.5 lens) — appended ONLY
+        # when the engine published it, so pre-W6 docs render byte-identical
+        # (the M9 header-shape gate holds).
         def entrypoints_banner_html
           ep = context.entrypoints
           return "" if ep.nil?
@@ -190,7 +193,11 @@ module Archbuddy
           unless ep.mean.nil? && ep.median.nil?
             text += " — mean #{ep.mean_display}, median #{ep.median_display}"
           end
-          %(<div class="entrypoints">#{escape(text)}</div>)
+          html = %(<div class="entrypoints">#{escape(text)}</div>)
+          if (cost = ep.by_category_cost_display)
+            html += "\n" + %(<div class="entrypoints-cost">#{escape("Entrypoint cost by category: #{cost}")}</div>)
+          end
+          html
         end
 
         # v0.10 (W4/C): egress counter banner — exit counts by category

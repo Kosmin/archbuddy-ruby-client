@@ -540,6 +540,29 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
                               "8/10 resolved, 2 dynamic (coverage 80.0%)</div>")
     end
 
+    # v0.10 W6: the per-category cost div — appended ONLY when the engine
+    # published the findings-1.5 lens (absent → byte-identical to pre-W6).
+    it "renders the entrypoints-cost div when by_category_cost is present (W6)" do
+      ep = scores_mod::EntrypointCount.new(
+        total: 4, count: 4, by_category: { "controllers" => 3, "jobs" => 1 },
+        mean: 27.14, median: 12.0,
+        by_category_cost: {
+          "controllers" => { "mean" => 30.0, "median" => 14.0, "grade" => "C" }
+        }
+      )
+      html = render(findings: v13_yml, entrypoints: ep)
+
+      expect(html).to include(
+        '<div class="entrypoints-cost">Entrypoint cost by category: ' \
+        "controllers mean 30.0 / median 14.0 (C)</div>"
+      )
+    end
+
+    it "emits NO entrypoints-cost div when the lens is absent (pre-W6 docs byte-identical)" do
+      html = render(findings: v13_yml, entrypoints: entrypoints)
+      expect(html).not_to include('class="entrypoints-cost"')
+    end
+
     it "renders the banners on a COLLECT-ONLY aggregate (no scores — relaxed gate, empty cards)" do
       html = render(findings: v10_yml, entrypoints: entrypoints, egress: egress)
 

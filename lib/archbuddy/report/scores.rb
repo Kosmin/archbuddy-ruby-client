@@ -171,11 +171,13 @@ module Archbuddy
       end
 
       # v0.10 (A1): the committed `entrypoints` aggregate block — ingress
-      # COUNTS by category. `mean`/`median` are engine-published per-category
-      # cost (A2) copied VERBATIM at analyze time; nil on a collect-only cache
-      # (never computed client-side — D17). Written by Cache::Writer in W3.
+      # COUNTS by category. `mean`/`median` are the engine-published headline
+      # per-entrypoint cost and `by_category_cost` the engine's per-category
+      # lens ({cat => {mean, median, grade}}), all copied VERBATIM at analyze
+      # time (W6); nil/{} on a collect-only cache (never computed client-side
+      # — D17). Written by Cache::Writer in W3 (cost wired in W6).
       EntrypointCount = Struct.new(
-        :total, :count, :by_category, :mean, :median,
+        :total, :count, :by_category, :mean, :median, :by_category_cost,
         keyword_init: true
       ) do
         include ByCategoryDisplay
@@ -186,6 +188,23 @@ module Archbuddy
 
         def median_display
           cost_display(median)
+        end
+
+        # v0.10 W6: per-category cost line — e.g. "controllers mean 3.0 /
+        # median 3.0 (B), uncategorized mean 1.0 / median 1.0 (A)". nil when
+        # the engine has not published the per-category lens (collect-only
+        # cache / pre-1.5 findings) so callers can omit the line entirely —
+        # an honest absence, never noise beside real counts.
+        def by_category_cost_display
+          present = (by_category_cost || {}).reject do |_cat, dim|
+            dim.nil? || (dim["mean"].nil? && dim["median"].nil?)
+          end
+          return nil if present.empty?
+
+          present.map do |cat, dim|
+            grade = dim["grade"] ? " (#{dim['grade']})" : ""
+            "#{cat} mean #{cost_display(dim['mean'])} / median #{cost_display(dim['median'])}#{grade}"
+          end.join(", ")
         end
 
         private
@@ -260,11 +279,14 @@ module Archbuddy
         return nil if block.nil? || block.empty?
 
         EntrypointCount.new(
-          total:       block["total"],
-          count:       block["count"],
-          by_category: block["by_category"],
-          mean:        block["mean"],
-          median:      block["median"]
+          total:            block["total"],
+          count:            block["count"],
+          by_category:      block["by_category"],
+          mean:             block["mean"],
+          median:           block["median"],
+          # v0.10 W6: engine per-category cost lens (nil/{} on pre-W6 docs —
+          # graceful back-compat, the display helper treats both as absent)
+          by_category_cost: block["by_category_cost"]
         )
       end
 

@@ -178,7 +178,78 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
         expect(agg["scores"]).to have_key("forward_discoverability")
         expect(agg["egress"]).to eq(collect_time["egress"])                       # not zero-clobbered
         expect(agg["dynamic_dispatch"]).to eq(collect_time["dynamic_dispatch"])   # carried forward
-        expect(agg["entrypoints"]).to eq(collect_time["entrypoints"])             # pure graph fold
+        # counts stay the pure graph fold (W6 re-baseline: engine cost now
+        # rides in from findings on the analyze path — W6 examples below)
+        expect(agg["entrypoints"]["by_category"]).to eq(collect_time["entrypoints"]["by_category"])
+        expect(agg["entrypoints"]["total"]).to eq(collect_time["entrypoints"]["total"])
+        # the fixture findings carry a forward score → mean copied VERBATIM;
+        # no `median` key (pre-1.5 shape) → honest null (nil-tolerant)
+        expect(agg["entrypoints"]["mean"]).to eq(82.0)
+        expect(agg["entrypoints"]["median"]).to be_nil
+      end
+    end
+
+    # v0.10 W6: engine findings 1.5 publishes the per-entrypoint cost
+    # surfaces; the writer copies them VERBATIM into the committed
+    # `entrypoints` block (D17 — never computed client-side).
+    describe "W6 engine-cost verbatim read" do
+      let(:findings_15) do
+        {
+          "scores" => {
+            "forward_discoverability" => {
+              "grade" => "B", "score" => 82.5, "median" => 41.0,
+              "hotspots" => [], "raw_value" => 82.5, "overflow" => false
+            },
+            "forward_discoverability_by_category" => {
+              "controllers"   => { "score" => 82.5, "grade" => "B", "median" => 41.0,
+                                   "hotspots" => %w[n_aaaaaaaaaaaa] },
+              "uncategorized" => { "score" => 3.0, "grade" => "A", "median" => 3.0,
+                                   "hotspots" => [] }
+            }
+          }
+        }
+      end
+
+      it "copies mean/median + by_category_cost VERBATIM from 1.5 findings (hotspots dropped)" do
+        Dir.mktmpdir do |dir|
+          anon, = collect
+          Archbuddy::Cache::Writer.new(project_root: dir)
+                                  .write(graph: anon.graph, id_map: anon.id_map, findings: findings_15)
+
+          ep = read_aggregate(dir)["entrypoints"]
+          expect(ep["mean"]).to eq(82.5)     # headline dimension `score` (the mean)
+          expect(ep["median"]).to eq(41.0)   # its 1.5 `median` sibling (L7)
+          expect(ep["by_category_cost"]).to eq(
+            "controllers"   => { "mean" => 82.5, "median" => 41.0, "grade" => "B" },
+            "uncategorized" => { "mean" => 3.0, "median" => 3.0, "grade" => "A" }
+          )
+        end
+      end
+
+      it "stays nil-tolerant on pre-1.5 findings (no cost surfaces → null/{}, never fabricated)" do
+        Dir.mktmpdir do |dir|
+          anon, = collect
+          pre15 = { "scores" => { "reverse_traceability" => { "grade" => "C", "score" => 61.0 } } }
+          Archbuddy::Cache::Writer.new(project_root: dir)
+                                  .write(graph: anon.graph, id_map: anon.id_map, findings: pre15)
+
+          ep = read_aggregate(dir)["entrypoints"]
+          expect(ep["mean"]).to be_nil
+          expect(ep["median"]).to be_nil
+          expect(ep["by_category_cost"]).to eq({})
+        end
+      end
+
+      it "collect path (no findings) keeps cost null/{} — counts only" do
+        Dir.mktmpdir do |dir|
+          anon, diagnostics = collect
+          write_collect(dir, anon, diagnostics)
+
+          ep = read_aggregate(dir)["entrypoints"]
+          expect(ep["mean"]).to be_nil
+          expect(ep["median"]).to be_nil
+          expect(ep["by_category_cost"]).to eq({})
+        end
       end
     end
 

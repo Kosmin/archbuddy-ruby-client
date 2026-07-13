@@ -85,10 +85,13 @@ module Archbuddy
 
         # v0.10 (W4/A1): ingress counter banner — the committed `entrypoints`
         # block (SERIALIZER v2), counts by category (L7). mean/median are the
-        # ENGINE-published per-category cost copied verbatim at analyze time
-        # (A2); on a collect-only cache both are nil and the suffix is DROPPED
-        # entirely (an honest absence — never "mean —, median —" noise).
-        # [] when the block is absent (v1 aggregate) — nothing rendered.
+        # ENGINE-published headline per-entrypoint cost copied verbatim at
+        # analyze time (A2/W6); on a collect-only cache both are nil and the
+        # suffix is DROPPED entirely (an honest absence — never
+        # "mean —, median —" noise). W6 adds the per-category cost line
+        # (engine findings-1.5 lens) — likewise omitted entirely when the
+        # engine has not published it. [] when the block is absent (v1
+        # aggregate) — nothing rendered.
         def entrypoint_lines
           ep = context.entrypoints
           return [] if ep.nil?
@@ -97,7 +100,13 @@ module Archbuddy
           unless ep.mean.nil? && ep.median.nil?
             banner += " — mean #{ep.mean_display}, median #{ep.median_display}"
           end
-          ["  #{banner}", ""]
+
+          lines = ["  #{banner}"]
+          if (cost = ep.by_category_cost_display)
+            lines << "  Entrypoint cost by category: #{cost}"
+          end
+          lines << ""
+          lines
         end
 
         # v0.10 (W4/C): egress counter banner — the committed `egress` block,

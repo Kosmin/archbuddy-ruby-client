@@ -31,9 +31,12 @@ module Archbuddy
     # committed counter blocks — ALWAYS present, honest-zero / null, never
     # fabricated (I2):
     #   entrypoints      — ingress counts {total, count, by_category, mean,
-    #                      median}; by_category seeds the closed category set to
-    #                      0; mean/median are ENGINE-published per-category cost
-    #                      copied verbatim at analyze (A2) — null until then.
+    #                      median, by_category_cost}; by_category seeds the
+    #                      closed category set to 0; mean/median are the
+    #                      ENGINE-published headline per-entrypoint cost and
+    #                      by_category_cost the engine's per-category lens
+    #                      ({cat => {mean, median, grade}}), both copied
+    #                      verbatim at analyze (A2/W6) — null/{} until then.
     #   egress           — exit counts {total, count, by_category} over
     #                      {http, gem, queue, generic} (generic = untagged).
     #   dynamic_dispatch — {dynamic_sites, resolved_sites, total_call_sites,
@@ -243,7 +246,7 @@ module Archbuddy
         # the previously committed blocks forward VERBATIM. No block is ever
         # OMITTED — an explicit honest zero is distinct from absence (I2).
         prior = diagnostics.nil? ? read_prior_aggregate(rel) : nil
-        doc["entrypoints"]      = entrypoint_counts(graph, resolver)
+        doc["entrypoints"]      = entrypoint_counts(graph, resolver, findings)
         doc["egress"]           = egress_block(diagnostics, graph, prior)
         doc["dynamic_dispatch"] = dynamic_dispatch_block(diagnostics, prior)
 
@@ -305,12 +308,26 @@ module Archbuddy
       # untagged `<external>` bucket (nil-category tally), never `unknown`.
       EGRESS_CATEGORIES = %w[http gem queue generic].freeze
 
-      # A1 ingress COUNTS: fold the graph `entrypoints:` id list through the
-      # id-map descriptor's `entrypoint_kind` (the W1-A1 categorized stamp).
-      # COUNTS only — `mean`/`median` are engine-published per-category COST
-      # (A2, findings 1.5); until the engine publishes them they are an honest
-      # null, NEVER computed client-side (D17).
-      def entrypoint_counts(graph, resolver)
+      # A1 ingress COUNTS + engine-published COST: fold the graph
+      # `entrypoints:` id list through the id-map descriptor's
+      # `entrypoint_kind` (the W1-A1 categorized stamp). Counts are
+      # client-computed; COST is copied VERBATIM (D17) from the engine
+      # findings when present (v0.10 W6 — the read lit up once engine
+      # findings 1.5 published the cost surfaces):
+      #   mean/median        — the headline per-entrypoint forward dimension
+      #                        (`scores.forward_discoverability`): mean is the
+      #                        dimension `score` (the arithmetic mean over
+      #                        entrypoints), median its 1.5 `median` sibling
+      #                        (L7 — the median beside the outlier-dominated
+      #                        mean). Honest null on a collect-only write and
+      #                        on pre-1.5 findings (no `median` key → null).
+      #   by_category_cost   — `scores.forward_discoverability_by_category`
+      #                        ({category => dimension_score}) compacted to
+      #                        {category => {mean, median, grade}} (hotspots
+      #                        dropped — opaque, exactly like headline_scores).
+      #                        {} when the engine has not published the lens.
+      # The client NEVER computes cost (D17) — absent source → null/{}.
+      def entrypoint_counts(graph, resolver, findings)
         by_category = ENTRYPOINT_CATEGORIES.to_h { |cat| [cat, 0] }
         ids = graph["entrypoints"] || []
 
@@ -320,13 +337,37 @@ module Archbuddy
           by_category[cat] = by_category.fetch(cat, 0) + 1
         end
 
+        scores  = (findings || {})["scores"] || {}
+        forward = scores["forward_discoverability"] || {}
+
         {
-          "total"       => ids.length,
-          "count"       => ids.length,
-          "by_category" => by_category,
-          "mean"        => nil,
-          "median"      => nil
+          "total"            => ids.length,
+          "count"            => ids.length,
+          "by_category"      => by_category,
+          "mean"             => forward["score"],
+          "median"           => forward["median"],
+          "by_category_cost" => entrypoint_cost_by_category(scores)
         }
+      end
+
+      # v0.10 W6: the per-category ingress cost map, copied VERBATIM from the
+      # engine's findings-1.5 `forward_discoverability_by_category` lens.
+      # Category keys are the engine's grouping of the client-stamped
+      # `entrypoint_kind` (nil-stamp entrypoints bucket under the ENGINE's
+      # "uncategorized" key — distinct from the client count bucket "unknown";
+      # copied verbatim, never remapped). {} on pre-1.5 findings or a
+      # collect-only write — an honest empty, never fabricated (I2).
+      def entrypoint_cost_by_category(scores)
+        lens = scores["forward_discoverability_by_category"]
+        return {} unless lens.is_a?(Hash)
+
+        lens.to_h do |category, dim|
+          [category, {
+            "mean"   => dim["score"],
+            "median" => dim["median"],
+            "grade"  => dim["grade"]
+          }]
+        end
       end
 
       # C egress COUNTS: the single read path is `diagnostics[:egress_counts]`

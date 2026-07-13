@@ -219,6 +219,33 @@ RSpec.describe "Reporter end-to-end (R-1..R-7)" do
       expect(out).to include("Entrypoints: 4 total (controllers 4) — mean 27.1, median 12.0")
     end
 
+    # v0.10 W6: the per-category cost line — rendered ONLY when the engine
+    # published the findings-1.5 per-category lens (nil-tolerant absence).
+    it "renders the per-category cost line when the engine published the 1.5 lens (W6)" do
+      ep = S::EntrypointCount.new(
+        total: 4, count: 4, by_category: { "controllers" => 3, "jobs" => 1 },
+        mean: 27.14, median: 12.0,
+        by_category_cost: {
+          "controllers" => { "mean" => 30.0, "median" => 14.0, "grade" => "C" },
+          "jobs"        => { "mean" => 5.0, "median" => 5.0, "grade" => "A" }
+        }
+      )
+      out = render(entrypoints: ep)
+      expect(out).to include(
+        "Entrypoint cost by category: controllers mean 30.0 / median 14.0 (C), " \
+        "jobs mean 5.0 / median 5.0 (A)"
+      )
+    end
+
+    it "omits the per-category cost line entirely when the lens is absent/empty (pre-1.5 — honest absence)" do
+      out = render(entrypoints: entrypoints) # by_category_cost nil
+      expect(out).not_to include("Entrypoint cost by category")
+
+      ep_empty = S::EntrypointCount.new(total: 4, count: 4,
+                                        by_category: { "controllers" => 4 }, by_category_cost: {})
+      expect(render(entrypoints: ep_empty)).not_to include("Entrypoint cost by category")
+    end
+
     it "renders honest degenerate values: 0 total => (none); nil ratio => coverage N/A (I2)" do
       out = render(
         entrypoints: S::EntrypointCount.new(total: 0, count: 0, by_category: {}),

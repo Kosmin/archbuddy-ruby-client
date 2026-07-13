@@ -294,7 +294,8 @@ RSpec.describe "counter structs (v0.10 W1-A1)" do
         "entrypoints" => {
           "total" => 4, "count" => 4,
           "by_category" => { "controllers" => 3, "top_level" => 1, "jobs" => 0 },
-          "mean" => nil, "median" => nil
+          "mean" => nil, "median" => nil,
+          "by_category_cost" => { "controllers" => { "mean" => 8.0, "median" => 4.0, "grade" => "A" } }
         }
       )
       expect(ep.total).to eq(4)
@@ -302,6 +303,8 @@ RSpec.describe "counter structs (v0.10 W1-A1)" do
       expect(ep.by_category).to eq("controllers" => 3, "top_level" => 1, "jobs" => 0)
       expect(ep.mean).to be_nil
       expect(ep.median).to be_nil
+      # v0.10 W6: the per-category cost lens rides through verbatim
+      expect(ep.by_category_cost).to eq("controllers" => { "mean" => 8.0, "median" => 4.0, "grade" => "A" })
     end
   end
 
@@ -331,6 +334,31 @@ RSpec.describe "counter structs (v0.10 W1-A1)" do
       ep = described_class.new(total: 1, count: 1, by_category: {}, mean: 12.34, median: 6.0)
       expect(ep.mean_display).to eq("12.3")
       expect(ep.median_display).to eq("6.0")
+    end
+
+    # v0.10 W6: the engine per-category cost lens rides the aggregate as
+    # `by_category_cost` ({cat => {mean, median, grade}}) — parsed + rendered
+    # verbatim, honest-absent (nil display) when unpublished.
+    it "by_category_cost_display renders per-category mean/median/grade (W6)" do
+      ep = described_class.new(
+        total: 4, count: 4, by_category: {},
+        by_category_cost: {
+          "controllers"   => { "mean" => 82.5, "median" => 41.0, "grade" => "B" },
+          "uncategorized" => { "mean" => 3.0, "median" => 3.0, "grade" => "A" }
+        }
+      )
+      expect(ep.by_category_cost_display).to eq(
+        "controllers mean 82.5 / median 41.0 (B), uncategorized mean 3.0 / median 3.0 (A)"
+      )
+    end
+
+    it "by_category_cost_display is nil when the lens is absent, empty, or all-null (pre-1.5 / collect-only)" do
+      expect(described_class.new(total: 1, count: 1, by_category: {}).by_category_cost_display).to be_nil
+      expect(described_class.new(total: 1, count: 1, by_category: {}, by_category_cost: {})
+               .by_category_cost_display).to be_nil
+      allnull = { "controllers" => { "mean" => nil, "median" => nil, "grade" => "N/A" } }
+      expect(described_class.new(total: 1, count: 1, by_category: {}, by_category_cost: allnull)
+               .by_category_cost_display).to be_nil
     end
   end
 
