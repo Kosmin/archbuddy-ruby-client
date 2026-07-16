@@ -47,13 +47,16 @@ nodes:                    # array; each node:
                           # (grape|routed|controllers|jobs|rake|middleware|script|top_level|pattern)
                           # on entrypoint nodes only. Emitted BEHIND THE ACCEPTANCE GATE (below).
     terminal_kind: "http" # OPTIONAL (graph 1.3, v0.10 CR-5); fixed-vocab egress category
-                          # (http|gem|queue) on category-bearing external sinks only; the generic
-                          # <external> sink and every non-sink node omit it. Same acceptance gate.
+                          # (http|gem|queue) — the CATEGORY word, never the target — on per-target
+                          # external sinks only (v0.11 E1); the generic <external> sink and every
+                          # non-sink node omit it. Same acceptance gate.
 edges:                    # array; each edge:
   - from: "n_…"
-    to: "n_…"             # unresolved calls point at the shared generic ext_ sink; v0.10: a call the
-                          # EgressProbe categorized points at its category sink (<external:http|gem|
-                          # queue> in the id-map — one extra ext_ node per PRESENT category)
+    to: "n_…"             # unresolved calls point at the shared generic ext_ sink; v0.11 E1: a call
+                          # the EgressProbe categorized points at its per-target sub-sink
+                          # (<external:{category}:{const_fq}> in the id-map — one ext_ node per
+                          # DISTINCT provable [category, target] pair; graph stays 1.3, node
+                          # multiplicity only)
     calls: 1              # integer >= 1 (duplicate (from,to) pairs collapsed)
     count: null
     self_time_ms: null
@@ -71,6 +74,19 @@ undeclared key would FAIL D37 validation, not be ignored — the gate auto-disab
 an old engine with no version sniffing. **Both fields always ride the id-map descriptor regardless**
 (the aggregate writer reads categories from there, schema-independent). Category words are fixed
 vocab, never app symbols — safe on the opaque graph (I8).
+
+### v0.11: E1 per-target egress sub-sinks — graph stays 1.3 (node multiplicity only)
+
+The collapsed per-category sinks (`<external:http|gem|queue>`, v0.10) are split into one sub-sink per
+DISTINCT provable `[category, target]` pair: symbol `<external:{category}:{const_fq}>` (const_fq
+whitespace-collapsed, leading-`::` stripped), `terminal_kind` still the CATEGORY word. No schema
+change, no new node keys — the graph gains ext_ NODES, nothing else. The SECRET boundary (L13): sink
+symbols can carry app constants (job classes in the queue/gem buckets), so they are
+id-map/committed-cache citizens, never graph.yml citizens. Effects on the committed cache: the first
+`collect` after v0.11 rewrites committed real-name fragment edges whose `to` was `<external:{cat}>`
+to `<external:{cat}:{target}>` (VALUE churn only — shape unchanged); the committed aggregate `egress`
+counts block (`{total, count, by_category{http,gem,queue,generic}}`) is byte-identical (no
+`by_target`); a no-egress repo sees a zero-line diff.
 
 ### v0.6.0: variable-receiver type inference (L1) + sink-cost revert (L3) — graph stays 1.2
 
@@ -147,14 +163,17 @@ ids:
     file: "app/models/user.rb"     # repo-relative; null for the external sinks
     line: 12                       # 1-based; null for the external sinks
     symbol: "User#save"            # fully-qualified real symbol; egress sinks are
-                                   # "<external>" / "<external:http|gem|queue>"
+                                   # "<external>" / "<external:{category}:{const_fq}>" (v0.11 E1;
+                                   # category ∈ http|gem|queue). Sink symbols — which may carry app
+                                   # constants (e.g. job classes in the queue/gem buckets) — are
+                                   # id-map/committed-cache citizens, never graph.yml citizens (L13)
     kind: "function"               # function | endpoint | db_op | external
     class_id: "cls_…"              # owning class rollup id, or null
     entrypoint_kind: null          # v0.10 (A1): ingress category string, or null for
                                    # non-entrypoints / category-unknown entrypoints.
                                    # ALWAYS present here (unlike graph.yml — no gate).
     terminal_kind: null            # v0.10 (CR-5): egress category (http|gem|queue) —
-                                   # non-null ONLY on category-bearing external sinks.
+                                   # non-null ONLY on per-target external sinks (v0.11 E1).
   "cls_…":                # one entry per class rollup (D42) — id-map ONLY
     file: "app/models/user.rb"
     line: 1
