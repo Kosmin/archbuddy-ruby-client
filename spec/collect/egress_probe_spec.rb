@@ -141,11 +141,12 @@ RSpec.describe "Egress probe (W2-C e2e)" do
   it "never fabricates a node for the classified constant (I1)" do
     in_repo(caller_with("Faraday.get(\"/x\")")) do |dir|
       result = collect(dir)
-      # No RawNode carries the real out-of-tree symbol — only the fixed-vocab
-      # category sink exists (SECRET-safe, I8).
+      # No RawNode carries the BARE real out-of-tree symbol — only the
+      # bracketed synthetic per-target sink exists (real-space; SECRET-safe:
+      # the anonymizer keeps it off graph.yml, I8/L13).
       expect(result.nodes.map(&:symbol)).not_to include("Faraday")
       expect(result.nodes.map(&:symbol)).not_to include("Faraday.get")
-      expect(result.nodes.map(&:symbol)).to include("<external:http>")
+      expect(result.nodes.map(&:symbol)).to include("<external:http:Faraday>")
     end
   end
 

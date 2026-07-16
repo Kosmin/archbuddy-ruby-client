@@ -93,7 +93,7 @@ RSpec.describe "Sidekiq/ActiveJob dispatch probe (W3 e2e)" do
     end
   end
 
-  it "declines when the dispatched const has no #perform node (v0.10 W2-C: -> <external:queue>)" do
+  it "declines when the dispatched const has no #perform node (v0.11 E1: -> per-target queue sink)" do
     source = <<~RUBY
       class Caller
         def go
@@ -105,12 +105,13 @@ RSpec.describe "Sidekiq/ActiveJob dispatch probe (W3 e2e)" do
       result = anonymize(dir)
       # No fabricated #perform node (the dispatch decline is unchanged).
       expect(result.id_map["ids"].any? { |_i, d| d["symbol"] == "NoPerformJob#perform" }).to be(false)
-      # v0.10 W2-C re-baseline: the declined enqueue shape is exactly the
-      # EgressProbe's :queue evidence, so the call now routes to the
-      # category-bearing `<external:queue>` sink (still kind:"external").
+      # v0.11 E1 re-baseline (L13, approved user-gate: app job-class names may
+      # ride queue sink symbols in the id-map): the declined enqueue shape is
+      # the EgressProbe's :queue evidence, so the call routes to the
+      # per-target `<external:queue:NoPerformJob>` sink (still kind:"external").
       id_for = ->(sym) { result.id_map["ids"].find { |_i, d| d["symbol"] == sym }&.first }
       go_id    = id_for.call("Caller#go")
-      queue_id = id_for.call("<external:queue>")
+      queue_id = id_for.call("<external:queue:NoPerformJob>")
       expect(queue_id).not_to be_nil
       ext_edge = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == queue_id }
       expect(ext_edge).not_to be_nil

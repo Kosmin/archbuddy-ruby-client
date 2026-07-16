@@ -34,18 +34,6 @@ module Archbuddy
         # egress exists); every unresolved/uncategorized call points here.
         EXTERNAL_SINK_SYMBOL = "<external>"
 
-        # v0.10 W2-C (L18): category-bearing external sink symbols, one per
-        # egress category the EgressProbe can prove. Each is still
-        # kind:"external" (closed 4-kind vocab untouched, I6); the category
-        # ALSO rides RawNode#terminal_kind (CR-5) so the engine can group
-        # egress cost without parsing symbols. Fixed iteration order keeps
-        # node emission deterministic.
-        CATEGORY_SINK_SYMBOLS = {
-          http:  "<external:http>",
-          gem:   "<external:gem>",
-          queue: "<external:queue>"
-        }.freeze
-
         # v0.8 (C1-1/C2): the whole-project capture is a two-phase pipeline —
         # a PER-FILE fragment builder (`collect_file_fragment`, the only per-file
         # step, cacheable) + a GLOBAL `assemble` over all fragments (SymbolTable
@@ -284,15 +272,21 @@ module Archbuddy
           end
         end
 
-        # v0.10 W2-C (L18/CR-5): mint the GENERIC `<external>` sink always
-        # (back-compat — a repo with no categorized egress keeps exactly one
-        # external node, byte-identical to the pre-C behavior) plus ONE
-        # category-bearing sink per category that ACTUALLY appears in the
-        # recorded external edges (never an empty-category sink). Category
-        # sinks are stamped with terminal_kind (the sink-side twin of
-        # entrypoint_kind); the generic sink carries NONE (absent →
-        # uncategorized). All sinks stay kind:"external" (I6).
-        # Returns { nil => generic_real_key, http:/gem:/queue: => real_key }.
+        # v0.11 E1 (L13): mint the GENERIC `<external>` sink always
+        # (back-compat — a repo with no provable egress targets keeps exactly
+        # one external node, byte-identical to the pre-E1 behavior) plus ONE
+        # per-target sub-sink per DISTINCT [category, target] pair that
+        # ACTUALLY appears in the recorded external edges (never fabricated —
+        # a target exists only on literal-constant evidence, by probe
+        # construction). Sink symbol: `<external:{category}:{const_fq}>`.
+        # `terminal_kind` stays the CATEGORY word (never the target) — the
+        # graph-side value keeps today's fixed vocab (the engine groups egress
+        # cost by it); the target lives ONLY in the real-space symbol (id-map /
+        # committed real-name cache, L13 SECRET — never graph.yml). Mint order
+        # is the sorted `[category.to_s, target]` order: deterministic, a pure
+        # function of the pair set, never discovery order. All sinks stay
+        # kind:"external" (I6).
+        # Returns { nil => generic_real_key, [category, target] => real_key }.
         def add_external_sinks(nodes, acc)
           keys    = {}
           generic = Raw::RawNode.new(
@@ -301,28 +295,35 @@ module Archbuddy
           nodes << generic
           keys[nil] = generic.real_key
 
-          present = acc.calls.filter_map do |call|
-            call[:to][:category] if call[:to][:type] == :external
-          end.uniq
+          pairs = acc.calls.filter_map do |call|
+            to = call[:to]
+            next unless to[:type] == :external && to[:category] && to[:target]
 
-          CATEGORY_SINK_SYMBOLS.each do |category, symbol|
-            next unless present.include?(category)
+            [to[:category], to[:target]]
+          end.uniq.sort_by { |category, target| [category.to_s, target] }
 
+          pairs.each do |category, target|
             node = Raw::RawNode.new(
-              rel_file: nil, line: nil, symbol: symbol, kind: "external",
-              terminal_kind: category.to_s
+              rel_file: nil, line: nil, symbol: external_sink_symbol(category, target),
+              kind: "external", terminal_kind: category.to_s
             )
             nodes << node
-            keys[category] = node.real_key
+            keys[[category, target]] = node.real_key
           end
 
           keys
         end
 
+        # I3 canonical sink-symbol spelling (L13): `<external:{category}:{const_fq}>`.
+        def external_sink_symbol(category, target)
+          "<external:#{category}:#{target}>"
+        end
+
         # Collapse duplicate (from,to) call pairs into one edge with calls >= 1.
-        # `external_keys` (v0.10 W2-C): the category→real_key sink map from
-        # add_external_sinks; an external edge routes to its category's sink,
-        # falling back to the generic sink for a nil/unminted category.
+        # `external_keys` (v0.11 E1): the [category, target]→real_key sink map
+        # from add_external_sinks; an external edge routes to its pair's sink,
+        # falling back to the generic sink for a nil/unminted pair (variable
+        # receivers, base-tier R9 fallthrough).
         def build_edges(acc, key_for_fq, external_keys)
           counts = Hash.new(0)
 
@@ -334,7 +335,7 @@ module Archbuddy
               case call[:to][:type]
               when :method   then key_for_fq[call[:to][:fq]]
               when :db_op    then key_for_fq[call[:to][:fq]]
-              when :external then external_keys[call[:to][:category]] || external_keys[nil]
+              when :external then external_keys[[call[:to][:category], call[:to][:target]]] || external_keys[nil]
               end
             next if to_key.nil?
 

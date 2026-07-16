@@ -141,22 +141,22 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
 
   # --- single shared external sink --------------------------------------------
 
-  it "routes an unresolved call to a shared external sink (v0.10 W2-C re-baseline: categorized)" do
-    # v0.10 W2-C re-baseline (planned, VALIDATION CAVEAT): the fixture's
-    # `ExternalTaxApi.compute` is a literal OUT-OF-TREE constant, so the
-    # EgressProbe now classifies it :gem and it routes to the category-bearing
-    # `<external:gem>` sink. The generic `<external>` sink is still always
-    # minted (back-compat decline bucket). Both stay kind:"external" (I6).
+  it "routes an unresolved call to a shared external sink (v0.11 E1 re-baseline: per-target)" do
+    # v0.11 E1 re-baseline (L13): the fixture's `ExternalTaxApi.compute` is a
+    # literal OUT-OF-TREE constant, so the EgressProbe classifies it :gem and
+    # it routes to the per-target `<external:gem:ExternalTaxApi>` sub-sink.
+    # The generic `<external>` sink is still always minted (back-compat
+    # decline bucket). Both stay kind:"external" (I6).
     external_nodes = graph["nodes"].select { |n| n["kind"] == "external" }
     expect(external_nodes.length).to eq(2)
     external_nodes.each { |n| expect(n["id"]).to start_with("ext_") }
 
     symbols = external_nodes.map { |n| id_map["ids"].fetch(n["id"])["symbol"] }
-    expect(symbols).to contain_exactly("<external>", "<external:gem>")
+    expect(symbols).to contain_exactly("<external>", "<external:gem:ExternalTaxApi>")
 
-    # tax -> <external:gem> sink edge exists (routed by category).
+    # tax -> <external:gem:ExternalTaxApi> sink edge exists (routed per pair).
     tax_id, = id_map_entry_for_symbol("Billing::Invoice#tax")
-    gem_id, = id_map_entry_for_symbol("<external:gem>")
+    gem_id, = id_map_entry_for_symbol("<external:gem:ExternalTaxApi>")
     edge    = graph["edges"].find { |e| e["from"] == tax_id && e["to"] == gem_id }
     expect(edge).not_to be_nil
     expect(edge["calls"]).to be >= 1
