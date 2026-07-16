@@ -149,6 +149,79 @@ RSpec.describe "Egress probe (W2-C e2e)" do
     end
   end
 
+  # --- target carry (E1, v0.11) ----------------------------------------------
+  # The probe carries the literal constant FQ on Resolution#target_fq (the
+  # existing member, db_op precedent) — normalized for SINK identity only
+  # (whitespace collapsed + leading-:: stripped, C5); `classify` still sees
+  # the raw slice, so the category baselines above are provably unchanged.
+
+  describe "target carry (E1)" do
+    def probe_resolution(expr)
+      node = Prism.parse(expr).value.statements.body.first
+      ctx = Archbuddy::Collect::Adapters::Ruby::RubyResolver::CallContext.new(
+        name: node.name, receiver: node.receiver, enclosing_class: nil,
+        table: Archbuddy::Collect::Adapters::Ruby::SymbolTable.new,
+        node: node, type_scope: nil
+      )
+      Archbuddy::Collect::Adapters::Ruby::Probes::EgressProbe.new.resolve(ctx)
+    end
+
+    it "carries the literal constant on target_fq (Faraday.get -> :http)" do
+      resolution = probe_resolution('Faraday.get("/x")')
+      expect(resolution.egress_category).to eq(:http)
+      expect(resolution.target_fq).to eq("Faraday")
+    end
+
+    it "normalizes the cbase prefix at MINT time while classify sees the raw slice (::Faraday)" do
+      # `::Faraday` is NOT in EGRESS_HTTP_CONSTANTS (exact-string match), so
+      # the raw slice classifies :gem — pinning that classification is NOT
+      # normalized (the byte-identical egress_counts promise) — while the
+      # SINK identity drops the `::`.
+      resolution = probe_resolution('::Faraday.get("/x")')
+      expect(resolution.egress_category).to eq(:gem)
+      expect(resolution.target_fq).to eq("Faraday")
+    end
+
+    it "preserves the FULL constant path (Aws::S3::Client.new -> per-FULL-constant, not per-root)" do
+      resolution = probe_resolution("Aws::S3::Client.new")
+      expect(resolution.egress_category).to eq(:http)
+      expect(resolution.target_fq).to eq("Aws::S3::Client")
+    end
+
+    it "collapses whitespace inside a constant-path slice (C5: multi-line path == Foo::Bar)" do
+      # `SomeGem::\n  Client` is cosmetic Ruby syntax for the same constant —
+      # the raw Prism slice embeds the newline/indent; sink identity must not.
+      resolution = probe_resolution("SomeGem::\n  Client.foo")
+      expect(resolution.egress_category).to eq(:gem)
+      expect(resolution.target_fq).to eq("SomeGem::Client")
+    end
+
+    it "records {type:, category:, target:} on the Accumulator external call record" do
+      acc = Archbuddy::Collect::Adapters::Ruby::Accumulator.new
+      acc.add_external_edge("Caller#go", category: :gem, target: "X")
+      expect(acc.calls).to eq(
+        [{ from_fq: "Caller#go", to: { type: :external, category: :gem, target: "X" } }]
+      )
+    end
+
+    it "keeps egress_counts byte-identical across the carry (mixed fixture)" do
+      source = <<~RUBY
+        class Caller
+          def go
+            Faraday.get("/x")
+            SomeGem::Client.foo
+            OutOfTreeWorker.perform_async(1)
+            mystery.call_it
+          end
+        end
+      RUBY
+      in_repo(source) do |dir|
+        counts = collect(dir).diagnostics[:egress_counts]
+        expect(counts.slice(:http, :gem, :queue)).to eq({ http: 1, gem: 1, queue: 1 })
+      end
+    end
+  end
+
   it "tallies mixed categories per call site" do
     source = <<~RUBY
       class Caller

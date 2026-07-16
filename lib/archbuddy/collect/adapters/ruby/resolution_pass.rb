@@ -20,8 +20,10 @@ module Archbuddy
         # turns them into Raw* value objects, and only the Anonymizer mints ids.
         class Accumulator
           # db_op / external targets discovered, keyed by their real symbol.
-          #   db_ops:   { "Invoice.where" => {class_fq:} }
-          #   externals flagged via the single sink (no per-target node).
+          #   db_ops:    { "Invoice.where" => {class_fq:} }
+          #   externals: call records carry {category:, target:} (v0.11 E1);
+          #              the adapter mints one sink per distinct pair, plus
+          #              the generic <external> for target-less records.
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges,
                       :total_call_sites, :meta_resolved, :egress_counts
 
@@ -73,11 +75,14 @@ module Archbuddy
           end
 
           # `category` (v0.10 W2-C, optional): the EgressProbe's egress
-          # category (:http/:gem/:queue) or nil for the generic bucket. Rides
-          # the call record so the adapter can route the edge to the matching
-          # category-bearing external sink.
-          def add_external_edge(from_fq, category: nil)
-            @calls << { from_fq: from_fq, to: { type: :external, category: category } }
+          # category (:http/:gem/:queue) or nil for the generic bucket.
+          # `target` (v0.11 E1, optional): the probe's normalized literal
+          # constant FQ, or nil (base-tier R9 fallthrough). Both ride the call
+          # record so the adapter can route the edge to the matching
+          # per-target external sink: { type: :external, category: Symbol|nil,
+          # target: String|nil }.
+          def add_external_edge(from_fq, category: nil, target: nil)
+            @calls << { from_fq: from_fq, to: { type: :external, category: category, target: target } }
           end
 
           def flag_metaprogramming(from_fq, name, line)
@@ -395,7 +400,9 @@ module Archbuddy
               else
                 # v0.10 W2-C: carry the EgressProbe's category (nil for the
                 # generic R9 fallthrough) and tally it (nil → :generic, CR-3).
-                @acc.add_external_edge(from_fq, category: resolution.egress_category)
+                # v0.11 E1: also carry the probe's normalized target constant.
+                @acc.add_external_edge(from_fq, category: resolution.egress_category,
+                                                target: resolution.target_fq)
                 @acc.tally_egress(resolution.egress_category)
               end
             end

@@ -28,6 +28,14 @@ module Archbuddy
           #   :gem   — any other literal constant ABSENT from the SymbolTable
           #            (an out-of-tree gem call, today's generic external).
           #
+          # v0.11 E1 (L13): alongside the category, the probe now CARRIES the
+          # literal constant FQ it classified on — normalized for sink identity
+          # (whitespace collapsed, leading `::` stripped) and emitted as
+          # `Resolution#target_fq` — so the adapter can mint one per-target
+          # sub-sink `<external:{category}:{const_fq}>` per distinct pair.
+          # Category ⇒ target present, by construction: `external` is reachable
+          # only after the `const_fq.nil?` early return.
+          #
           # NEVER-FABRICATE (L4/I1): the probe never mints an in-tree edge and
           # never guesses. It only ENRICHES the existing external action with a
           # category, and ONLY when the receiver is a literal Const/Const::Path
@@ -57,7 +65,7 @@ module Archbuddy
               category = classify(const_fq, ctx.name.to_s)
               return nil if category.nil?
 
-              external(category)
+              external(category, const_fq)
             end
 
             private
@@ -93,11 +101,25 @@ module Archbuddy
               end
             end
 
-            def external(category)
+            # v0.11 E1 (L13): carry the literal constant FQ on the existing
+            # Resolution#target_fq member (db_op precedent) so the adapter can
+            # mint one sink per distinct [category, target].
+            def external(category, const_fq)
               RubyResolver::Resolution.new(
-                tier: :egress, action: :external, target_fq: nil,
+                tier: :egress, action: :external, target_fq: normalize_target(const_fq),
                 kind: "external", egress_category: category
               )
+            end
+
+            # Sink-identity normalization, applied at MINT time only —
+            # `classify` still sees the raw slice, so egress_counts categories
+            # stay byte-identical (a `::Faraday` classifies :gem today and
+            # keeps classifying :gem; only the SINK identity is normalized).
+            #   - collapse whitespace: `Foo :: Bar` / multi-line constant paths
+            #     are cosmetic Ruby syntax for the same constant (C5)
+            #   - strip the leading `::` (cbase): `::Faraday` ≡ `Faraday`
+            def normalize_target(const_fq)
+              const_fq.gsub(/\s+/, "").delete_prefix("::")
             end
           end
         end
