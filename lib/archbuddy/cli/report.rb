@@ -95,7 +95,14 @@ module Archbuddy
           # doc, so the formatters render no banner (back-compat).
           entrypoints:      result.entrypoints,
           egress:           result.egress,
-          dynamic_dispatch: result.dynamic_dispatch
+          dynamic_dispatch: result.dynamic_dispatch,
+          # v0.11 (W-C): the four business-metric blocks (serializer v3 /
+          # findings 1.6) — nil on older docs, so the Business Impact section
+          # is omitted entirely (back-compat).
+          blast_radius:     result.blast_radius,
+          forward_depth:    result.forward_depth,
+          reverse_depth:    result.reverse_depth,
+          branching_factor: result.branching_factor
         )
 
         puts formatter_class.new(context).render

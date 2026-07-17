@@ -32,10 +32,20 @@ module Archbuddy
       #                       counter block; nil when absent → no banner
       # @param dynamic_dispatch [Scores::DynamicDispatch,nil] the committed v0.10
       #                       `dynamic_dispatch` coverage block; nil when absent
+      # @param blast_radius  [Scores::BlastRadius,nil] the v0.11 (serializer v3 /
+      #                       findings 1.6) blast-radius block; nil when absent
+      # @param forward_depth [Scores::DepthStats,nil] v0.11 forward-depth stats
+      #                       (flat spelling, guard R1); nil when absent
+      # @param reverse_depth [Scores::DepthStats,nil] v0.11 reverse-depth stats;
+      #                       nil when absent
+      # @param branching_factor [Scores::BranchingFactor,nil] v0.11 ungraded
+      #                       per-hop branching density (median-first); nil when
+      #                       absent — all four feed the Business Impact section
       RenderContext = Struct.new(
         :ranked, :class_rollups, :generator, :graph, :resolver, :scores, :connectivity,
         :max_nodes, :multiplexer_proxies,
         :entrypoints, :egress, :dynamic_dispatch,
+        :blast_radius, :forward_depth, :reverse_depth, :branching_factor,
         keyword_init: true
       )
 

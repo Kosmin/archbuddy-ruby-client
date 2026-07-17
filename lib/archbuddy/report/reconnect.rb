@@ -43,10 +43,16 @@ module Archbuddy
       # (Scores::EntrypointCount / Scores::Egress / Scores::DynamicDispatch) —
       # NIL on a v1 (pre-bump) aggregate or a legacy findings doc (back-compat;
       # absence, never a fabricated zero).
+      # `blast_radius` / `forward_depth` / `reverse_depth` / `branching_factor`
+      # (v0.11 W-C, serializer v3 / findings 1.6) are the four OPTIONAL
+      # business-metric blocks (Scores::BlastRadius / Scores::DepthStats x2 /
+      # Scores::BranchingFactor) — FLAT fields, same spellings as the findings
+      # keys (guard R1); NIL on v1/v2 aggregates and pre-1.6 findings.
       Result = Struct.new(
         :bottlenecks, :id_map, :findings_doc, :scores, :connectivity,
         :multiplexer_proxies, :graph, :real_name,
         :entrypoints, :egress, :dynamic_dispatch,
+        :blast_radius, :forward_depth, :reverse_depth, :branching_factor,
         keyword_init: true
       ) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
@@ -202,7 +208,13 @@ module Archbuddy
           # ROOT — peers of `scores`). NIL on a v1 aggregate (back-compat).
           entrypoints:         Scores.entrypoints_from_aggregate(doc),
           egress:              Scores.egress_from_aggregate(doc),
-          dynamic_dispatch:    Scores.dynamic_dispatch_from_aggregate(doc)
+          dynamic_dispatch:    Scores.dynamic_dispatch_from_aggregate(doc),
+          # v0.11 W-C: the four v3 business-metric blocks (doc ROOT, already
+          # real-name — no resolver). NIL on v1/v2 aggregates (back-compat).
+          blast_radius:        Scores.blast_radius_from_aggregate(doc),
+          forward_depth:       Scores.forward_depth_from_aggregate(doc),
+          reverse_depth:       Scores.reverse_depth_from_aggregate(doc),
+          branching_factor:    Scores.branching_factor_from_aggregate(doc)
         )
       end
 
@@ -275,7 +287,15 @@ module Archbuddy
           # keeps this path from raising on the new struct fields).
           entrypoints:         Scores.entrypoints_from_aggregate(@findings_doc),
           egress:              Scores.egress_from_aggregate(@findings_doc),
-          dynamic_dispatch:    Scores.dynamic_dispatch_from_aggregate(@findings_doc)
+          dynamic_dispatch:    Scores.dynamic_dispatch_from_aggregate(@findings_doc),
+          # v0.11 W-C: the four 1.6 blocks off the OPAQUE findings doc
+          # (`scores.*`, flat spellings) — blast worst ids resolved via the
+          # SAME resolver, so a findings-1.6 + id-map doc renders FULL
+          # (nil-tolerance matrix row 6). NIL on pre-1.6 docs.
+          blast_radius:        Scores.blast_radius_from_findings(@findings_doc, @resolver),
+          forward_depth:       Scores.forward_depth_from_findings(@findings_doc),
+          reverse_depth:       Scores.reverse_depth_from_findings(@findings_doc),
+          branching_factor:    Scores.branching_factor_from_findings(@findings_doc)
         )
       end
 

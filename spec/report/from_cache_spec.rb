@@ -195,6 +195,55 @@ RSpec.describe "report reads the committed real-name cache (R2-1)" do
     end
   end
 
+  # v0.11 W-C (serializer v3): from_cache parses the four business-metric
+  # blocks (FLAT spellings — guard R1) into nil-tolerant structs; v1/v2
+  # aggregates yield nil fields — back-compat, no raise.
+  describe "v0.11 W-C: business-metric blocks on the Result" do
+    it "populates blast_radius/forward_depth/reverse_depth/branching_factor from a v3 aggregate" do
+      Dir.mktmpdir do |dir|
+        agg = File.join(dir, "archbuddy-findings.json")
+        File.write(agg, JSON.generate(
+                          "serializer_version" => 3, "sources" => {},
+                          "blast_radius" => {
+                            "max" => 2, "p90" => 2.0, "median" => 1.0, "mean" => 1.5,
+                            "reached_nodes" => 2, "total_nodes" => 4, "total_entrypoints" => 2,
+                            "pct_use_cases_hit_by_worst" => 1.0,
+                            "worst" => [{ "symbol" => "Billing::Invoice#total",
+                                          "use_cases_affected" => 2, "added_coupling" => nil }]
+                          },
+                          "forward_depth"    => { "mean" => 2.0, "median" => 2.0, "count" => 2 },
+                          "reverse_depth"    => { "mean" => 3.0, "median" => 3.0, "count" => 2 },
+                          "branching_factor" => { "mean" => 1.5, "median" => 1.5, "count" => 2 }
+                        ))
+
+        result = Archbuddy::Report::Reconnect.from_cache(aggregate_path: agg, id_map_path: nil)
+
+        expect(result.blast_radius).to be_a(Archbuddy::Report::Scores::BlastRadius)
+        expect(result.blast_radius.max).to eq(2)
+        expect(result.blast_radius.worst.first.symbol).to eq("Billing::Invoice#total")
+        expect(result.forward_depth).to be_a(Archbuddy::Report::Scores::DepthStats)
+        expect(result.forward_depth.median).to eq(2.0)
+        expect(result.reverse_depth.median).to eq(3.0)
+        expect(result.branching_factor).to be_a(Archbuddy::Report::Scores::BranchingFactor)
+        expect(result.branching_factor.median).to eq(1.5)
+      end
+    end
+
+    it "returns nil business-metric fields (no raise) on a v3 aggregate written from pre-1.6 findings" do
+      Dir.mktmpdir do |dir|
+        write_committed_cache(dir) # pre-1.6 findings → no business-metric blocks written
+        agg = File.join(dir, "archbuddy-findings.json")
+
+        result = Archbuddy::Report::Reconnect.from_cache(aggregate_path: agg, id_map_path: nil)
+
+        expect(result.blast_radius).to be_nil
+        expect(result.forward_depth).to be_nil
+        expect(result.reverse_depth).to be_nil
+        expect(result.branching_factor).to be_nil
+      end
+    end
+  end
+
   # Back-compat: the LEGACY opaque path (explicit findings.yml + SECRET id-map)
   # still de-anonymizes at read time and renders real names via the id-map.
   describe "back-compat: legacy findings.yml + id-map path still works" do
