@@ -297,12 +297,33 @@ module Archbuddy
       # aggregate (written by a previous analyze/reset) when the current write is
       # a collect-only (findings nil). No-op if there is no prior aggregate or it
       # carries no scores.
+      #
+      # v0.11 (v3): the carry list is EXTENDED with every v3 block —
+      # blast_radius / forward_depth / reverse_depth / branching_factor ride
+      # forward verbatim, and the egress COST keys are grafted onto the
+      # freshly-folded counts (counts stay fresh from diagnostics; cost is
+      # engine-published and a collect never recomputes it — D17). A v2 prior
+      # (no v3 keys) grafts nothing — a collect over a v2 cache does NOT
+      # manufacture v3 blocks.
       def preserve_existing_scores(rel, doc)
         prior = read_prior_aggregate(rel)
         return if prior.nil?
 
         doc["scores"]              = prior["scores"]              if prior.key?("scores")
         doc["multiplexer_proxies"] = prior["multiplexer_proxies"] if prior.key?("multiplexer_proxies")
+        %w[blast_radius forward_depth reverse_depth branching_factor].each do |key|
+          doc[key] = prior[key] if prior.key?(key)
+        end
+        carry_egress_cost!(doc["egress"], prior["egress"]) if prior["egress"].is_a?(Hash)
+      end
+
+      # v0.11 (v3): graft the prior aggregate's egress COST keys onto the
+      # freshly-folded counts block. Only keys the prior actually carries are
+      # grafted (a v2 prior has none — nothing manufactured).
+      def carry_egress_cost!(egress_doc, prior_egress)
+        %w[mean median capped_fraction by_category_cost].each do |key|
+          egress_doc[key] = prior_egress[key] if prior_egress.key?(key)
+        end
       end
 
       # The already-committed root aggregate, parsed — or nil when absent or
