@@ -282,6 +282,96 @@ RSpec.describe "Reporter end-to-end (R-1..R-7)" do
     end
   end
 
+  # --- v0.11 (W-C T7): the Business Impact section (terminal) -----------------
+  #
+  # A PEER section between the header and Architecture Scores, rendered from
+  # the ONE shared BusinessImpact presenter (all copy/nil-guards live THERE —
+  # the formatter is pure markup). Zero answerable questions → [] → the whole
+  # section is omitted and v1/v2 docs render byte-identically to v0.10 (the
+  # :259-271 byte-stability gates above re-run UNMODIFIED as that proof).
+  describe "Business Impact section (terminal, W-C)" do
+    S = Archbuddy::Report::Scores unless defined?(S)
+
+    def render(**fields)
+      context = Archbuddy::Report::Formatter::RenderContext.new(
+        ranked:        ranker.ranked,
+        class_rollups: ranker.class_rollups,
+        generator:     result.findings_doc["generator"],
+        graph:         nil,
+        resolver:      Archbuddy::Report::Reconnect::IdMapResolver.new(result.id_map),
+        **fields
+      )
+      Archbuddy::Report::Formatter.for("terminal").new(context).render
+    end
+
+    # The MEASURED plan numbers (L14/L15/L16 — the I8 worked examples).
+    let(:blast) do
+      S::BlastRadius.new(
+        max: 1569, p90: 3.0, median: 1.0, mean: 121.38,
+        reached_nodes: 5506, total_nodes: 16_173, total_entrypoints: 1611,
+        pct_use_cases_hit_by_worst: 0.9739,
+        worst: [S::BlastRadius::Worst.new(symbol: "Router#dispatch",
+                                          use_cases_affected: 1569, added_coupling: 7.5)]
+      )
+    end
+    let(:fwd_depth) { S::DepthStats.new(mean: 2.83, median: 2.0, count: 1611) }
+    let(:rev_depth) { S::DepthStats.new(mean: 3.42, median: 3.0, count: 5506) }
+    let(:branching) { S::BranchingFactor.new(mean: 2649.6, median: 2.416, count: 1611) }
+
+    it "renders the full six-question section between header and scores (pinned lines)" do
+      out = render(
+        scores: [
+          S::DimensionScore.new(key: "forward_discoverability", label: "f", question: "",
+                                score: 30_992.17, grade: "F", hotspots: [], median: 2.0,
+                                median_grade: "A", capped_fraction: 0.0214),
+          S::DimensionScore.new(key: "reverse_traceability", label: "r", question: "",
+                                score: 32_402.84, grade: "F", hotspots: [], median: 1_000_000.0,
+                                median_grade: "F", capped_fraction: 0.9764)
+        ],
+        blast_radius: blast, forward_depth: fwd_depth,
+        reverse_depth: rev_depth, branching_factor: branching
+      )
+
+      expect(out).to include("\nBusiness Impact\n#{'-' * 60}\n")
+      expect(out).to include("  Q1 Implementing a new feature: how much complexity will a developer face?")
+      expect(out).to include("     cost mean 30992.2 (F, median: A) · median 2.0 — 2.1% of routes at cap (lower bound)")
+      expect(out).to include("  Q3 Breaking something: how many use cases can a single change put at risk?")
+      expect(out).to include(
+        "     the worst single node is reachable from 1569 of 1611 use cases (97.4%) — p90 3, median 1"
+      )
+      expect(out).to include("     worst offenders: Router#dispatch (1569 use cases, +7.5 coupling)")
+      expect(out).to include("  Q4 Implementing a new feature: how many steps does a new flow travel end-to-end?")
+      expect(out).to include("     a typical use case is 2.0 functions deep (mean 2.8)")
+      expect(out).to include("  BF Branching")
+      expect(out).to include("     each step of tracing multiplies the choices ×2.42 (median; mean 2649.6)")
+      # peer-section ordering: BI sits BEFORE Architecture Scores
+      expect(out.index("Business Impact")).to be < out.index("Architecture Scores")
+    end
+
+    it "renders only the answerable questions (per-question omission, no placeholder rows)" do
+      out = render(blast_radius: blast, forward_depth: fwd_depth)
+
+      expect(out).to include("Business Impact")
+      expect(out).to include("  Q3 ")
+      expect(out).to include("  Q4 ")
+      expect(out).not_to include("  Q1 ")
+      expect(out).not_to include("  Q2 ")
+      expect(out).not_to include("  Q5 ")
+      expect(out).not_to include("  BF ")
+    end
+
+    it "omits the whole section on a no-data doc — explicit-nil byte-identity over the four new fields" do
+      out = render
+
+      expect(out).not_to include("Business Impact")
+      # the :266-268 explicit-nil byte-identity idiom extended to the four
+      # v0.11 context fields: an explicit-nil context renders the SAME bytes
+      # as one that never set them (v1/v2 docs stay byte-identical to v0.10).
+      expect(out).to eq(render(blast_radius: nil, forward_depth: nil,
+                               reverse_depth: nil, branching_factor: nil))
+    end
+  end
+
   # --- R-6: structured exports ------------------------------------------------
 
   describe "yaml/json exports" do

@@ -2,6 +2,7 @@
 
 require_relative "../formatter"
 require_relative "../explanation"
+require_relative "../business_impact"
 
 module Archbuddy
   module Report
@@ -18,6 +19,10 @@ module Archbuddy
         def render
           lines = []
           lines << header
+          # v0.11 (W-C): the Business Impact section — a PEER section between
+          # the header and Architecture Scores. [] when no question is
+          # answerable (v1/v2 docs) → output byte-identical to pre-v0.11.
+          lines.concat(business_impact_section)
           lines.concat(scores_section) if scores_section?
           lines.concat(multiplexer_proxy_section) unless context.multiplexer_proxies.nil?
           lines.concat(bottleneck_sections)
@@ -130,6 +135,24 @@ module Archbuddy
           banner = "Dynamic dispatch: #{dd.resolved_sites}/#{dd.total_call_sites} resolved, " \
                    "#{dd.dynamic_sites} dynamic (coverage #{dd.ratio_display})"
           ["  #{banner}", ""]
+        end
+
+        # v0.11 (W-C): the five business questions + the branching footer,
+        # rendered from the ONE shared presenter (BusinessImpact — all copy,
+        # nil-guards and formatting live THERE; this is pure markup). [] when
+        # zero questions are answerable — the whole section is omitted and a
+        # v1/v2 doc renders byte-identically to v0.10 (peer-section gate).
+        def business_impact_section
+          questions = BusinessImpact.questions(context)
+          return [] if questions.empty?
+
+          lines = ["", "Business Impact", "-" * 60]
+          questions.each do |q|
+            lines << "  #{q.id.upcase} #{q.text}"
+            lines << "     #{q.answer}"
+            q.detail_lines.each { |detail| lines << "     #{detail}" }
+          end
+          lines
         end
 
         def score_row(dim)
