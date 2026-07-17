@@ -60,7 +60,7 @@ end
      ../architecture-auditor` makes bundler resolve the *git* gem from that local checkout
      (it must be on the same branch — `main`).
 - The **gemspec** declares `add_dependency "architecture_auditor", "~> 0.2"` (pessimistic bound,
-  maintained at the 0.2.x floor; the sibling engine is at 0.7.0 in development but the gemspec bound
+  maintained at the 0.2.x floor; the sibling engine is at 0.8.0 in development but the gemspec bound
   has not been bumped since the client's `metric_kernel_consistency_spec` verifies compatibility at
   test time rather than via a hard version pin).
 
@@ -74,12 +74,38 @@ remote.
 
 ## Versions and release sequence
 
-The client is at **0.9.0** (the v0.10 ingress/egress release, branch `feat/v0.10-ingress-egress`);
-the sibling engine is at **0.7.0** (graph schema **1.3**, findings schema **1.5**,
-`SUPPORTED_VERSIONS` 1.0–1.5). The mandatory release sequence is **engine `main` first, then
-client**: the client's `metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS` constant
-at test time, so the engine must already carry a matching version before the client suite can be
-verified green. (The `### v0.10` … entries below are the historical changelog, newest first.)
+The client is at **0.10.0** (the v0.11 business-metrics release, branch
+`feat/v0.11-business-metrics`); the sibling engine is at **0.8.0** (branch `feat/v0.11-metrics`;
+graph schema **1.3** unchanged, findings schema **1.6**, `SUPPORTED_VERSIONS` 1.0–1.6). The
+mandatory release sequence is **engine `main` first, then client**: the client's
+`metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS` constant at test time, so the
+engine must already carry a matching version before the client suite can be verified green.
+(The `### v0.11` … entries below are the historical changelog, newest first.)
+
+### v0.11 client bump (0.10.0) — engine 0.8.0 (graph 1.3 / findings 1.6)
+
+Three deltas, same gated-additive posture:
+
+- **Client-only, zero engine change — E1 per-target egress sub-sinks:** the collapsed category
+  sinks split into one sink per distinct provable `[category, target]` pair
+  (`<external:{category}:{const_fq}>`, deterministic sorted mint; `terminal_kind` stays the
+  CATEGORY word). **Graph stays 1.3** — node multiplicity only, no new keys, no schema bump.
+  SECRET (L13): sink symbols can carry app constants, so they are **id-map/committed-cache
+  citizens, never graph.yml citizens**. The engine's egress dimension becomes per-EXIT-POINT
+  averages automatically once the sinks split (that was the point — the F1 saturation fix).
+- **Engine → client (findings 1.6, read nil-tolerantly + verbatim):** four OPTIONAL blocks —
+  `scores.blast_radius` (stats + worst list), flat `scores.forward_depth` / `scores.reverse_depth`
+  (no grouped `depth` key), `scores.branching_factor` (UNGRADED density, median-first) — plus
+  OPTIONAL `dimension_score.capped_fraction` (share of routes at the publish cap; a capped mean
+  reads as a LOWER BOUND) and `dimension_score.median_grade` (frozen ceilings re-applied to the
+  median; the client renders the letter, NEVER grades). Pre-1.6 findings → no blocks, no
+  fabricated numbers.
+- **Client-owned shape — committed aggregate SERIALIZER v2→v3** (one bump, this release): verbatim
+  1.6 folds under the SAME flat spellings, worst list de-anonymized at write, `headline_scores`
+  median gap fixed, `egress` cost lens; the five-question **Business Impact** section renders from
+  ONE shared presenter in both formatters. Downgrade caveat: an old client's `collect` over a v3
+  cache rewrites v2-shaped (acceptable; the next current-client `analyze` restores v3). E1 edge
+  churn + v3 stamp churn ship as ONE committed-cache churn event per audited repo.
 
 ### v0.10 client bump (0.9.0) — engine 0.7.0 (graph 1.3 / findings 1.5)
 
@@ -153,7 +179,9 @@ change is a two-repo change.**
 
 **Important:** `branches`/`decisions` (graph 1.1), `sink_open` (graph 1.2), `entrypoint_kind`/
 `terminal_kind` (graph 1.3, v0.10), the `connectivity` object (findings 1.3), `multiplexer_proxies`
-(findings 1.4), and the 1.5 cost surfaces (`median`/`forward_discoverability_by_category`) are all
+(findings 1.4), the 1.5 cost surfaces (`median`/`forward_discoverability_by_category`), and the 1.6
+business-metric blocks (`blast_radius`/`forward_depth`/`reverse_depth`/`branching_factor` +
+`capped_fraction`/`median_grade`, v0.11) are all
 **graph/findings INPUT/summary fields**, not metric-kernel keys.
 They are NOT added to `METRIC_KEYS`; the kernel remains 8 keys. The `metric_kernel_consistency_spec`
 files in both repos are **untouched** and stay green without any edit. `sink_open` is the engine's

@@ -85,8 +85,11 @@ reads it directly with **no id-map** — a fresh clone works.
    `MetaSendProbe`, gated on `table.method?`), AR vocab → `db_op` via **class context** (incl. the
    implicit-self `where`-in-`def self.x` gotcha), Controller convention → `endpoint`, everything
    unresolved → the **generic shared `external` sink** — except a provably out-of-tree literal-const
-   receiver, which the `EgressProbe` routes to a **category-bearing sink** `<external:http|gem|queue>`
-   (still `kind:"external"`; the category also rides `terminal_kind`). Never a guessed edge.
+   receiver, which the `EgressProbe` categorizes (`http|gem|queue`) and (v0.11 E1) routes to a
+   **per-target sub-sink** `<external:{category}:{const_fq}>` — one per distinct provable
+   `[category, target]` pair, still `kind:"external"`, `terminal_kind` = the CATEGORY word (never the
+   target). Sink symbols are id-map/committed-cache citizens, never graph.yml citizens (L13 — they can
+   carry app constants). Never a guessed edge.
 8. **Empty-entrypoints warning (M3).** The default entrypoint strategy can find none in a non-Rails gem;
    `collect` then **WARNS on stderr** (never in graph content) and suggests `--entrypoints all_public`.
    It does NOT auto-switch strategies.
@@ -138,7 +141,7 @@ For rationale/decision history (D1–D48, M1–M3) see [`docs/IMPLEMENTATION_PLA
 | **Trust boundary** | The `Anonymizer` — the ONE place that mints opaque ids and splits data into the opaque graph vs the secret id-map. |
 | **opaque id** | `n_` (function/endpoint/db_op node), `ext_` (external sink), `cls_` (class rollup, id-map only). |
 | **db_op** | A synthesized node for an ActiveRecord query/persistence call, classified by class context. |
-| **external sink** | The shared generic `<external>` `ext_` node every unresolved/uncategorized call points to (D24). v0.10 adds up to three **category-bearing** siblings `<external:http\|gem\|queue>` (still `kind:"external"`), minted only when the `EgressProbe` proves the category. |
+| **external sink** | The shared generic `<external>` `ext_` node every unresolved/uncategorized call points to (D24). v0.11 (E1, L13): one **per-target sub-sink** `<external:{category}:{const_fq}>` per distinct provable `[category, target]` pair (const_fq whitespace-collapsed, leading-`::` stripped; deterministic sorted mint), still `kind:"external"` with `terminal_kind` = the category word. Sink symbols live in the id-map + committed cache ONLY, never graph.yml (SECRET — they can carry app constants). Unprovable receivers stay on the generic sink. |
 | **class rollup** | A `cls_` aggregate over a class's member nodes (D9); de-anonymized + summed by the Ranker. |
 | **clutter_score** | The engine's per-node score; the reporter ranks by it and shows it **verbatim** (D17). |
 | **findings** | The engine's output (`findings.yml`): per-node metrics/scores + 7 finding types (D38). |
@@ -147,6 +150,8 @@ For rationale/decision history (D1–D48, M1–M3) see [`docs/IMPLEMENTATION_PLA
 | **entrypoint_kind** (v0.10) | The ingress category stamped per entrypoint (`grape\|routed\|controllers\|jobs\|rake\|middleware\|script\|top_level\|pattern`, one per fq). Rides the id-map + committed fragments always; rides `graph.yml` only when the installed engine schema accepts it (acceptance-gate probe in the Anonymizer). |
 | **terminal_kind** (v0.10) | The egress category (`http\|gem\|queue`) stamped on category-bearing external sinks — the sink-side twin of `entrypoint_kind`, same acceptance gate. |
 | **coverage tuple** (v0.10) | The committed `dynamic_dispatch` block: `{dynamic_sites, resolved_sites, total_call_sites, coverage_ratio = 1 − dynamic/total}` — the visible share of dispatch; null ratio on a zero denominator. |
+| **Business Impact** (v0.11) | The five business questions (+ ungraded `Branching` footer) rendered as a PEER section by BOTH formatters from the ONE shared `Report::BusinessImpact` presenter (L6/L17). Every figure is a verbatim engine number; capped means read as LOWER BOUNDS; unanswerable questions are OMITTED, never fabricated. |
+| **blast radius** (v0.11) | findings-1.6 `scores.blast_radius` (count of use cases that can reach a node; stats + de-anonymized worst list), folded verbatim into the SERIALIZER-v3 aggregate beside flat `forward_depth`/`reverse_depth`/`branching_factor`. |
 
 ## Task workflow (every task ends with this)
 
@@ -161,6 +166,7 @@ A task is complete only when implementation + tests pass **AND** docs are update
 □ Added a new language adapter                   → ARCHITECTURE.md + .claude/docs/adapter-extension.md + Registry note
 □ Changed what `report` consumes (findings shape)→ CONTRACT.md (consumed shape) — coordinate with the engine repo
 □ Added/changed a Formatter                      → ARCHITECTURE.md (Reporter section, formats table)
+□ Changed the Business Impact copy/templates     → report/business_impact.rb + its spec pins + README ("Reading the report")
 □ Changed the Cache (layout/writer/reader/…)     → ARCHITECTURE.md (Concern 3) + docs/COMMITTING_ARCHBUDDY.md if the committed shape/gitignore changes
 □ Changed a CLI flag/command (collect/analyze/report/reset) → ARCHITECTURE.md (CLI section) + README.md
 □ Changed the metric set                         → report.rb constant + the engine's METRIC_KEYS (lockstep) + CONTRACT.md

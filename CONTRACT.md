@@ -8,9 +8,9 @@ authoritative JSON schemas live in the sibling repo at
 `../architecture-auditor/lib/architecture_auditor/contract/schemas/{graph,findings}.v1.schema.json`.
 This doc summarizes those shapes for quick reference — **the schemas are the source of truth; do not let
 this doc drift from them.** Graph schema is `"1.3"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
-is `"1.5"` (`Contract::FINDINGS_SCHEMA_VERSION`). All bumps are MINOR / additive; old 1.0–1.4 docs still
-validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3 1.4 1.5]` (explicit retain-list, never
-derived). Verified against the live sibling engine (0.7.0).
+is `"1.6"` (`Contract::FINDINGS_SCHEMA_VERSION`, v0.11). All bumps are MINOR / additive; old 1.0–1.5 docs
+still validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3 1.4 1.5 1.6]` (explicit retain-list,
+never derived — new versions are APPENDED to the literal). Verified against the live sibling engine (0.8.0).
 
 Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minted only by `Contract::Ids`).
 
@@ -196,7 +196,7 @@ intentionally NOT ignored — a runtime dependency, not a secret.)
 are copied **verbatim** (D17); the reporter never recomputes.
 
 ```yaml
-schema_version: "1.5"
+schema_version: "1.6"
 generator: { tool, adapter, capture }     # same shape as graph
 nodes:                                      # map: opaque_id => entry
   "n_…":
@@ -219,12 +219,13 @@ findings:                                   # array; EXACTLY 7 types (D38), oneO
 == `ArchitectureAuditor::Analyze::METRIC_KEYS`. Asserted by `spec/report/metric_kernel_consistency_spec.rb`.
 Changing the metric set requires changing **both repos** together.
 
-### Optional `scores` block (findings 1.1–1.5 — additive, back-compat)
+### Optional `scores` block (findings 1.1–1.6 — additive, back-compat)
 
 `findings.yml` **MAY** carry an OPTIONAL top-level `scores` block (added in schema 1.1, extended in 1.2
 [raw_value/overflow], 1.3 [connectivity], 1.4 [multiplexer_proxies], 1.5 [median +
-forward_discoverability_by_category]; an older doc without the newer fields still validates and `report`
-still works unchanged). The block is **owned canonically by the engine** — `findings.v1.schema.json`
+forward_discoverability_by_category], 1.6 [the four business-metric blocks + per-dimension
+capped_fraction/median_grade — see below]; an older doc without the newer fields still validates and
+`report` still works unchanged). The block is **owned canonically by the engine** — `findings.v1.schema.json`
 `#/properties/scores` → `#/definitions/dimension_score` is the source of truth; this is a quick-reference
 summary only. It carries two **project-level** dimension scores plus the optional sibling objects:
 
@@ -243,6 +244,13 @@ scores:                                # OPTIONAL; absent in 1.0 docs
     median: null                       # OPTIONAL (1.5+, v0.10 W6): the per-entrypoint cost MEDIAN
                                        # beside the mean (`score`) — the antidote to an
                                        # outlier-dominated mean. Read nil-tolerantly.
+    capped_fraction: null              # OPTIONAL (1.6+, v0.11): share of routes at the publish cap
+                                       # (0..1, 4 dp; null when score is null; > 0 ⟺ overflow).
+                                       # Any dimension_score (incl. per-category groups) may carry it.
+    median_grade: "N/A"                # OPTIONAL (1.6+, v0.11): the frozen ceiling bands re-applied
+                                       # to the published MEDIAN value (A|B|C|D|F|N/A) — the
+                                       # secondary letter behind "F (median: A)". ENGINE-emitted;
+                                       # the client never grades.
   forward_discoverability_by_category: # OPTIONAL (1.5+, v0.10 W6): the engine's per-category
     controllers:                       # ingress-cost lens — one dimension_score per
       score: 3.0                       # entrypoint_kind group (keys are the ENGINE's grouping of
@@ -256,12 +264,58 @@ scores:                                # OPTIONAL; absent in 1.0 docs
     reverse: 0.003                     # |connected-to-a-db_op-sink| / |total nodes| (0..1 ratio or null)
     scored_nodes: 5                    # integer ≥ 0: nodes that contributed to the score mean
     total_nodes: 1672                  # integer ≥ 1: total graph nodes (excluding <external>)
+  blast_radius:                        # OPTIONAL (1.6+, v0.11 — "how many use cases can one change break?")
+    max: 70                            # stats over REACHED non-external nodes; blast(n) = count of
+    p90: 3.0                           # entrypoints whose forward-reachable set contains n
+    median: 1.0
+    mean: 1.68
+    reached_nodes: 5502                # nodes reachable from any use case (excl. external exit nodes)
+    total_nodes: 17546                 # non-external node count
+    total_entrypoints: 1611            # the q3 denominator — the client NEVER derives it (M5)
+    pct_use_cases_hit_by_worst: 0.0435
+    worst:                             # ranked use_cases_affected DESC, node-id ASC tiebreak
+      - { node: "n_…", use_cases_affected: 70, added_coupling: null }  # opaque ids; coupling only
+                                       # for multiplexer proxies — reach and coupling are displayed
+                                       # SEPARATELY, the product is never persisted (R7)
+                                       # N/A form (zero entrypoints / externals-only reach): null
+                                       # stats + worst: [] + reached_nodes: 0 — never fabricated
+  forward_depth:                       # OPTIONAL (1.6+): hops per entrypoint (exp(fd_log), floored ≥ 1)
+    mean: 2.83
+    median: 2.0
+    count: 1611
+    by_category: { controllers: { mean: 2.9, median: 2.0, count: 900 } }  # optional, keyed by entrypoint_kind
+  reverse_depth:                       # OPTIONAL (1.6+): path_length + 1 per reached non-external node
+    mean: 3.41                         # NO by_category (nodes carry no entrypoint_kind — R9)
+    median: 3.0
+    count: 5502
+  branching_factor:                    # OPTIONAL (1.6+): per-route b̄ = exp(bp_log / max(1, hops))
+    mean: 2649.6                       # UNGRADED (a hop DENSITY, never a "score"); reads RAW bp_log
+    median: 2.416                      # so it does not saturate at the cap — read MEDIAN-FIRST (the
+    count: 1611                        # mean is degenerate-dominated by hops=1 routes)
+    by_category: { controllers: { mean: 2.5, median: 2.4, count: 900 } }  # optional, forward-only
 ```
 
 **v0.10 read posture:** the client reads every 1.4/1.5 optional block NIL-TOLERANTLY and copies it
 VERBATIM (D17 — mean = the dimension `score`, median its 1.5 sibling, `by_category_cost` compacted from
 `forward_discoverability_by_category` with hotspots dropped). Absent blocks → null/{} in the committed
 aggregate and no banner/line in the report — an honest absence, never a fabricated number.
+
+**v0.11 read posture + reading conventions (findings 1.6, SERIALIZER v3):** the four 1.6 blocks are
+folded into the committed aggregate VERBATIM under the **SAME FLAT SPELLINGS** (`blast_radius`,
+`forward_depth`, `reverse_depth`, `branching_factor` — never a grouped `depth` key), with the blast
+`worst` list de-anonymized at write to `{symbol, use_cases_affected, added_coupling}`; `headline_scores`
+widens to `{grade, score, median, median_grade?, capped_fraction?}` (fixing the v2 median gap) and the
+`egress` block gains the 1.5 cost lens (`{mean, median, capped_fraction, by_category_cost}` — per-EXIT-POINT
+averages now that E1 splits the sinks; the counts sub-block is untouched). Conventions when reading any
+of these numbers: a **capped mean is a LOWER BOUND** (censored data — annotate "N% of routes at cap"
+whenever `capped_fraction > 0`; at `capped_fraction ≥ 0.5` even the median is "at cap"); **`median_grade`**
+is the frozen ceilings re-applied to the median value (a secondary letter — "F (median: A)" is the
+outlier-dominance signature); **b̄ is a DENSITY, not a score** (ungraded, median-first). A 1.5-or-older
+doc simply has no 1.6 blocks → no v3 blocks, no Business Impact questions beyond Q1/Q2 — omission, never
+fabrication. **Downgrade caveat:** an old (pre-0.10.0) client's `collect` over a v3 cache rewrites the
+aggregate back to its own v2 shape — acceptable and probed; the next `analyze` with a current client
+restores v3. The E1 fragment-edge symbol churn and the v2→v3 stamp churn ship as ONE committed-cache
+churn event per audited repo.
 
 **Score semantics (findings 1.3):** `score` is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost to a `db_op` terminal — an **unbounded architectural cost**
@@ -293,8 +347,9 @@ There is **no `verdict` field** (the client decides no band; D17). The reporter 
 verbatim as a one-line banner ABOVE the dimension rows: `Connectivity: 5/1672 nodes scored (0.3%)`.
 Absent on 1.0/1.1/1.2 docs → no banner rendered (back-compat). A nil `forward` ratio renders as "N/A"
 (e.g. when there are no entrypoints — N1). `sink_open` (graph 1.2 — DECLARED-but-optional, NO LONGER
-emitted by the client as of v0.6/L3) and `connectivity` (findings 1.3) are graph INPUT fields, NOT
-metric-kernel keys; `METRIC_KEYS` stays at 8.
+emitted by the client as of v0.6/L3), `connectivity` (findings 1.3), and the 1.6 business-metric
+blocks (`blast_radius`/`forward_depth`/`reverse_depth`/`branching_factor` + `capped_fraction`/
+`median_grade`) are graph INPUT / project-summary fields, NOT metric-kernel keys; `METRIC_KEYS` stays at 8.
 
 ---
 
@@ -304,11 +359,11 @@ Rendered by the Formatter strategy; all carry real symbols → gitignored, never
 
 | `--format` | Output | Shape |
 |------------|--------|-------|
-| `terminal` (default) | stdout text | When findings carry `scores` (1.1) OR the committed aggregate is SERIALIZER v2 (v0.10): an `Architecture Scores` summary header FIRST — the connectivity banner + the three v0.10 counter banners (`Entrypoints:`/`Egress:`/`Dynamic dispatch:`, each nil-guarded; entrypoints appends engine mean/median + a per-category cost line when published), then each dimension's `score/grade` + framing question (the headline), then its de-anonymized hotspots as "top contributors to this dimension (worst-first)" with real symbol + `file:line` + driving metric(s), or `N/A` + reason. Then ranked bottlenecks: symbol, `file:line`, `clutter_score`, 8-metric breakdown, finding explanations (with real `A → B` chains), class rollups. |
+| `terminal` (default) | stdout text | v0.11: a `Business Impact` PEER section FIRST (between the header and the scores) when any of the five questions is answerable — rendered from the ONE shared `Report::BusinessImpact` presenter, omitted entirely otherwise (v1/v2 docs byte-identical to v0.10). Then, when findings carry `scores` (1.1) OR the committed aggregate carries the counter blocks (SERIALIZER v2+): an `Architecture Scores` summary header — the connectivity banner + the three v0.10 counter banners (`Entrypoints:`/`Egress:`/`Dynamic dispatch:`, each nil-guarded; entrypoints appends engine mean/median + a per-category cost line when published), then each dimension's `score/grade` + framing question (the headline), then its de-anonymized hotspots as "top contributors to this dimension (worst-first)" with real symbol + `file:line` + driving metric(s), or `N/A` + reason. Then ranked bottlenecks: symbol, `file:line`, `clutter_score`, 8-metric breakdown, finding explanations (with real `A → B` chains), class rollups. |
 | `yaml` | `report.yml` | `{ generator, bottlenecks[ {id,symbol,file,line,kind,class_id,resolved,clutter_score,metrics{8},findings[]} ], class_rollups[ {class_id,symbol,file,line,resolved,clutter_score,member_count} ] }` via `StructuredExport`; plus, when present (1.1), `scores{ <dimension> => {score,grade,question,na_reason?,hotspots[ {symbol,file,line,resolved,metrics} ]} }` (de-anonymized; the key is omitted entirely for a 1.0 doc). |
 | `json` | `report.json` | Same structured shape (incl. the optional de-anonymized `scores`), `JSON.pretty_generate`. |
 | `dot` | `*.dot` | Graphviz digraph with de-anonymized labels. **Requires `--graph graph.yml`** (edge list source). |
-| `html` | `report.html` | A SINGLE, fully self-contained, fully **OFFLINE** Cytoscape.js dashboard: dimension-score grade cards + an interactive call graph + the ranked bottleneck table. Cytoscape.js + all CSS/JS are **inlined** (zero external/CDN refs). Uses `--graph graph.yml` for the call graph (degrades to scores + table without it). De-anonymized real symbols → **SECRET/local-only**; redirect to a gitignored path (e.g. `out/report.html`). |
+| `html` | `report.html` | A SINGLE, fully self-contained, fully **OFFLINE** Cytoscape.js dashboard: a `<section id="business-impact">` card row (v0.11 — same shared presenter, all dynamic text escaped, absent when no questions) + dimension-score grade cards + an interactive call graph + the ranked bottleneck table. Cytoscape.js + all CSS/JS are **inlined** (zero external/CDN refs). Uses `--graph graph.yml` for the call graph (degrades to scores + table without it). De-anonymized real symbols → **SECRET/local-only**; redirect to a gitignored path (e.g. `out/report.html`). |
 
 Unresolved ids (e.g. `ext_` sinks, ids absent from the id-map) render as graceful `<external …>`
 placeholders (`resolved: false`) — never an error.

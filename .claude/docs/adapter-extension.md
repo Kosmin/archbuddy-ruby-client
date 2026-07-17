@@ -33,8 +33,12 @@ AdapterResult.new(
    Anonymizer's sole job (D25/D41). Producing your own ids would bypass the single mint and is forbidden.
 2. **Use the contract kinds.** Map your language's constructs onto `function/endpoint/db_op/external`.
    Use ONE shared generic `external` sink for unresolved calls (mirror
-   `RubyAdapter::EXTERNAL_SINK_SYMBOL`); provable egress MAY additionally get category sinks
-   (`<external:http|gem|queue>` + `terminal_kind`, mirror `CATEGORY_SINK_SYMBOLS` — v0.10).
+   `RubyAdapter::EXTERNAL_SINK_SYMBOL`); provable egress MAY additionally get **per-target sub-sinks**
+   (v0.11 E1, mirror `RubyAdapter#add_external_sinks`): one sink per distinct provable
+   `[category, target]` pair, symbol `<external:{category}:{target}>`, minted in deterministic
+   sorted `[category, target]` order, `terminal_kind` = the CATEGORY word (`http|gem|queue`), never
+   the target. Sink symbols may carry app constants → they are id-map/committed-cache citizens,
+   never graph.yml citizens (L13).
 3. **Never fabricate edges.** Unknown/dynamic call targets go to the external sink; constructs you can't
    statically resolve should be flagged into `diagnostics`, not invented as edges.
 4. **Keep diagnostics non-semantic and out of the graph.** They are for CLI stderr only.
@@ -60,9 +64,9 @@ of source language; and `report` reconnects findings the same way. None of that 
 
 `lib/archbuddy/collect/adapters/ruby_adapter.rb` is the reference implementation: enumerate sources →
 build a symbol catalogue → seed/categorize ingress roots → resolve call sites with a tiered,
-never-fabricating resolver → assemble `Raw*` + the shared external sink (plus, v0.10, one
-category-bearing egress sink per proven category) → return the `AdapterResult`. Mirror that structure;
-only the parsing and resolution heuristics are language-specific.
+never-fabricating resolver → assemble `Raw*` + the shared external sink (plus, v0.11, one per-target
+egress sub-sink per distinct proven `[category, target]` pair) → return the `AdapterResult`. Mirror
+that structure; only the parsing and resolution heuristics are language-specific.
 
 ---
 
@@ -95,7 +99,8 @@ Produce, in real-symbol space, an `AdapterResult`:
 - **nodes** — `RawNode`s with `kind ∈ function | endpoint | db_op | external`, carrying `branches`
   (business control-flow count) and `decisions`, plus the owning-class def site for the `cls_` rollup.
   v0.10 optional stamps: `entrypoint_kind` (the ingress category string on detected entrypoints) and
-  `terminal_kind` (`http|gem|queue` on category-bearing external sinks). Both are fixed-vocab words —
+  `terminal_kind` (`http|gem|queue` on egress sinks — per-target sub-sinks as of v0.11, still the
+  CATEGORY word). Both are fixed-vocab words —
   the Anonymizer forwards them to the id-map always and to `graph.yml` behind its schema-acceptance
   gate; you never need to gate them yourself.
 - **edges** — `RawEdge`s (directed `from_key → to_key` between `RawNode#real_key`s, `calls` count).
@@ -226,12 +231,16 @@ category fold is language-neutral).
   query builders. Synthesize a `db_op` node the same way Ruby does for ActiveRecord (a plain COST-1
   terminal). RN local stores (`AsyncStorage`, SQLite) are `db_op` candidates too.
 - **`external`** — anything in `node_modules` / out-of-tree, and network I/O whose target is not an
-  app symbol → the shared `external` sink. As of v0.10 the Ruby adapter sub-classifies provable
-  egress into **category-bearing sinks** (`<external:http|gem|queue>`, still `kind:"external"`, with
-  `terminal_kind` stamped) via an `EgressProbe` that runs LAST so it never shadows a recoverable
-  edge. The JS mirror: `fetch`/`axios`/`got`/`node-fetch` calls → `<external:http>`; queue producers
-  (`queue.add(...)` whose processor is out-of-tree) → `<external:queue>`; any other out-of-tree
-  import call → `<external:gem>` (the npm-package analog). Tally per-category counts into
+  app symbol → the shared `external` sink. As of v0.11 (E1) the Ruby adapter sub-classifies provable
+  egress into **per-target sub-sinks** (`<external:{category}:{target}>`, one per distinct provable
+  `[category, target]` pair, still `kind:"external"`, `terminal_kind` = the category word) via an
+  `EgressProbe` that runs LAST so it never shadows a recoverable edge; unprovable receivers stay on
+  the generic `<external>`. The JS mirror: `fetch`/`axios`/`got`/`node-fetch` calls →
+  `<external:http:axios>` etc. (the imported module is the provable target); queue producers
+  (`queue.add(...)` whose processor is out-of-tree) → `<external:queue:{QueueName}>`; any other
+  out-of-tree import call → `<external:gem:{package}>` (the npm-package analog). Mint sinks in
+  deterministic sorted `[category, target]` order and keep target-bearing symbols out of the opaque
+  graph (id-map/committed-cache citizens only — L13). Tally per-category counts into
   `diagnostics[:egress_counts]` (untagged bucket = `generic`) and the committed `egress` block +
   report banner light up unchanged.
 

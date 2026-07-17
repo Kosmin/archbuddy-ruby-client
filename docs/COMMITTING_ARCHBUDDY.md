@@ -65,6 +65,24 @@ archbuddy reset .              # full re-collect + analyze from scratch (first r
 Typical first run: `archbuddy reset .` (or `collect` + `analyze`), then commit
 `archbuddy-findings.json` + `.archbuddy/` (minus the ignored paths).
 
+## Upgrading to archbuddy 0.10.0 (v0.11) — one expected churn event
+
+The first `collect`/`reset` after upgrading produces ONE larger-than-usual committed diff, then
+diffs are surgical again:
+
+- **Fragment edge symbols** — edges that pointed at a collapsed category sink
+  (`<external:http>` etc.) now point at per-target sub-sinks
+  (`<external:{category}:{ConstName}>`). Value churn only; the fragment shape is unchanged. The
+  aggregate `egress` **counts** block is byte-identical. A repo with no categorized egress sees
+  zero edge churn.
+- **Fragment stamps** — every fragment's `serializer_version` bumps 2 → 3 (a stamp rewrite, not a
+  re-parse), and the next `analyze` folds the new v3 blocks (`blast_radius`, `forward_depth`,
+  `reverse_depth`, `branching_factor`, widened `headline_scores`/`egress` cost) into the aggregate.
+
+Commit both together as one event. **Downgrade caveat:** running an OLDER client's `collect` over
+a v3 cache rewrites the aggregate back to that client's v2 shape (the v3 blocks drop) — harmless;
+the next `analyze` with a current client restores them.
+
 ## The CI staleness step
 
 Add `archbuddy collect --check` to CI. It regenerates the committed cache and
