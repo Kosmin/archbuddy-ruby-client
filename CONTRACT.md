@@ -23,7 +23,7 @@ Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `
 ```yaml
 schema_version: "1.3"
 generator:               # all 3 keys required
-  tool: "archbuddy 0.9.0"      # "archbuddy #{Archbuddy::VERSION}"
+  tool: "archbuddy 0.10.0"     # "archbuddy #{Archbuddy::VERSION}"
   adapter: "ruby"
   capture: "static"      # static capture ⇒ all timing fields below are null (D4)
 nodes:                    # array; each node:

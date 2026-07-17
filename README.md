@@ -192,6 +192,28 @@ headline**; the letter grade is a tentative secondary indicator:
     (`1 - dynamic/total`); `N/A` when there are no call sites (honest-undefined).
   These render even on a collect-only cache (no engine scores yet). Counts come straight from the
   committed cache — the report never recomputes them.
+- **v0.11 Business Impact section** — a PEER section between the header and the scores, answering
+  the five business questions from ONE shared presenter (both formatters render the same copy;
+  every figure is a verbatim engine number):
+  - *Implementing a new feature: how much complexity will a developer face?* — the forward cost
+    mean/median + grade (and the engine's secondary median letter when published).
+  - *Fixing a bug: how hard is it to trace where the code you're changing is used?* — the reverse
+    cost, same shape.
+  - *Breaking something: how many use cases can a single change put at risk?* — the NEW
+    `blast_radius` block (findings 1.6): "the worst single node is reachable from N of M use cases
+    (P%)" + the top-3 worst offenders (reach and added coupling shown separately — the product is
+    never computed).
+  - *Implementing a new feature: how many steps does a new flow travel end-to-end?* — forward
+    depth ("a typical use case is D functions deep").
+  - *Fixing a bug: how deep is the trace from a use case down to the code?* — reverse depth.
+  - A `Branching` footer: "each step of tracing multiplies the choices ×b̄" — the UNGRADED
+    per-hop branching DENSITY, median-first (the mean is degenerate-dominated on real graphs).
+
+  Reading conventions: a **capped mean is a LOWER BOUND** (censored data) — answers carry
+  "N% of routes at cap (lower bound)" when any route hit the publish cap, and when ≥ 50% are
+  capped the median renders as "at cap" instead of a falsely-precise number. Questions whose
+  blocks the engine has not published are OMITTED (never "N/A" noise): a pre-1.6 engine yields
+  only the first two questions; a v1/v2 cache renders byte-identically to v0.10 (no section).
 
 **Interpreting the cost:** the score is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost — an **unbounded architectural cost** (≥ 0, no upper
