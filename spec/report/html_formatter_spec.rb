@@ -32,7 +32,8 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     ).call
   end
 
-  def render(findings:, graph: nil, max_nodes: nil, entrypoints: nil, egress: nil, dynamic_dispatch: nil)
+  def render(findings:, graph: nil, max_nodes: nil, entrypoints: nil, egress: nil, dynamic_dispatch: nil,
+             blast_radius: nil, forward_depth: nil, reverse_depth: nil, branching_factor: nil)
     result = result_for(findings)
     ranker = Archbuddy::Report::Ranker.new(result)
     context = Archbuddy::Report::Formatter::RenderContext.new(
@@ -47,7 +48,12 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       # v0.10 (W4): the three committed counter blocks (nil = v1 aggregate).
       entrypoints:      entrypoints,
       egress:           egress,
-      dynamic_dispatch: dynamic_dispatch
+      dynamic_dispatch: dynamic_dispatch,
+      # v0.11 (W-C): the four business-metric blocks (nil = pre-1.6 doc).
+      blast_radius:     blast_radius,
+      forward_depth:    forward_depth,
+      reverse_depth:    reverse_depth,
+      branching_factor: branching_factor
     )
     Archbuddy::Report::Formatter.for("html").new(context).render
   end
@@ -217,8 +223,12 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     end
 
     it "positions the connectivity banner BEFORE the dimension cards" do
-      conn_pos  = html.index('<div class="connectivity">')
-      cards_pos = html.index('<div class="cards">')
+      # v0.11: scoped to the scores section — the Business Impact PEER section
+      # (which reuses .cards) now legitimately renders earlier on a
+      # scores-bearing doc; the scores section's own shape is unchanged.
+      scores_section = html[%r{<section id="scores">.*?</section>}m]
+      conn_pos  = scores_section.index('<div class="connectivity">')
+      cards_pos = scores_section.index('<div class="cards">')
       expect(conn_pos).not_to be_nil
       expect(cards_pos).not_to be_nil
       expect(conn_pos).to be < cards_pos
@@ -588,6 +598,71 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
     it "keeps a scores-less v1 doc header-free (returns no scores section at all)" do
       html = render(findings: v10_yml)
       expect(html).not_to include('<section id="scores">')
+    end
+  end
+
+  # --- v0.11 (W-C T8): the Business Impact section -----------------------------
+  #
+  # A PEER `<section id="business-impact">` between the body header and Project
+  # Scores, one .card per answerable question from the ONE shared presenter.
+  # "" (no stray section tag) when zero questions are answerable, so v1/v2
+  # no-data docs keep their pre-v0.11 shape. Worst-offender symbols are
+  # trust-boundary text — everything dynamic goes through `escape`.
+  describe "Business Impact section (W-C T8)" do
+    let(:scores_mod) { Archbuddy::Report::Scores }
+    let(:blast) do
+      scores_mod::BlastRadius.new(
+        max: 1569, p90: 3.0, median: 1.0, mean: 121.38,
+        reached_nodes: 5506, total_nodes: 16_173, total_entrypoints: 1611,
+        pct_use_cases_hit_by_worst: 0.9739,
+        worst: [scores_mod::BlastRadius::Worst.new(symbol: "Router#dispatch",
+                                                   use_cases_affected: 1569, added_coupling: 7.5)]
+      )
+    end
+    let(:fwd_depth)  { scores_mod::DepthStats.new(mean: 2.83, median: 2.0, count: 1611) }
+    let(:rev_depth)  { scores_mod::DepthStats.new(mean: 3.42, median: 3.0, count: 5506) }
+    let(:branching)  { scores_mod::BranchingFactor.new(mean: 2649.6, median: 2.416, count: 1611) }
+
+    it "renders the section with one card per question (6 on a full doc) before Project Scores" do
+      html = render(findings: v13_yml, blast_radius: blast, forward_depth: fwd_depth,
+                    reverse_depth: rev_depth, branching_factor: branching)
+      section = html[%r{<section id="business-impact">.*?</section>}m]
+
+      expect(section).not_to be_nil
+      expect(section).to include("<h2>Business Impact</h2>")
+      expect(section.scan('<div class="card">').size).to eq(6)
+      # q3 answer verbatim from the presenter, escaped markup intact
+      expect(section).to include(
+        "the worst single node is reachable from 1569 of 1611 use cases (97.4%) — p90 3, median 1"
+      )
+      # graded rows (q1/q2 from the v13 fixture dims) reuse the color classes…
+      expect(section).to include('<div class="grade grade-C">C</div>')
+      expect(section).to include('<div class="grade grade-D">D</div>')
+      # …ungraded rows never get a grade div (plain .score headline, L15)
+      expect(section.scan('class="grade grade-').size).to eq(2)
+      # peer-section ordering: BI before Project Scores
+      expect(html.index('<section id="business-impact">'))
+        .to be < html.index('<section id="scores">')
+    end
+
+    it "renders NO section on a v1/v2 no-data doc (no stray section tag)" do
+      html = render(findings: v10_yml)
+      expect(html).not_to include('<section id="business-impact">')
+      expect(html).not_to include("Business Impact")
+    end
+
+    it "escapes a worst-offender symbol containing <script> (trust-boundary text)" do
+      hostile = scores_mod::BlastRadius.new(
+        max: 9, p90: 2.0, median: 1.0, mean: 1.5,
+        reached_nodes: 3, total_nodes: 5, total_entrypoints: 9,
+        pct_use_cases_hit_by_worst: 1.0,
+        worst: [scores_mod::BlastRadius::Worst.new(symbol: "<script>alert(1)</script>#pwn",
+                                                   use_cases_affected: 9, added_coupling: nil)]
+      )
+      html = render(findings: v10_yml, blast_radius: hostile)
+
+      expect(html).not_to include("<script>alert(1)</script>")
+      expect(html).to include("&lt;script&gt;alert(1)&lt;/script&gt;#pwn (9 use cases)")
     end
   end
 end

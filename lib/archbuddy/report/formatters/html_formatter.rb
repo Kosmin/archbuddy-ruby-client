@@ -2,6 +2,7 @@
 
 require "json"
 require_relative "../formatter"
+require_relative "../business_impact"
 require_relative "structured_export"
 
 module Archbuddy
@@ -51,6 +52,7 @@ module Archbuddy
             </head>
             <body>
             #{body_header}
+            #{business_impact_html}
             #{scores_header_html}
             #{graph_section_html}
             #{bottleneck_table_html}
@@ -114,6 +116,7 @@ module Archbuddy
             input[type=number]{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;width:80px;}
             input[type=range]{accent-color:var(--accent);vertical-align:middle;}
             .filter-controls,.table-controls{margin-top:8px;}
+            #business-impact .card .grade{font-size:28px;}
           CSS
         end
 
@@ -128,6 +131,49 @@ module Archbuddy
               <div class="src">source: #{escape(tool)}</div>
               <div class="secret">SECRET / local-only — contains real symbols; never commit or share this file.</div>
             </header>
+          HTML
+        end
+
+        # v0.11 (W-C T8): the Business Impact section — a PEER section between
+        # the body header and Project Scores, rendered from the ONE shared
+        # BusinessImpact presenter (all copy/nil-guards/formatting live THERE;
+        # this is pure markup). "" when zero questions are answerable (the
+        # scores_header_html "" pattern — no stray section tag), so v1/v2
+        # docs keep their pre-v0.11 header shape. ALL dynamic text is escaped
+        # — worst-offender symbols are trust-boundary text.
+        def business_impact_html
+          questions = BusinessImpact.questions(context)
+          return "" if questions.empty?
+
+          cards = questions.map { |q| business_impact_card(q) }.join("\n")
+          <<~HTML
+            <section id="business-impact">
+              <h2>Business Impact</h2>
+              <div class="cards">#{cards}</div>
+            </section>
+          HTML
+        end
+
+        # One question card, reusing the .card/.label/.grade-*/.score/.q
+        # styles verbatim. Graded rows (q1/q2) get the letter with the color
+        # class; ungraded rows (q3/q4/q5/bf — UNGRADED per L15) render a
+        # plain .score headline, no color class.
+        def business_impact_card(question)
+          grade_div =
+            if question.grade
+              %(<div class="grade grade-#{escape(question.grade)}">#{escape(question.grade)}</div>\n  )
+            else
+              ""
+            end
+          details = question.detail_lines
+                            .map { |line| %(<div class="q">#{escape(line)}</div>) }
+                            .join("\n  ")
+          <<~HTML
+            <div class="card">
+              <div class="label">#{escape(question.text)}</div>
+              #{grade_div}<div class="score">#{escape(question.answer)}</div>
+              #{details}
+            </div>
           HTML
         end
 
