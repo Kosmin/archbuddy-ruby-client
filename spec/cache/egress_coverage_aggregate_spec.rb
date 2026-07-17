@@ -275,6 +275,205 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
     end
   end
 
+  # v0.11 W-C (serializer v3): the aggregate carries the findings-1.6 blocks
+  # VERBATIM — blast_radius (worst de-anonymized), flat forward_depth /
+  # reverse_depth (guard R1 — no `depth` grouping), branching_factor — plus
+  # median/median_grade/capped_fraction beside every cost stat and the 1.5
+  # egress cost keys. Carry-forward extends to every v3 block; a v2 prior
+  # never manufactures them.
+  describe "serializer v3 (v0.11 W-C)" do
+    def anon_with_proxy_id
+      adapter = Archbuddy::Collect::Registry.for("ruby").new(fixture_root, config)
+      anon = Archbuddy::Collect::Anonymizer.new(
+        adapter.collect, tool: "archbuddy test", adapter: "ruby"
+      ).call
+      proxy_id, = anon.id_map["ids"].find { |_id, d| d["symbol"] == "Billing::Invoice#total" }
+      [anon, proxy_id]
+    end
+
+    # A synthetic findings-1.6 doc with the MEASURED plan numbers (L14/L15/L16).
+    def findings_16(proxy_id)
+      {
+        "scores" => {
+          "forward_discoverability" => {
+            "grade" => "F", "score" => 30_992.17, "median" => 2.0,
+            "median_grade" => "A", "capped_fraction" => 0.0214, "hotspots" => []
+          },
+          "reverse_traceability" => {
+            "grade" => "F", "score" => 32_402.84, "median" => 1_000_000.0,
+            "median_grade" => "F", "capped_fraction" => 0.9764, "hotspots" => []
+          },
+          "egress" => {
+            "grade" => "C", "score" => 130.5, "median" => 44.0,
+            "median_grade" => "B", "capped_fraction" => 0.0, "hotspots" => []
+          },
+          "egress_by_category" => {
+            "gem" => { "score" => 120.0, "median" => 40.0, "grade" => "C",
+                       "median_grade" => "B", "capped_fraction" => 0.0, "hotspots" => [] }
+          },
+          "blast_radius" => {
+            "max" => 1569, "p90" => 3.0, "median" => 1.0, "mean" => 121.38,
+            "reached_nodes" => 5506, "total_nodes" => 16_173, "total_entrypoints" => 1611,
+            "pct_use_cases_hit_by_worst" => 0.9739,
+            "worst" => [{ "node" => proxy_id, "use_cases_affected" => 1569, "added_coupling" => 7.5 }]
+          },
+          "forward_depth" => {
+            "mean" => 2.83, "median" => 2.0, "count" => 1611,
+            "by_category" => { "controllers" => { "mean" => 2.9, "median" => 2.0, "count" => 1200 } }
+          },
+          "reverse_depth" => { "mean" => 3.42, "median" => 3.0, "count" => 5506 },
+          "branching_factor" => { "mean" => 2649.6, "median" => 2.416, "count" => 1611 }
+        }
+      }
+    end
+
+    it "folds every 1.6 block VERBATIM (byte-equal numbers), worst-list de-anonymized" do
+      Dir.mktmpdir do |dir|
+        anon, proxy_id = anon_with_proxy_id
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: anon.graph, id_map: anon.id_map,
+                                       findings: findings_16(proxy_id))
+        agg = read_aggregate(dir)
+
+        expect(agg["serializer_version"]).to eq(3)
+        expect(agg["blast_radius"]).to eq(
+          "max" => 1569, "p90" => 3.0, "median" => 1.0, "mean" => 121.38,
+          "reached_nodes" => 5506, "total_nodes" => 16_173, "total_entrypoints" => 1611,
+          "pct_use_cases_hit_by_worst" => 0.9739,
+          "worst" => [{ "symbol" => "Billing::Invoice#total",
+                        "use_cases_affected" => 1569, "added_coupling" => 7.5 }]
+        )
+        # FLAT spellings, 1:1 with findings (guard R1) — never a `depth` key.
+        expect(agg).not_to have_key("depth")
+        expect(agg["forward_depth"]).to eq(
+          "mean" => 2.83, "median" => 2.0, "count" => 1611,
+          "by_category" => { "controllers" => { "mean" => 2.9, "median" => 2.0, "count" => 1200 } }
+        )
+        expect(agg["reverse_depth"]).to eq("mean" => 3.42, "median" => 3.0, "count" => 5506)
+        expect(agg["branching_factor"]).to eq("mean" => 2649.6, "median" => 2.416, "count" => 1611)
+        expect(agg["branching_factor"]).not_to have_key("grade") # UNGRADED (L15)
+      end
+    end
+
+    it "widens scores.<dim> with median/median_grade/capped_fraction (R8 — the v2 median-gap fix)" do
+      Dir.mktmpdir do |dir|
+        anon, proxy_id = anon_with_proxy_id
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: anon.graph, id_map: anon.id_map,
+                                       findings: findings_16(proxy_id))
+        rev = read_aggregate(dir)["scores"]["reverse_traceability"]
+
+        expect(rev).to eq(
+          "grade" => "F", "score" => 32_402.84, "median" => 1_000_000.0,
+          "median_grade" => "F", "capped_fraction" => 0.9764
+        )
+      end
+    end
+
+    it "reads the egress cost keys + entrypoints.capped_fraction (mirrors the entrypoints spellings)" do
+      Dir.mktmpdir do |dir|
+        anon, proxy_id = anon_with_proxy_id
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: anon.graph, id_map: anon.id_map,
+                                       findings: findings_16(proxy_id))
+        agg = read_aggregate(dir)
+
+        expect(agg["egress"]["mean"]).to eq(130.5)
+        expect(agg["egress"]["median"]).to eq(44.0)
+        expect(agg["egress"]["capped_fraction"]).to eq(0.0)
+        expect(agg["egress"]["by_category_cost"]).to eq(
+          "gem" => { "mean" => 120.0, "median" => 40.0, "grade" => "C",
+                     "median_grade" => "B", "capped_fraction" => 0.0 }
+        )
+        expect(agg["entrypoints"]["capped_fraction"]).to eq(0.0214)
+      end
+    end
+
+    it "a findings-1.5 doc yields v3 with NO 1.6 blocks (absence, never fabricated nulls) but median + egress cost populated" do
+      Dir.mktmpdir do |dir|
+        anon, = anon_with_proxy_id
+        findings_15 = {
+          "scores" => {
+            "forward_discoverability" => { "grade" => "B", "score" => 82.5, "median" => 41.0,
+                                           "hotspots" => [] },
+            "reverse_traceability"    => { "grade" => "C", "score" => 61.0, "median" => 30.0,
+                                           "hotspots" => [] },
+            "egress" => { "grade" => "A", "score" => 10.0, "median" => 8.0, "hotspots" => [] },
+            "egress_by_category" => {}
+          }
+        }
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: anon.graph, id_map: anon.id_map, findings: findings_15)
+        agg = read_aggregate(dir)
+
+        expect(agg["serializer_version"]).to eq(3)
+        %w[blast_radius forward_depth reverse_depth branching_factor depth].each do |key|
+          expect(agg).not_to have_key(key)
+        end
+        expect(agg["scores"]["forward_discoverability"]["median"]).to eq(41.0)
+        expect(agg["scores"]["reverse_traceability"]["median"]).to eq(30.0)
+        # 1.5 emits no median_grade/capped_fraction → honest null, never fabricated
+        expect(agg["scores"]["reverse_traceability"]["median_grade"]).to be_nil
+        expect(agg["egress"]["mean"]).to eq(10.0)
+        expect(agg["egress"]["median"]).to eq(8.0)
+        expect(agg["egress"]["capped_fraction"]).to be_nil
+        expect(agg["egress"]["by_category_cost"]).to eq({})
+      end
+    end
+
+    it "carry-forward: a collect-only rewrite keeps every v3 block byte-identical (counts fresh, cost carried)" do
+      Dir.mktmpdir do |dir|
+        anon, proxy_id = anon_with_proxy_id
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: anon.graph, id_map: anon.id_map,
+                                       findings: findings_16(proxy_id))
+        analyzed = read_aggregate(dir)
+
+        # collect-only rewrite with fresh diagnostics (the real collect flow)
+        _, diagnostics = collect
+        write_collect(dir, anon, diagnostics)
+        after = read_aggregate(dir)
+
+        %w[blast_radius forward_depth reverse_depth branching_factor scores multiplexer_proxies].each do |key|
+          expect(after[key]).to eq(analyzed[key])
+        end
+        # counts FRESH from diagnostics (the analyze write only had the
+        # generic graph-edge fallback)…
+        expect(after["egress"]["by_category"]).to eq("http" => 0, "gem" => 1, "queue" => 0, "generic" => 0)
+        # …while the engine-published cost keys are CARRIED (never recomputed)
+        expect(after["egress"]["mean"]).to eq(130.5)
+        expect(after["egress"]["median"]).to eq(44.0)
+        expect(after["egress"]["by_category_cost"]).to eq(analyzed["egress"]["by_category_cost"])
+      end
+    end
+
+    it "a v2 prior manufactures NOTHING: collect over a v2 cache adds no v3 blocks or cost keys" do
+      Dir.mktmpdir do |dir|
+        v2 = {
+          "serializer_version" => 2,
+          "sources" => {},
+          "scores" => { "forward_discoverability" => { "grade" => "B", "score" => 82.0 } },
+          "egress" => { "total" => 1, "count" => 1,
+                        "by_category" => { "http" => 0, "gem" => 1, "queue" => 0, "generic" => 0 } }
+        }
+        File.write(File.join(dir, "archbuddy-findings.json"), JSON.generate(v2))
+
+        anon, diagnostics = collect
+        write_collect(dir, anon, diagnostics)
+        agg = read_aggregate(dir)
+
+        expect(agg["serializer_version"]).to eq(3)
+        %w[blast_radius forward_depth reverse_depth branching_factor depth].each do |key|
+          expect(agg).not_to have_key(key)
+        end
+        expect(agg["scores"]).to eq(v2["scores"]) # carried verbatim
+        %w[mean median capped_fraction by_category_cost].each do |key|
+          expect(agg["egress"]).not_to have_key(key) # no manufactured cost
+        end
+      end
+    end
+  end
+
   describe "v1-aggregate back-compat (read side)" do
     it "a pre-bump (v1) aggregate still parses — Result counter fields are nil, no raise" do
       Dir.mktmpdir do |dir|

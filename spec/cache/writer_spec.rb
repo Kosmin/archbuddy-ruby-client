@@ -113,7 +113,15 @@ RSpec.describe Archbuddy::Cache::Writer do
         "scores" => {
           "forward_discoverability" => { "grade" => "C", "score" => 60.0 },
           "reverse_traceability"    => { "grade" => "D", "score" => 50.0 },
-          "multiplexer_proxies"     => []
+          "multiplexer_proxies"     => [],
+          # v0.11 (v3): the carry list extends to every 1.6-fed block
+          "blast_radius" => { "max" => 2, "p90" => 2.0, "median" => 1.0, "mean" => 1.5,
+                              "reached_nodes" => 2, "total_nodes" => 4, "total_entrypoints" => 2,
+                              "pct_use_cases_hit_by_worst" => 1.0, "worst" => [] },
+          "forward_depth"    => { "mean" => 2.0, "median" => 2.0, "count" => 2 },
+          "reverse_depth"    => { "mean" => 3.0, "median" => 3.0, "count" => 2 },
+          "branching_factor" => { "mean" => 1.5, "median" => 1.5, "count" => 2 },
+          "egress" => { "grade" => "A", "score" => 4.0, "median" => 4.0, "hotspots" => [] }
         }
       }
       # analyze/reset write (with findings) → rich aggregate.
@@ -126,6 +134,12 @@ RSpec.describe Archbuddy::Cache::Writer do
       after = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
       expect(after["scores"]).to eq(rich["scores"])
       expect(after["multiplexer_proxies"]).to eq(rich["multiplexer_proxies"])
+      # v0.11 (v3): the new blocks + the egress cost keys ride the carry too
+      %w[blast_radius forward_depth reverse_depth branching_factor].each do |key|
+        expect(after[key]).to eq(rich[key])
+      end
+      expect(after["egress"]["mean"]).to eq(4.0)
+      expect(after["egress"]["median"]).to eq(4.0)
     end
   end
 
