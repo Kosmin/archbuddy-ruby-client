@@ -405,3 +405,187 @@ RSpec.describe "counter structs (v0.10 W1-A1)" do
     end
   end
 end
+
+# v0.11 W-C: the counter-wave read-side structs (BlastRadius / DepthStats /
+# BranchingFactor) + the widened DimensionScore / EntrypointCount / Egress.
+# Everything parses VERBATIM (D17), nil on absent/empty blocks (v1/v2 docs),
+# and the legacy opaque findings-1.6 path resolves worst-entry node ids via
+# the SAME id-map join used everywhere else.
+RSpec.describe "v0.11 counter structs (W-C)" do
+  S = Archbuddy::Report::Scores
+
+  let(:blast_block) do
+    {
+      "max" => 1569, "p90" => 3.0, "median" => 1.0, "mean" => 121.38,
+      "reached_nodes" => 5506, "total_nodes" => 16_173, "total_entrypoints" => 1611,
+      "pct_use_cases_hit_by_worst" => 0.9739,
+      "worst" => [{ "symbol" => "Foo#bar", "use_cases_affected" => 1569, "added_coupling" => 7.5 }]
+    }
+  end
+
+  describe ".blast_radius_from_aggregate" do
+    it "returns nil for absent/empty blocks and a nil doc (v1/v2 back-compat)" do
+      expect(S.blast_radius_from_aggregate({})).to be_nil
+      expect(S.blast_radius_from_aggregate(nil)).to be_nil
+      expect(S.blast_radius_from_aggregate("blast_radius" => {})).to be_nil
+    end
+
+    it "parses a full committed block verbatim (symbol already real-name)" do
+      br = S.blast_radius_from_aggregate("blast_radius" => blast_block)
+      expect(br.max).to eq(1569)
+      expect(br.p90).to eq(3.0)
+      expect(br.median).to eq(1.0)
+      expect(br.mean).to eq(121.38)
+      expect(br.reached_nodes).to eq(5506)
+      expect(br.total_nodes).to eq(16_173)
+      expect(br.total_entrypoints).to eq(1611)
+      expect(br.pct_display).to eq("97.4%")
+      expect(br.worst.first.symbol).to eq("Foo#bar")
+      expect(br.worst.first.use_cases_affected).to eq(1569)
+      expect(br.worst.first.added_coupling).to eq(7.5)
+    end
+
+    it "parses the engine N/A form to nil stats + empty worst (pct_display 'N/A')" do
+      br = S.blast_radius_from_aggregate(
+        "blast_radius" => {
+          "max" => nil, "p90" => nil, "median" => nil, "mean" => nil,
+          "reached_nodes" => 0, "total_nodes" => 4, "total_entrypoints" => 0,
+          "pct_use_cases_hit_by_worst" => nil, "worst" => []
+        }
+      )
+      expect(br.max).to be_nil
+      expect(br.pct_display).to eq("N/A")
+      expect(br.worst).to eq([])
+    end
+  end
+
+  describe ".blast_radius_from_findings (legacy opaque path)" do
+    it "resolves worst-entry node ids via the id-map join (multiplexer precedent)" do
+      resolver = Archbuddy::Report::Reconnect::IdMapResolver.new(
+        "ids" => { "n_1" => { "symbol" => "Billing::Invoice#total", "file" => "a.rb", "line" => 1 } }
+      )
+      doc = { "scores" => { "blast_radius" => blast_block.merge(
+        "worst" => [{ "node" => "n_1", "use_cases_affected" => 9, "added_coupling" => nil }]
+      ) } }
+      br = S.blast_radius_from_findings(doc, resolver)
+      expect(br.worst.first.symbol).to eq("Billing::Invoice#total")
+      expect(br.worst.first.added_coupling).to be_nil
+    end
+
+    it "returns nil when the findings doc has no scores block" do
+      expect(S.blast_radius_from_findings({}, nil)).to be_nil
+      expect(S.blast_radius_from_findings({ "scores" => {} }, nil)).to be_nil
+    end
+  end
+
+  describe "depth + branching-factor parsers (flat spellings, guard R1)" do
+    it "returns nil on absent/empty blocks" do
+      expect(S.forward_depth_from_aggregate({})).to be_nil
+      expect(S.reverse_depth_from_aggregate(nil)).to be_nil
+      expect(S.branching_factor_from_aggregate("branching_factor" => {})).to be_nil
+    end
+
+    it "parses forward_depth with by_category; max stays nil (C3 — not emitted in v0.11)" do
+      fd = S.forward_depth_from_aggregate(
+        "forward_depth" => { "mean" => 2.83, "median" => 2.0, "count" => 1611,
+                             "by_category" => { "controllers" => { "mean" => 2.9, "median" => 2.0, "count" => 1200 } } }
+      )
+      expect(fd.mean).to eq(2.83)
+      expect(fd.median).to eq(2.0)
+      expect(fd.count).to eq(1611)
+      expect(fd.max).to be_nil
+      expect(fd.by_category).to have_key("controllers")
+    end
+
+    it "parses reverse_depth (no by_category — R9) and branching_factor (no grade member — L15)" do
+      rd = S.reverse_depth_from_aggregate("reverse_depth" => { "mean" => 3.42, "median" => 3.0, "count" => 5506 })
+      expect(rd.median).to eq(3.0)
+      expect(rd.by_category).to be_nil
+
+      bf = S.branching_factor_from_aggregate("branching_factor" => { "mean" => 2649.6, "median" => 2.416, "count" => 1611 })
+      expect(bf.median).to eq(2.416)
+      expect(bf).not_to respond_to(:grade)
+    end
+
+    it "legacy findings variants read the SAME flat keys under scores" do
+      doc = { "scores" => {
+        "forward_depth"    => { "mean" => 2.0, "median" => 2.0, "count" => 3 },
+        "reverse_depth"    => { "mean" => 4.0, "median" => 4.0, "count" => 5 },
+        "branching_factor" => { "mean" => 1.5, "median" => 1.5, "count" => 3 }
+      } }
+      expect(S.forward_depth_from_findings(doc).count).to eq(3)
+      expect(S.reverse_depth_from_findings(doc).count).to eq(5)
+      expect(S.branching_factor_from_findings(doc).median).to eq(1.5)
+    end
+  end
+
+  describe "DimensionScore median/median_grade/capped_fraction (additive)" do
+    it "parses the v3/1.6 keys when present" do
+      dims = S.from_findings(
+        { "scores" => { "reverse_traceability" => {
+          "grade" => "F", "score" => 32_402.84, "median" => 1_000_000.0,
+          "median_grade" => "F", "capped_fraction" => 0.9764
+        } } }, nil
+      )
+      rev = dims.find { |d| d.key == "reverse_traceability" }
+      expect(rev.median).to eq(1_000_000.0)
+      expect(rev.median_grade).to eq("F")
+      expect(rev.capped_fraction).to eq(0.9764)
+    end
+
+    it "is nil on v2/1.5-shaped docs (additive back-compat, never fabricated)" do
+      dims = S.from_findings(
+        { "scores" => { "reverse_traceability" => { "grade" => "C", "score" => 61.0 } } }, nil
+      )
+      rev = dims.find { |d| d.key == "reverse_traceability" }
+      expect(rev.median).to be_nil
+      expect(rev.median_grade).to be_nil
+      expect(rev.capped_fraction).to be_nil
+    end
+  end
+
+  describe "Egress cost fields + shared CostLineDisplay" do
+    it "parses the v3 egress cost keys (mirrors entrypoints spellings)" do
+      eg = S.egress_from_aggregate(
+        "egress" => {
+          "total" => 710, "count" => 710,
+          "by_category" => { "http" => 6, "gem" => 702, "queue" => 2, "generic" => 0 },
+          "mean" => 130.5, "median" => 44.0, "capped_fraction" => 0.0,
+          "by_category_cost" => { "gem" => { "mean" => 120.0, "median" => 40.0, "grade" => "C",
+                                             "median_grade" => "B", "capped_fraction" => 0.0 } }
+        }
+      )
+      expect(eg.mean).to eq(130.5)
+      expect(eg.median_display).to eq("44.0")
+      expect(eg.capped_fraction).to eq(0.0)
+      # v0.11: the 1.6 secondary letter rides INSIDE the grade parens
+      expect(eg.by_category_cost_display).to eq("gem mean 120.0 / median 40.0 (C, median: B)")
+    end
+
+    it "keeps v2 egress docs nil-cost (back-compat) and the v0.10 grade-only rendering byte-identical" do
+      eg = S.egress_from_aggregate(
+        "egress" => { "total" => 1, "count" => 1,
+                      "by_category" => { "http" => 0, "gem" => 1, "queue" => 0, "generic" => 0 } }
+      )
+      expect(eg.mean).to be_nil
+      expect(eg.by_category_cost_display).to be_nil
+
+      ep = S::EntrypointCount.new(
+        total: 4, count: 4, by_category: {},
+        by_category_cost: { "controllers" => { "mean" => 30.0, "median" => 14.0, "grade" => "C" } }
+      )
+      expect(ep.by_category_cost_display).to eq("controllers mean 30.0 / median 14.0 (C)")
+    end
+
+    it "parses entrypoints.capped_fraction (nil on v2 docs)" do
+      ep = S.entrypoints_from_aggregate(
+        "entrypoints" => { "total" => 1, "count" => 1, "by_category" => {},
+                           "capped_fraction" => 0.0214 }
+      )
+      expect(ep.capped_fraction).to eq(0.0214)
+
+      v2 = S.entrypoints_from_aggregate("entrypoints" => { "total" => 1, "count" => 1, "by_category" => {} })
+      expect(v2.capped_fraction).to be_nil
+    end
+  end
+end

@@ -95,8 +95,14 @@ module Archbuddy
 
       # One dimension's de-anonymized presentation model. score/grade are
       # VERBATIM from findings.yml; hotspots are resolved Locations (worst-first).
+      # v0.11 (v3/1.6): `median` (the P50 beside the outlier-dominated mean),
+      # `median_grade` (the ENGINE-graded secondary letter — the client never
+      # grades, D17) and `capped_fraction` (the censoring share; a capped mean
+      # reads as a LOWER BOUND) ride along nil-tolerantly — all nil on v2/1.5
+      # docs (additive-safe keyword_init members).
       DimensionScore = Struct.new(
         :key, :label, :question, :score, :grade, :hotspots, :na_reason,
+        :median, :median_grade, :capped_fraction,
         keyword_init: true
       ) do
         # True when the engine could not determine a score (null score / "N/A"
@@ -170,18 +176,16 @@ module Archbuddy
         end
       end
 
-      # v0.10 (A1): the committed `entrypoints` aggregate block — ingress
-      # COUNTS by category. `mean`/`median` are the engine-published headline
-      # per-entrypoint cost and `by_category_cost` the engine's per-category
-      # lens ({cat => {mean, median, grade}}), all copied VERBATIM at analyze
-      # time (W6); nil/{} on a collect-only cache (never computed client-side
-      # — D17). Written by Cache::Writer in W3 (cost wired in W6).
-      EntrypointCount = Struct.new(
-        :total, :count, :by_category, :mean, :median, :by_category_cost,
-        keyword_init: true
-      ) do
-        include ByCategoryDisplay
-
+      # v0.11 (W-C): the ONE cost-line display helper shared by the
+      # EntrypointCount and Egress counter structs (extracted from
+      # EntrypointCount, behavior-preserving — existing rendered strings are
+      # byte-identical). Expects `mean`/`median`/`by_category_cost` members.
+      #
+      # v0.11 addition: when a per-category entry carries a non-nil
+      # `median_grade` (engine findings 1.6), the letter is appended INSIDE
+      # the grade parens — "… (C, median: B)" (L17 secondary-letter
+      # placement); absent → byte-identical to the v0.10 rendering.
+      module CostLineDisplay
         def mean_display
           cost_display(mean)
         end
@@ -202,12 +206,20 @@ module Archbuddy
           return nil if present.empty?
 
           present.map do |cat, dim|
-            grade = dim["grade"] ? " (#{dim['grade']})" : ""
-            "#{cat} mean #{cost_display(dim['mean'])} / median #{cost_display(dim['median'])}#{grade}"
+            "#{cat} mean #{cost_display(dim['mean'])} / median #{cost_display(dim['median'])}#{grade_suffix(dim)}"
           end.join(", ")
         end
 
         private
+
+        # " (C)" — or " (C, median: B)" when the engine published the 1.6
+        # secondary letter (never computed client-side, D17). "" gradeless.
+        def grade_suffix(dim)
+          return "" unless dim["grade"]
+          return " (#{dim['grade']})" if dim["median_grade"].nil?
+
+          " (#{dim['grade']}, median: #{dim['median_grade']})"
+        end
 
         # "—" when the engine has not published cost (collect-only cache /
         # pre-A2 engine) — an honest absence, never a fabricated number.
@@ -218,14 +230,35 @@ module Archbuddy
         end
       end
 
-      # v0.10 (A1/C): the committed `egress` aggregate block — exit COUNTS by
-      # egress category ({http, gem, queue, generic}; generic = the untagged
-      # `<external>` bucket). Counts only; written by Cache::Writer in W3.
-      Egress = Struct.new(
-        :total, :count, :by_category,
+      # v0.10 (A1): the committed `entrypoints` aggregate block — ingress
+      # COUNTS by category. `mean`/`median` are the engine-published headline
+      # per-entrypoint cost and `by_category_cost` the engine's per-category
+      # lens ({cat => {mean, median, grade[, median_grade, capped_fraction]}}),
+      # all copied VERBATIM at analyze time (W6/v0.11); nil/{} on a
+      # collect-only cache (never computed client-side — D17).
+      # v0.11: `capped_fraction` — the censoring share beside the mean.
+      EntrypointCount = Struct.new(
+        :total, :count, :by_category, :mean, :median, :by_category_cost,
+        :capped_fraction,
         keyword_init: true
       ) do
         include ByCategoryDisplay
+        include CostLineDisplay
+      end
+
+      # v0.10 (A1/C): the committed `egress` aggregate block — exit COUNTS by
+      # egress category ({http, gem, queue, generic}; generic = the untagged
+      # `<external>` bucket). v0.11 (v3): also carries the engine-published
+      # egress COST keys (`mean`/`median`/`capped_fraction`/`by_category_cost`
+      # — per-exit-point averages once E1 splits the sinks), mirroring the
+      # `entrypoints` spellings exactly; all nil/absent on v2 docs.
+      Egress = Struct.new(
+        :total, :count, :by_category,
+        :mean, :median, :capped_fraction, :by_category_cost,
+        keyword_init: true
+      ) do
+        include ByCategoryDisplay
+        include CostLineDisplay
       end
 
       # v0.10 (A1/D): the committed `dynamic_dispatch` coverage block —
@@ -245,6 +278,50 @@ module Archbuddy
           format("%.1f%%", ratio * 100)
         end
       end
+
+      # v0.11 (W-C, L14): the `blast_radius` presentation model — Q3 "how many
+      # use cases can a single change put at risk?". Everything VERBATIM from
+      # the committed aggregate / findings 1.6 (D17); the ONLY arithmetic is
+      # `ratio * 100` display formatting (the Connectivity#pct_display idiom).
+      # The N/A form (zero entrypoints / nothing non-external reached) parses
+      # to nil stats + empty worst — the presenter omits the question.
+      BlastRadius = Struct.new(
+        :max, :p90, :median, :mean, :reached_nodes, :total_nodes,
+        :total_entrypoints, :pct_use_cases_hit_by_worst, :worst,
+        keyword_init: true
+      ) do
+        # "97.4%" from the engine-emitted 0..1 ratio; "N/A" on the N/A form.
+        def pct_display
+          return "N/A" if pct_use_cases_hit_by_worst.nil?
+
+          format("%.1f%%", pct_use_cases_hit_by_worst * 100)
+        end
+      end
+
+      # One worst-offender entry ({symbol, use_cases_affected, added_coupling}
+      # — factors displayed SEPARATELY, the reach x amplification product is
+      # never computed/persisted, R7). added_coupling nil unless the node is
+      # also a multiplexer proxy (never fabricated).
+      BlastRadius::Worst = Struct.new(:symbol, :use_cases_affected, :added_coupling, keyword_init: true)
+
+      # v0.11 (W-C, L15/L16): a findings-1.6 `stat_summary` block ({mean,
+      # median, count} + optional by_category) for the flat forward_depth /
+      # reverse_depth keys. `max` is a nil-only member in v0.11 (the engine
+      # does not emit it — synthesis C3 deferred it to a 1.7 candidate; the
+      # presenter's "worst {max}" clause drops nil-tolerantly).
+      DepthStats = Struct.new(
+        :mean, :median, :count, :max, :by_category,
+        keyword_init: true
+      )
+
+      # v0.11 (W-C, L15): the ungraded per-hop branching density b-bar.
+      # NO grade member EVER (grading hop counts against cost bands is a
+      # category error); consumers render MEDIAN-FIRST (the mean is
+      # degenerate-dominated on real graphs).
+      BranchingFactor = Struct.new(
+        :mean, :median, :count, :by_category,
+        keyword_init: true
+      )
 
       module_function
 
@@ -286,7 +363,9 @@ module Archbuddy
           median:           block["median"],
           # v0.10 W6: engine per-category cost lens (nil/{} on pre-W6 docs —
           # graceful back-compat, the display helper treats both as absent)
-          by_category_cost: block["by_category_cost"]
+          by_category_cost: block["by_category_cost"],
+          # v0.11 (v3): the censoring share — nil on v2 docs (back-compat)
+          capped_fraction:  block["capped_fraction"]
         )
       end
 
@@ -300,6 +379,125 @@ module Archbuddy
 
         Egress.new(
           total:       block["total"],
+          count:       block["count"],
+          by_category: block["by_category"],
+          # v0.11 (v3): the engine-published egress cost keys — all nil on v2
+          # docs (back-compat; per-exit-point averages post-E1)
+          mean:             block["mean"],
+          median:           block["median"],
+          capped_fraction:  block["capped_fraction"],
+          by_category_cost: block["by_category_cost"]
+        )
+      end
+
+      # v0.11 (W-C): parse the committed aggregate's TOP-LEVEL `blast_radius`
+      # block (already real-name — worst entries carry `symbol`). Returns a
+      # BlastRadius, or NIL when absent/empty (v1/v2 docs) — the
+      # entrypoints_from_aggregate nil-on-absent pattern.
+      #
+      # @param doc [Hash] parsed committed-aggregate doc (string keys)
+      # @return [BlastRadius, nil]
+      def blast_radius_from_aggregate(doc)
+        block = (doc || {})["blast_radius"]
+        return nil if block.nil? || block.empty?
+
+        build_blast_radius(block) { |w| w["symbol"] }
+      end
+
+      # v0.11 (W-C): LEGACY variant — parse `scores.blast_radius` off an
+      # opaque findings-1.6 doc, resolving each worst entry's `node` id via
+      # the SAME id-map join (the multiplexer_proxies_from_findings pattern;
+      # a missing id degrades to the opaque id, never raises).
+      #
+      # @param findings_doc [Hash] parsed findings.yml (string keys)
+      # @param resolver     [#resolve, nil] id → Model::Location
+      # @return [BlastRadius, nil]
+      def blast_radius_from_findings(findings_doc, resolver = nil)
+        block = ((findings_doc || {})["scores"] || {})["blast_radius"]
+        return nil if block.nil? || block.empty?
+
+        build_blast_radius(block) do |w|
+          id  = w["node"]
+          loc = resolver ? resolver.resolve(id) : nil
+          loc&.symbol || id
+        end
+      end
+
+      # Build one BlastRadius from either producer shape. The worst-entry
+      # symbol comes from the yielded block (committed: `symbol` verbatim;
+      # legacy: resolved `node` id). Everything else VERBATIM (D17).
+      def build_blast_radius(block)
+        BlastRadius.new(
+          max:                        block["max"],
+          p90:                        block["p90"],
+          median:                     block["median"],
+          mean:                       block["mean"],
+          reached_nodes:              block["reached_nodes"],
+          total_nodes:                block["total_nodes"],
+          total_entrypoints:          block["total_entrypoints"],
+          pct_use_cases_hit_by_worst: block["pct_use_cases_hit_by_worst"],
+          worst: (block["worst"] || []).map do |w|
+            BlastRadius::Worst.new(
+              symbol:             yield(w),
+              use_cases_affected: w["use_cases_affected"],
+              added_coupling:     w["added_coupling"]
+            )
+          end
+        )
+      end
+
+      # v0.11 (W-C): the flat `forward_depth` / `reverse_depth` aggregate
+      # blocks (guard R1 — SAME spellings as findings; no `depth` grouping).
+      # NIL on absent/empty (v1/v2 docs).
+      def forward_depth_from_aggregate(doc)
+        depth_stats_from((doc || {})["forward_depth"])
+      end
+
+      def reverse_depth_from_aggregate(doc)
+        depth_stats_from((doc || {})["reverse_depth"])
+      end
+
+      # Legacy variants — the SAME flat keys under `scores` on an opaque
+      # findings-1.6 doc (no ids inside → no resolver needed).
+      def forward_depth_from_findings(findings_doc)
+        depth_stats_from(((findings_doc || {})["scores"] || {})["forward_depth"])
+      end
+
+      def reverse_depth_from_findings(findings_doc)
+        depth_stats_from(((findings_doc || {})["scores"] || {})["reverse_depth"])
+      end
+
+      # v0.11 (W-C): the ungraded `branching_factor` block. NIL on absent/empty.
+      def branching_factor_from_aggregate(doc)
+        branching_factor_from((doc || {})["branching_factor"])
+      end
+
+      def branching_factor_from_findings(findings_doc)
+        branching_factor_from(((findings_doc || {})["scores"] || {})["branching_factor"])
+      end
+
+      # {mean, median, count[, max, by_category]} → DepthStats; nil on an
+      # absent/empty block (absence, never a fabricated zero-struct). The
+      # engine's degenerate {mean: nil, median: nil, count: 0} form parses to
+      # an honest present-but-nil struct (the presenter omits the question).
+      def depth_stats_from(block)
+        return nil if block.nil? || block.empty?
+
+        DepthStats.new(
+          mean:        block["mean"],
+          median:      block["median"],
+          count:       block["count"],
+          max:         block["max"], # nil-only in v0.11 (synthesis C3)
+          by_category: block["by_category"]
+        )
+      end
+
+      def branching_factor_from(block)
+        return nil if block.nil? || block.empty?
+
+        BranchingFactor.new(
+          mean:        block["mean"],
+          median:      block["median"],
           count:       block["count"],
           by_category: block["by_category"]
         )
@@ -403,6 +601,12 @@ module Archbuddy
           question:  question,
           score:     score,            # VERBATIM (D17) — unbounded cost (≥0) or nil
           grade:     dim["grade"],     # VERBATIM — "A".."F" or "N/A"
+          # v0.11 (v3/1.6): the committed `scores.<dim>` and findings
+          # `scores.<dim>` spellings mirror 1:1 (guard R1), so this ONE
+          # parser serves both paths — all three nil on v2/1.5 docs.
+          median:          dim["median"],
+          median_grade:    dim["median_grade"],
+          capped_fraction: dim["capped_fraction"],
           hotspots:  build_hotspots(key, dim["hotspots"] || [], findings_doc, resolver),
           # Intentional for the current two-dimension contract: only
           # forward_discoverability can be N/A (no entrypoints, M3). reverse is
