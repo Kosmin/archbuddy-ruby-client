@@ -43,13 +43,13 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
   end
 
   describe "collect path (diagnostics fresh)" do
-    it "writes all three blocks under serializer_version 2" do
+    it "writes all three blocks under serializer_version 3" do
       Dir.mktmpdir do |dir|
         anon, diagnostics = collect
         write_collect(dir, anon, diagnostics)
 
         agg = read_aggregate(dir)
-        expect(agg["serializer_version"]).to eq(2)
+        expect(agg["serializer_version"]).to eq(3)
         expect(agg).to have_key("entrypoints")
         expect(agg).to have_key("egress")
         expect(agg).to have_key("dynamic_dispatch")
@@ -174,7 +174,7 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
                                 .write(graph: anon.graph, id_map: anon.id_map, findings: findings)
 
         agg = read_aggregate(dir)
-        expect(agg["serializer_version"]).to eq(2)
+        expect(agg["serializer_version"]).to eq(3)
         expect(agg["scores"]).to have_key("forward_discoverability")
         expect(agg["egress"]).to eq(collect_time["egress"])                       # not zero-clobbered
         expect(agg["dynamic_dispatch"]).to eq(collect_time["dynamic_dispatch"])   # carried forward
@@ -219,9 +219,13 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
           ep = read_aggregate(dir)["entrypoints"]
           expect(ep["mean"]).to eq(82.5)     # headline dimension `score` (the mean)
           expect(ep["median"]).to eq(41.0)   # its 1.5 `median` sibling (L7)
+          # v0.11 (v3): the lens shape widens with median_grade/capped_fraction
+          # — null on 1.5 findings (keys written, never fabricated values).
           expect(ep["by_category_cost"]).to eq(
-            "controllers"   => { "mean" => 82.5, "median" => 41.0, "grade" => "B" },
-            "uncategorized" => { "mean" => 3.0, "median" => 3.0, "grade" => "A" }
+            "controllers"   => { "mean" => 82.5, "median" => 41.0, "grade" => "B",
+                                 "median_grade" => nil, "capped_fraction" => nil },
+            "uncategorized" => { "mean" => 3.0, "median" => 3.0, "grade" => "A",
+                                 "median_grade" => nil, "capped_fraction" => nil }
           )
         end
       end

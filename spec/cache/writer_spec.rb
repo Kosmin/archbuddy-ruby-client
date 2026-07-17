@@ -70,7 +70,12 @@ RSpec.describe Archbuddy::Cache::Writer do
       }
       write_into(dir, findings: findings)
       agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
-      expect(agg["scores"]["forward_discoverability"]).to eq("grade" => "B", "score" => 82.0)
+      # v0.11 (v3, R8): the headline dimension also carries median /
+      # median_grade / capped_fraction — null on a pre-1.6 findings doc.
+      expect(agg["scores"]["forward_discoverability"]).to eq(
+        "grade" => "B", "score" => 82.0,
+        "median" => nil, "median_grade" => nil, "capped_fraction" => nil
+      )
       # opaque hotspot id list dropped from the compact headline
       expect(agg["scores"]["forward_discoverability"]).not_to have_key("hotspots")
       expect(agg["multiplexer_proxies"]).to eq([])
@@ -132,7 +137,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir)
 
       frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/controllers/orders_controller.rb.json")))
-      expect(frag["serializer_version"]).to eq(2)
+      expect(frag["serializer_version"]).to eq(3)
       action = frag["nodes"].find { |n| n["symbol"] == "OrdersController#index" }
       expect(action["entrypoint"]).to be(true)
       expect(action["entrypoint_kind"]).to eq("controllers")

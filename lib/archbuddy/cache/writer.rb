@@ -53,15 +53,27 @@ module Archbuddy
     class Writer
       # Bump when the committed serialization shape or canonical-ordering rule
       # changes, so a fragment written by an OLDER writer is NOT reused verbatim
-      # by a newer collector (C2 collector-version stamp). Folded into the
-      # fragment `content_hash` (C2 ChangeDetector) so a mismatch forces re-parse.
+      # by a newer collector (C2 collector-version stamp). NOTE: the stamp is a
+      # SERIALIZATION-shape marker only — the fragment `content_hash` fold that
+      # forces AST re-parse is `Reader::COLLECTOR_VERSION` (reader.rb /
+      # change_detector.rb); a SERIALIZER bump rewrites every fragment's stamp
+      # but does NOT force re-parse.
       #
-      # v2 (v0.10 W3 / A1 — THE one serializer bump, I10): the aggregate gains
-      # the three committed counter blocks (`entrypoints`, `egress`,
-      # `dynamic_dispatch`) and fragment nodes gain the `entrypoint_kind`
-      # category string beside the `entrypoint` boolean. NOT a contract
+      # v2 (v0.10 W3 / A1): the aggregate gained the three committed counter
+      # blocks (`entrypoints`, `egress`, `dynamic_dispatch`) and fragment nodes
+      # the `entrypoint_kind` category string beside the `entrypoint` boolean.
+      #
+      # v3 (v0.11 W-C — THE one serializer bump of the release, sole owner):
+      # the aggregate additionally carries the findings-1.6 blocks VERBATIM —
+      # `blast_radius` (worst-list de-anonymized to real symbols), flat
+      # `forward_depth` / `reverse_depth` stat blocks, `branching_factor`
+      # (UNGRADED, median-first) — plus `median`/`median_grade`/
+      # `capped_fraction` beside every committed cost stat (`scores.<dim>`,
+      # `entrypoints`, per-category lenses) and the previously-unread 1.5
+      # egress cost keys (`egress.{mean, median, capped_fraction,
+      # by_category_cost}` — per-exit-point averages post-E1). NOT a contract
       # (graph/findings) change — the committed cache is a client-owned shape.
-      SERIALIZER_VERSION = 2
+      SERIALIZER_VERSION = 3
 
       # @param project_root [String] the audited repo root (CWD by default).
       def initialize(project_root: Dir.pwd)
@@ -256,6 +268,17 @@ module Archbuddy
           if scores
             doc["scores"]              = headline_scores(scores)
             doc["multiplexer_proxies"] = deanon_proxies(scores, resolver)
+            # v0.11 (serializer v3, W-C): the findings-1.6 blocks, copied
+            # VERBATIM (D17) — block-present-iff-source-present (a 1.5 doc
+            # writes none of them; absence, never fabricated nulls). The ONLY
+            # computation is the blast worst-list de-anonymization.
+            doc["blast_radius"]     = blast_radius_block(scores, resolver) if scores.key?("blast_radius")
+            doc["forward_depth"]    = stat_copy(scores["forward_depth"])   if scores.key?("forward_depth")
+            doc["reverse_depth"]    = stat_copy(scores["reverse_depth"])   if scores.key?("reverse_depth")
+            doc["branching_factor"] = stat_copy(scores["branching_factor"]) if scores.key?("branching_factor")
+            # v0.11: light up the (1.5-live, until-now-unread) egress cost
+            # keys — per-exit-point averages once E1 splits the sinks.
+            merge_egress_cost!(doc["egress"], scores)
           end
         else
           # collect path (no findings yet): PRESERVE any scores + smell already
@@ -346,6 +369,9 @@ module Archbuddy
           "by_category"      => by_category,
           "mean"             => forward["score"],
           "median"           => forward["median"],
+          # v0.11 (v3): the censoring share beside the graded mean (L8/F2) —
+          # verbatim, null until the engine publishes it (1.6).
+          "capped_fraction"  => forward["capped_fraction"],
           "by_category_cost" => entrypoint_cost_by_category(scores)
         }
       end
@@ -358,16 +384,42 @@ module Archbuddy
       # copied verbatim, never remapped). {} on pre-1.5 findings or a
       # collect-only write — an honest empty, never fabricated (I2).
       def entrypoint_cost_by_category(scores)
-        lens = scores["forward_discoverability_by_category"]
+        cost_lens_compaction(scores["forward_discoverability_by_category"])
+      end
+
+      # v0.11 (v3): the ONE per-category cost-lens compaction — shared by the
+      # `entrypoints` and `egress` folds so both carry the SAME shape
+      # ({mean, median, grade, median_grade, capped_fraction}; hotspots
+      # dropped — opaque, exactly like headline_scores). {} on an absent lens.
+      def cost_lens_compaction(lens)
         return {} unless lens.is_a?(Hash)
 
         lens.to_h do |category, dim|
           [category, {
-            "mean"   => dim["score"],
-            "median" => dim["median"],
-            "grade"  => dim["grade"]
+            "mean"            => dim["score"],
+            "median"          => dim["median"],
+            "grade"           => dim["grade"],
+            "median_grade"    => dim["median_grade"],
+            "capped_fraction" => dim["capped_fraction"]
           }]
         end
+      end
+
+      # v0.11 (v3): graft the engine's 1.5 egress COST dimension onto the
+      # committed egress COUNTS block (counts logic untouched — the E1
+      # boundary). `mean` is the dimension `score` (arithmetic mean), exactly
+      # the `entrypoints` spelling. Post-E1 per-target sinks these numbers
+      # become per-exit-point averages with zero further change. No-op on
+      # pre-1.5 findings (no `scores.egress` → no cost keys, absence not
+      # fabricated nulls).
+      def merge_egress_cost!(egress_doc, scores)
+        eg = scores["egress"]
+        return unless eg.is_a?(Hash)
+
+        egress_doc["mean"]             = eg["score"]
+        egress_doc["median"]           = eg["median"]
+        egress_doc["capped_fraction"]  = eg["capped_fraction"]
+        egress_doc["by_category_cost"] = cost_lens_compaction(scores["egress_by_category"])
       end
 
       # C egress COUNTS: the single read path is `diagnostics[:egress_counts]`
@@ -421,13 +473,24 @@ module Archbuddy
 
       # Headline (compact) dimension scores — grade + score numbers only; drop
       # the opaque hotspot id lists (those live in the detail tree / are opaque).
+      # v0.11 (serializer v3, R8 — fixes the v2 median gap): each dimension
+      # entry also carries `median` + `median_grade` + `capped_fraction`,
+      # copied VERBATIM (null on pre-1.6 keys the engine didn't emit — once
+      # the source hash exists, keys are written with null rather than
+      # omitted, so the committed shape is deterministic).
       def headline_scores(scores)
         out = {}
         %w[forward_discoverability reverse_traceability].each do |dim|
           d = scores[dim]
           next unless d
 
-          out[dim] = { "grade" => d["grade"], "score" => d["score"] }
+          out[dim] = {
+            "grade"           => d["grade"],
+            "score"           => d["score"],
+            "median"          => d["median"],
+            "median_grade"    => d["median_grade"],
+            "capped_fraction" => d["capped_fraction"]
+          }
         end
         if (c = scores["connectivity"])
           out["connectivity"] = {
@@ -448,6 +511,47 @@ module Archbuddy
             "added_coupling" => proxy["added_coupling"]
           }
         end
+      end
+
+      # v0.11 (v3): the findings-1.6 `scores.blast_radius` block, copied
+      # VERBATIM — the full 8-scalar set — with the worst-list de-anonymized
+      # to real symbols (the deanon_proxies pattern; an unmapped id resolves
+      # to the graceful `<external …>` placeholder, never a crash). The
+      # engine's worst-first order is PRESERVED; the N/A form (null stats,
+      # worst []) passes through as an honest present-but-null block.
+      def blast_radius_block(scores, resolver)
+        blast = scores["blast_radius"]
+        {
+          "max"                        => blast["max"],
+          "p90"                        => blast["p90"],
+          "median"                     => blast["median"],
+          "mean"                       => blast["mean"],
+          "reached_nodes"              => blast["reached_nodes"],
+          "total_nodes"                => blast["total_nodes"],
+          "total_entrypoints"          => blast["total_entrypoints"],
+          "pct_use_cases_hit_by_worst" => blast["pct_use_cases_hit_by_worst"],
+          "worst" => (blast["worst"] || []).map do |w|
+            {
+              "symbol"             => resolver.symbol(w["node"]),
+              "use_cases_affected" => w["use_cases_affected"],
+              "added_coupling"     => w["added_coupling"]
+            }
+          end
+        }
+      end
+
+      # v0.11 (v3): verbatim copy of a findings stat block ({mean, median,
+      # count} + `by_category` iff the source carries it — forward_depth /
+      # branching_factor only; reverse_depth never groups, R9). SAME FLAT
+      # SPELLINGS as the findings keys (guard R1 — no `depth` grouping).
+      def stat_copy(block)
+        out = {
+          "mean"   => block["mean"],
+          "median" => block["median"],
+          "count"  => block["count"]
+        }
+        out["by_category"] = block["by_category"] if block.key?("by_category")
+        out
       end
 
       # --- filesystem + helpers ------------------------------------------------
