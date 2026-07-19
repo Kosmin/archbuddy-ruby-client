@@ -184,9 +184,10 @@ module Archbuddy
           end
 
           # True iff the call node's FIRST argument is a literal Symbol/String.
+          # Definition HOISTED to Vocab (v0.12 L18) so the EscapeScanner
+          # shares the one spelling; this delegation is behavior-preserving.
           def literal_dispatch_arg?(node)
-            arg = node&.arguments&.arguments&.first
-            arg.is_a?(Prism::SymbolNode) || arg.is_a?(Prism::StringNode)
+            Vocab.literal_dispatch_arg?(node)
           end
 
           def active_record_context?(ctx)

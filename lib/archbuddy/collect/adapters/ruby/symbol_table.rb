@@ -60,15 +60,20 @@ module Archbuddy
           # BranchCounter walks; all three mint kinds stamp it (nil only on
           # hand-built entries — the ArityResolver treats nil as unresolved,
           # never fabricates).
+          # `escapes` (v0.12 L18, default false) marks a def whose internal
+          # path-selection escapes the definition boundary (yield / used-&blk
+          # / block_given? / callable-param.call / dynamic meta-send) —
+          # computed by the EscapeScanner; never fabricated true.
           MethodEntry = Struct.new(
             :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line,
             :branches, :decisions, :endpoint, :entrypoint_category,
-            :outcome_classes,
+            :outcome_classes, :escapes,
             keyword_init: true
           ) do
             def initialize(*)
               super
               self.endpoint = false if endpoint.nil?
+              self.escapes  = false if escapes.nil?
             end
           end
 

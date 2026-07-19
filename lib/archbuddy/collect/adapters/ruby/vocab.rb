@@ -103,6 +103,16 @@ module Archbuddy
             META_RESOLVABLE.include?(name.to_s)
           end
 
+          # v0.12 L18 (HOISTED from Resolver so the EscapeScanner shares the
+          # ONE spelling — no second copy): true iff the call node's FIRST
+          # argument is a literal Symbol/String. A meta verb in
+          # META_RESOLVABLE with a literal arg is resolvable dispatch
+          # (MetaSendProbe territory), not a dynamic blind spot.
+          def literal_dispatch_arg?(node)
+            arg = node&.arguments&.arguments&.first
+            arg.is_a?(Prism::SymbolNode) || arg.is_a?(Prism::StringNode)
+          end
+
           def active_record_method?(name)
             ACTIVE_RECORD.include?(name.to_s)
           end

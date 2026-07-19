@@ -4,6 +4,7 @@ require "prism"
 require_relative "symbol_table"
 require_relative "grape_dsl"
 require_relative "outcome_arity_counter"
+require_relative "escape_scanner"
 require_relative "root_dsl/mixin_dsl"
 require_relative "root_dsl/rake_dsl"
 
@@ -114,6 +115,7 @@ module Archbuddy
 
             counter  = BranchCounter.count(node.body)
             outcomes = OutcomeArityCounter.classes(node.body)
+            escapes  = EscapeScanner.escapes?(node) # def node: parameters + body
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -125,7 +127,8 @@ module Archbuddy
                 line:      node.location.start_line,
                 branches:  counter.branches,
                 decisions: counter.decisions,
-                outcome_classes: outcomes
+                outcome_classes: outcomes,
+                escapes:   escapes
               )
             )
             super
@@ -162,6 +165,7 @@ module Archbuddy
             fq_symbol = GrapeDsl.endpoint_fq(class_fq, verb, ordinal)
             counter   = BranchCounter.count(node.block&.body)
             outcomes  = OutcomeArityCounter.classes(node.block&.body)
+            escapes   = EscapeScanner.escapes?(node.block&.body)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -174,7 +178,8 @@ module Archbuddy
                 branches:  counter.branches,
                 decisions: counter.decisions,
                 endpoint:  true,
-                outcome_classes: outcomes
+                outcome_classes: outcomes,
+                escapes:   escapes
               )
             )
           end
@@ -200,6 +205,7 @@ module Archbuddy
             fq_symbol = RootDsl::RakeDsl.rake_fq(@rake_stack, name, ordinal)
             counter   = BranchCounter.count(node.block&.body)
             outcomes  = OutcomeArityCounter.classes(node.block&.body)
+            escapes   = EscapeScanner.escapes?(node.block&.body)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -211,7 +217,8 @@ module Archbuddy
                 line:      node.block&.location&.start_line || node.location.start_line,
                 branches:  counter.branches,
                 decisions: counter.decisions,
-                outcome_classes: outcomes
+                outcome_classes: outcomes,
+                escapes:   escapes
               )
             )
             @table.mark_entrypoint(fq_symbol, :rake)
