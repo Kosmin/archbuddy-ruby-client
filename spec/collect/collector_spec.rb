@@ -603,3 +603,170 @@ RSpec.describe "entrypoint_kind thread (v0.10 W1-A1)" do
     )
   end
 end
+
+# v0.12 CL-C: outcome_arity/escapes threading — RawNode → probe-gated graph
+# emission → id-map descriptor. EVERY graph-emission expectation below is
+# written valid under BOTH engine postures (graph 1.3 rejects the keys; graph
+# 1.4 declares them) — the MANDATORY ordering decoupler: the engine wave can
+# land before, after, or during this one and the suite stays green.
+RSpec.describe "outcome_arity/escapes thread (v0.12 CL-C)" do
+  let(:config) { Archbuddy::Collect::Config.new(language: "ruby") }
+
+  def anonymize(root, cfg = config)
+    adapter = Archbuddy::Collect::Registry.for("ruby").new(root, cfg)
+    Archbuddy::Collect::Anonymizer.new(
+      adapter.collect, tool: "archbuddy test", adapter: "ruby"
+    ).call
+  end
+
+  def in_repo(files)
+    Dir.mktmpdir do |dir|
+      files.each do |rel_path, content|
+        abs = File.join(dir, rel_path)
+        FileUtils.mkdir_p(File.dirname(abs))
+        File.write(abs, content)
+      end
+      yield dir
+    end
+  end
+
+  def desc_for(result, sym)
+    _id, desc = result.id_map["ids"].find { |_i, d| d["symbol"] == sym }
+    desc
+  end
+
+  def graph_node_for(result, sym)
+    opaque_id, = result.id_map["ids"].find { |_i, d| d["symbol"] == sym }
+    result.graph["nodes"].find { |n| n["id"] == opaque_id }
+  end
+
+  MIXED_SRC = <<~RUBY
+    class Session
+      def current_user
+        @u ||= authenticate
+      end
+
+      def authenticate
+        return nil unless ok?
+        find_user
+      end
+
+      def find_each
+        @items.each { |i| yield i }
+      end
+
+      def weird_tail
+        alias a b
+      end
+    end
+  RUBY
+
+  # --- graph emission, both postures per field ------------------------------------
+
+  it "holds outcome_arity OFF the graph node while the engine schema rejects the key" do
+    in_repo("app/models/session.rb" => MIXED_SRC) do |dir|
+      result = anonymize(dir)
+      node = graph_node_for(result, "Session#authenticate")
+      if Archbuddy::Collect::Anonymizer.graph_schema_accepts_outcome_arity?
+        # graph-1.4 posture: the resolved arity rides through.
+        expect(node["outcome_arity"]).to eq(2)
+      else
+        # graph-1.3 posture: held client-side, graph unpolluted.
+        expect(node).not_to have_key("outcome_arity")
+      end
+      # unresolved arity NEVER emits, under either posture (L17 never-fabricate)
+      expect(graph_node_for(result, "Session#weird_tail")).not_to have_key("outcome_arity")
+    end
+  end
+
+  it "holds escapes OFF the graph node while the engine schema rejects the key; " \
+     "emits only-when-true once it accepts" do
+    in_repo("app/models/session.rb" => MIXED_SRC) do |dir|
+      result = anonymize(dir)
+      yielding = graph_node_for(result, "Session#find_each")
+      closed   = graph_node_for(result, "Session#authenticate")
+      if Archbuddy::Collect::Anonymizer.graph_schema_accepts_escapes?
+        expect(yielding["escapes"]).to be(true)
+      else
+        expect(yielding).not_to have_key("escapes")
+      end
+      # absent = false: a non-escaping node NEVER carries the key (either posture)
+      expect(closed).not_to have_key("escapes")
+    end
+  end
+
+  # --- id-map descriptor: unconditional mirror (either posture) ---------------------
+
+  it "mirrors outcome_arity and escapes into the id-map descriptor under EITHER posture" do
+    in_repo("app/models/session.rb" => MIXED_SRC) do |dir|
+      result = anonymize(dir)
+      expect(desc_for(result, "Session#authenticate")["outcome_arity"]).to eq(2)
+      expect(desc_for(result, "Session#authenticate")["escapes"]).to be(false)
+      # the Layer-2 forwarder inheritance survives to the descriptor (1->2)
+      expect(desc_for(result, "Session#current_user")["outcome_arity"]).to eq(2)
+      expect(desc_for(result, "Session#find_each")["escapes"]).to be(true)
+      # unresolved -> honest null, never a guessed value
+      expect(desc_for(result, "Session#weird_tail")).to have_key("outcome_arity")
+      expect(desc_for(result, "Session#weird_tail")["outcome_arity"]).to be_nil
+    end
+  end
+
+  # --- probe == validator agreement, per field ----------------------------------------
+
+  it "outcome_arity gate probe agrees with the installed schema" do
+    probe = Archbuddy::Collect::Anonymizer::OUTCOME_ARITY_PROBE_GRAPH
+    expect(Archbuddy::Collect::Anonymizer.graph_schema_accepts_outcome_arity?).to eq(
+      ArchitectureAuditor::Contract::Validator.valid?(:graph, probe)
+    )
+  end
+
+  it "escapes gate probe agrees with the installed schema" do
+    probe = Archbuddy::Collect::Anonymizer::ESCAPES_PROBE_GRAPH
+    expect(Archbuddy::Collect::Anonymizer.graph_schema_accepts_escapes?).to eq(
+      ArchitectureAuditor::Contract::Validator.valid?(:graph, probe)
+    )
+  end
+
+  # --- sinks are NEVER stamped (the L17 kind split) --------------------------------------
+
+  it "never stamps db_op/external sinks with either key, under either posture" do
+    src = <<~RUBY
+      class Invoice < ApplicationRecord
+        def self.recent
+          where(deleted: false)
+        end
+
+        def notify
+          SomeGem.deliver(self)
+        end
+      end
+    RUBY
+    in_repo("app/models/invoice.rb" => src) do |dir|
+      result = anonymize(dir)
+      sink_nodes = result.graph["nodes"].select { |n| %w[db_op external].include?(n["kind"]) }
+      expect(sink_nodes).not_to be_empty
+      sink_nodes.each do |node|
+        expect(node).not_to have_key("outcome_arity")
+        expect(node).not_to have_key("escapes")
+      end
+      # descriptors mirror the absence honestly: null arity, false escapes
+      result.id_map["ids"].each_value do |desc|
+        next unless %w[db_op external].include?(desc["kind"])
+
+        expect(desc["outcome_arity"]).to be_nil
+        expect(desc["escapes"]).to be(false)
+      end
+    end
+  end
+
+  # --- the emitted graph always validates against the installed engine ------------------
+
+  it "emits a graph that validates against the installed engine schema with the new fields" do
+    in_repo("app/models/session.rb" => MIXED_SRC) do |dir|
+      result = anonymize(dir)
+      expect {
+        ArchitectureAuditor::Contract::Validator.validate!(:graph, result.graph)
+      }.not_to raise_error
+    end
+  end
+end

@@ -123,7 +123,7 @@ module Archbuddy
           nodes      = []
           key_for_fq = {}
 
-          add_method_nodes(table, nodes, key_for_fq, ep_categories)
+          add_method_nodes(table, nodes, key_for_fq, ep_categories, arity_by_fq)
           add_db_op_nodes(table, acc, nodes, key_for_fq)
           external_keys = add_external_sinks(nodes, acc)
 
@@ -155,7 +155,15 @@ module Archbuddy
               # {} when no external edges exist. Consumed by the A1 aggregate
               # writer in W3 (the single egress read path — the writer never
               # re-parses sink symbols).
-              egress_counts: acc.egress_counts
+              egress_counts: acc.egress_counts,
+              # v0.12 CL-C (A9): the two arity/escape counters. CLI-only —
+              # NEVER graph/serialized content (the per-reason escape_reasons
+              # histogram is a v0.13 candidate, deliberately not shipped).
+              # arity_unresolved = method entries whose final arity is nil
+              # (field omitted everywhere — the L17 honest blind-spot count);
+              # escaping_defs = defs the EscapeScanner flagged.
+              arity_unresolved: arity_by_fq.values.count(&:nil?),
+              escaping_defs: table.methods.values.count { |m| m.escapes }
             }
           )
         end
@@ -237,7 +245,10 @@ module Archbuddy
         # `ep_categories` (v0.10 W1-A1): the detector's ordered {fq => category}
         # map. A method that IS a detected entrypoint gets its category (which
         # may be nil — honest "unknown"); a non-entrypoint stays nil.
-        def add_method_nodes(table, nodes, key_for_fq, ep_categories)
+        # `arity_by_fq` (v0.12 CL-C): the ArityResolver's {fq => Integer|nil}
+        # map, threaded exactly like ep_categories. Only METHOD nodes are
+        # stamped — db_op/external sinks never carry arity/escape fields (L17).
+        def add_method_nodes(table, nodes, key_for_fq, ep_categories, arity_by_fq)
           table.methods.values.each do |m|
             class_ref = m.owner_fq && table.class_for(m.owner_fq)
             node = Raw::RawNode.new(
@@ -252,7 +263,11 @@ module Archbuddy
               # external sinks omit these and rely on the RawNode defaults (1/0).
               branches:       m.branches,
               decisions:      m.decisions,
-              entrypoint_kind: ep_categories[m.fq_symbol]
+              entrypoint_kind: ep_categories[m.fq_symbol],
+              # v0.12 (L16/L17/L18): nil arity = unresolved (absent downstream,
+              # never fabricated); escapes rides the MethodEntry flag.
+              outcome_arity:  arity_by_fq[m.fq_symbol],
+              escapes:        m.escapes
             )
             nodes << node
             key_for_fq[m.fq_symbol] = node.real_key

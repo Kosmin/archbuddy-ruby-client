@@ -123,6 +123,74 @@ RSpec.describe "Capture diagnostics & fail-clear behavior" do
     end
   end
 
+  # --- v0.12 CL-C (A9): the two arity/escape counters ---------------------------
+
+  it "counts unresolved-arity defs and escaping defs (CLI-only counters)" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "mixed.rb"), <<~RUBY)
+        class Mixed
+          def weird_tail
+            alias a b
+          end
+
+          def find_each
+            @items.each { |i| yield i }
+          end
+
+          def plain
+            1
+          end
+        end
+      RUBY
+
+      result = collect(dir)
+      expect(result.diagnostics[:arity_unresolved]).to eq(1)
+      expect(result.diagnostics[:escaping_defs]).to eq(1)
+    end
+  end
+
+  it "reports zero for both counters on a fully-resolved, escape-free repo" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "plain.rb"), <<~RUBY)
+        class Plain
+          def a
+            return nil unless ok?
+            b
+          end
+
+          def b
+            1
+          end
+        end
+      RUBY
+
+      result = collect(dir)
+      expect(result.diagnostics[:arity_unresolved]).to eq(0)
+      expect(result.diagnostics[:escaping_defs]).to eq(0)
+    end
+  end
+
+  it "keeps the arity/escape counters OUT of the serialized graph" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "mixed.rb"), <<~RUBY)
+        class Mixed
+          def find_each
+            @items.each { |i| yield i }
+          end
+        end
+      RUBY
+
+      result = collect(dir)
+      anon = Archbuddy::Collect::Anonymizer.new(
+        result, tool: "archbuddy test", adapter: "ruby"
+      ).call
+
+      serialized = ArchitectureAuditor::Contract::Serializer.dump(anon.graph)
+      expect(serialized).not_to include("arity_unresolved")
+      expect(serialized).not_to include("escaping_defs")
+    end
+  end
+
   it "keeps the meta-site diagnostic OUT of graph node/edge data" do
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "meta.rb"), <<~RUBY)

@@ -28,7 +28,10 @@ module Archbuddy
       # so hash-matching blobs from an older collector are NOT reused. This is the
       # C2 collector-version stamp; it is folded into the reuse gate below AND
       # into the on-disk blob so a version bump invalidates every stale blob.
-      COLLECTOR_VERSION = 1
+      # 2 = v0.12 CL-C (the DefinitionPass now derives outcome_classes/escapes
+      # — the documented bump policy names a DefinitionPass change; blobs store
+      # marshaled ASTs only, so this costs one forced re-parse per machine).
+      COLLECTOR_VERSION = 2
 
       CACHE_SUBDIR = ".cache"
 

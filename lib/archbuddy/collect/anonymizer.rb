@@ -95,6 +95,72 @@ module Archbuddy
           Validator.valid?(:graph, TERMINAL_KIND_PROBE_GRAPH)
       end
 
+      # v0.12 CL-C (L19) emission gate probe — the outcome_arity clone of
+      # ENTRYPOINT_KIND_PROBE_GRAPH. Same verified reality: a graph-1.3
+      # engine's node schema is additionalProperties:false, so an undeclared
+      # `outcome_arity` key FAILS validation (it is NOT ignored). Until the
+      # engine declares the OPTIONAL graph-1.4 field, the arity is held
+      # CLIENT-SIDE (RawNode + id-map descriptor); the graph.yml passthrough
+      # lights up automatically once the installed engine schema accepts it.
+      OUTCOME_ARITY_PROBE_GRAPH = {
+        "schema_version" => ArchitectureAuditor::Contract::SCHEMA_VERSION,
+        "generator"      => {
+          "tool" => "archbuddy-probe", "adapter" => "ruby", "capture" => "static"
+        },
+        "nodes"       => [{
+          "id"            => "n_000000000000",
+          "kind"          => "function",
+          "class_id"      => nil,
+          "loc"           => nil,
+          "self_time_ms"  => nil,
+          "total_time_ms" => nil,
+          "count"         => nil,
+          "outcome_arity" => 2
+        }],
+        "edges"       => [],
+        "entrypoints" => []
+      }.freeze
+
+      # True when the installed engine's graph schema accepts an
+      # `outcome_arity` node property (memoized once per process).
+      def self.graph_schema_accepts_outcome_arity?
+        return @graph_schema_accepts_outcome_arity unless @graph_schema_accepts_outcome_arity.nil?
+
+        @graph_schema_accepts_outcome_arity =
+          Validator.valid?(:graph, OUTCOME_ARITY_PROBE_GRAPH)
+      end
+
+      # v0.12 CL-C (L19) emission gate probe — the escapes twin. Emitted onto
+      # graph nodes only when TRUE (absent = false), so an escape-free repo's
+      # graph stays byte-identical under either engine posture.
+      ESCAPES_PROBE_GRAPH = {
+        "schema_version" => ArchitectureAuditor::Contract::SCHEMA_VERSION,
+        "generator"      => {
+          "tool" => "archbuddy-probe", "adapter" => "ruby", "capture" => "static"
+        },
+        "nodes"       => [{
+          "id"            => "n_000000000000",
+          "kind"          => "function",
+          "class_id"      => nil,
+          "loc"           => nil,
+          "self_time_ms"  => nil,
+          "total_time_ms" => nil,
+          "count"         => nil,
+          "escapes"       => true
+        }],
+        "edges"       => [],
+        "entrypoints" => []
+      }.freeze
+
+      # True when the installed engine's graph schema accepts an `escapes`
+      # node property (memoized once per process).
+      def self.graph_schema_accepts_escapes?
+        return @graph_schema_accepts_escapes unless @graph_schema_accepts_escapes.nil?
+
+        @graph_schema_accepts_escapes =
+          Validator.valid?(:graph, ESCAPES_PROBE_GRAPH)
+      end
+
       def initialize(adapter_result, tool:, adapter:)
         @adapter_result = adapter_result
         @tool           = tool
@@ -167,6 +233,22 @@ module Archbuddy
             node_hash["terminal_kind"] = raw.terminal_kind
           end
 
+          # v0.12 CL-C (L16/L17/L19): outcome_arity rides the shareable graph
+          # node ONLY when resolved (non-nil — never fabricated) AND the
+          # installed engine schema declares the graph-1.4 field. A plain
+          # small integer (1..5) — zero app semantics. Sinks are never
+          # stamped upstream, so they can never carry the key here.
+          if raw.outcome_arity && self.class.graph_schema_accepts_outcome_arity?
+            node_hash["outcome_arity"] = raw.outcome_arity
+          end
+
+          # v0.12 CL-C (L18/L19): escapes rides ONLY when TRUE (absent =
+          # false — an escape-free repo's graph is byte-identical to v0.10)
+          # AND the engine schema declares it. A bare boolean — SECRET-safe.
+          if raw.escapes && self.class.graph_schema_accepts_escapes?
+            node_hash["escapes"] = true
+          end
+
           graph_nodes << node_hash
 
           @id_map_ids[node_id] = {
@@ -182,7 +264,14 @@ module Archbuddy
             # v0.10 W2-C (CR-5): egress category (http|gem|queue) — non-nil
             # ONLY on category-bearing external sinks; the generic <external>
             # sink and every non-sink node carry nil.
-            "terminal_kind"   => raw.terminal_kind
+            "terminal_kind"   => raw.terminal_kind,
+            # v0.12 CL-C: arity/escape facts mirrored UNCONDITIONALLY (the
+            # id-map is client-owned — no schema gate needed; the
+            # entrypoint_kind precedent). outcome_arity int|nil (nil =
+            # unresolved/sink — never fabricated); escapes bool. Read back by
+            # the counter wave's v4 fragment fold (A5).
+            "outcome_arity"   => raw.outcome_arity,
+            "escapes"         => raw.escapes
           }
         end
 

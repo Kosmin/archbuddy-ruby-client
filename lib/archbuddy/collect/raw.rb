@@ -41,16 +41,28 @@ module Archbuddy
       #              (the sink-side twin of entrypoint_kind; NOT a 5th node
       #              kind). nil everywhere else, INCLUDING the generic
       #              `<external>` sink (absent → uncategorized).
+      # - outcome_arity: v0.12 (L16/L17) OPTIONAL caller-visible outcome
+      #              arity (Integer 1..5) from the ArityResolver. nil =
+      #              unresolved (in-tree) — the field stays ABSENT downstream,
+      #              never guessed. db_op/external SINKS are NEVER stamped
+      #              (arity-1 terminals; the ENGINE reads absent-on-external
+      #              as lenient a=1 — the L17 kind split).
+      # - escapes:   v0.12 (L18, default false) callee-definition escape flag
+      #              from the EscapeScanner (yield / used-&blk / block_given?
+      #              / callable-param.call / dynamic meta-send). Emitted on
+      #              the graph only when TRUE (absent = false).
       RawNode = Struct.new(
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
         :branches, :decisions, :entrypoint_kind, :terminal_kind,
+        :outcome_arity, :escapes,
         keyword_init: true
       ) do
         def initialize(*)
           super
           self.branches  ||= 1
           self.decisions ||= 0
+          self.escapes   = false if escapes.nil?
         end
 
         def class_rollup?

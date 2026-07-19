@@ -110,6 +110,19 @@ module Archbuddy
           warn "note: #{skipped} metaprogramming call site#{'s' if skipped != 1} skipped (no edges)"
         end
 
+        # v0.12 CL-C (A9): the two arity/escape counters — same channel and
+        # print discipline as the meta-sites note (diagnostics only, never
+        # graph content; per-reason breakdown deferred to v0.13).
+        unresolved = adapter_result.diagnostics[:arity_unresolved].to_i
+        if unresolved.positive?
+          warn "note: #{unresolved} method#{'s' if unresolved != 1} with unresolved outcome arity (field omitted)"
+        end
+
+        escaping = adapter_result.diagnostics[:escaping_defs].to_i
+        if escaping.positive?
+          warn "note: #{escaping} escaping def#{'s' if escaping != 1} (block/yield/callable boundary crossing)"
+        end
+
         # Framework-probe provenance (W3 / L5 / P4). The per-probe-name tally
         # rides the diagnostics channel ONLY (never graph.yml). Mirror the
         # meta-sites note: print only when at least one probe resolved an edge.
