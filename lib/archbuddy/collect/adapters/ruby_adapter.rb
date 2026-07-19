@@ -15,6 +15,7 @@ require_relative "ruby/entrypoint_detector"
 require_relative "ruby/probe_registry"
 require_relative "ruby/root_seeder_registry"
 require_relative "ruby/route_catalogue"
+require_relative "ruby/arity_resolver"
 
 module Archbuddy
   module Collect
@@ -100,6 +101,12 @@ module Archbuddy
           run_definition_pass(fragments, table)
           run_route_catalogue(fragments, table)   # W4: seed routed actions before entrypoints
           run_root_seeders(table, fragments, root) # v0.10 W1-B/W2-B: categorize ingress roots
+
+          # v0.12 CL-B (L16 Layer 2): the tail-call/ivar-memo arity-inheritance
+          # fixpoint runs in the same table-complete, PRE-Anonymizer window the
+          # root seeders use (REF tokens carry real symbols — K-5 trust
+          # boundary). {fq => Integer|nil}; threaded onto RawNodes in CL-C.
+          arity_by_fq = Ruby::ArityResolver.new(table).resolve
 
           acc = Ruby::Accumulator.new
           run_resolution_pass(fragments, table, acc)
