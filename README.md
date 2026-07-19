@@ -116,6 +116,15 @@ archbuddy collect . --entrypoints all_public
 
 `--entrypoints` accepts `default | controllers | all_public | none` (M3).
 
+Since v0.12 the collector also extracts two per-method facts for the engine's Variety+Mass
+dimension: **`outcome_arity`** (the caller-visible outcome count over `{VALUE, NIL, TRUE, FALSE,
+RAISE}`, memo-forwarders resolved by a small fixpoint; statically unresolvable methods get NO
+value — never a guess) and **`escapes`** (true when a method runs caller-supplied code —
+`yield`/used-`&blk`/`block_given?`/callable-param `.call`/dynamic `send`). Both ride `graph.yml`
+only when the installed engine's schema declares them (graph 1.4 — auto-off against older
+engines) and always ride the local id-map. `collect` prints two stderr notes when relevant:
+`N methods with unresolved outcome arity` and `N escaping defs`.
+
 ### 2. Analyze — run the engine on the opaque graph
 
 ```bash
