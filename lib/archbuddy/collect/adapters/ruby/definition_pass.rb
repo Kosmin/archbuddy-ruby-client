@@ -3,6 +3,7 @@
 require "prism"
 require_relative "symbol_table"
 require_relative "grape_dsl"
+require_relative "outcome_arity_counter"
 require_relative "root_dsl/mixin_dsl"
 require_relative "root_dsl/rake_dsl"
 
@@ -111,7 +112,8 @@ module Archbuddy
                 "#{owner_fq}#{sep}#{node.name}"
               end
 
-            counter = BranchCounter.count(node.body)
+            counter  = BranchCounter.count(node.body)
+            outcomes = OutcomeArityCounter.classes(node.body)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -122,7 +124,8 @@ module Archbuddy
                 rel_file:  @rel_file,
                 line:      node.location.start_line,
                 branches:  counter.branches,
-                decisions: counter.decisions
+                decisions: counter.decisions,
+                outcome_classes: outcomes
               )
             )
             super
@@ -158,6 +161,7 @@ module Archbuddy
 
             fq_symbol = GrapeDsl.endpoint_fq(class_fq, verb, ordinal)
             counter   = BranchCounter.count(node.block&.body)
+            outcomes  = OutcomeArityCounter.classes(node.block&.body)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -169,7 +173,8 @@ module Archbuddy
                 line:      node.block&.location&.start_line || node.location.start_line,
                 branches:  counter.branches,
                 decisions: counter.decisions,
-                endpoint:  true
+                endpoint:  true,
+                outcome_classes: outcomes
               )
             )
           end
@@ -194,6 +199,7 @@ module Archbuddy
 
             fq_symbol = RootDsl::RakeDsl.rake_fq(@rake_stack, name, ordinal)
             counter   = BranchCounter.count(node.block&.body)
+            outcomes  = OutcomeArityCounter.classes(node.block&.body)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -204,7 +210,8 @@ module Archbuddy
                 rel_file:  @rel_file,
                 line:      node.block&.location&.start_line || node.location.start_line,
                 branches:  counter.branches,
-                decisions: counter.decisions
+                decisions: counter.decisions,
+                outcome_classes: outcomes
               )
             )
             @table.mark_entrypoint(fq_symbol, :rake)

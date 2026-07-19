@@ -55,9 +55,15 @@ module Archbuddy
           # `entrypoint_category` (default nil) is the ingress category a root
           # seeder stamped on this method (v0.10 W1-B, e.g. :jobs). nil = not a
           # seeded root. Written ONLY via SymbolTable#mark_entrypoint.
+          # `outcome_classes` (v0.12 L16) is the Layer-1 outcome-class token
+          # array computed by the OutcomeArityCounter over the same body the
+          # BranchCounter walks; all three mint kinds stamp it (nil only on
+          # hand-built entries — the ArityResolver treats nil as unresolved,
+          # never fabricates).
           MethodEntry = Struct.new(
             :fq_symbol, :owner_fq, :name, :singleton, :rel_file, :line,
             :branches, :decisions, :endpoint, :entrypoint_category,
+            :outcome_classes,
             keyword_init: true
           ) do
             def initialize(*)
