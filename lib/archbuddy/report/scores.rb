@@ -323,6 +323,30 @@ module Archbuddy
         keyword_init: true
       )
 
+      # v0.12 (v4/1.7): the UNGRADED Variety+Mass composite (L2: cost =
+      # Variety + Mass, real-space sum published by the ENGINE — the client
+      # never sums, D17). NO grade member EVER (the BranchingFactor
+      # precedent). `score` is the mean over entrypoints of the composite;
+      # `variety`/`mass` are the first-class component stat blocks (computed
+      # over the CAPPED per-row values, so score = variety.mean + mass.mean
+      # within display rounding — A7); `capped_fraction` is the CAP
+      # disclosure (share of routes with variety at the cap — a capped mean
+      # reads as a LOWER BOUND); `fallback_fraction` is THE L17 low-confidence
+      # disclosure (share of scored routes whose variety product includes an
+      # in-tree full-b fallback factor — A1/A6).
+      VarietyMass = Struct.new(
+        :score, :median, :count, :capped_fraction, :fallback_fraction,
+        :variety, :mass, :by_category,
+        keyword_init: true
+      ) do
+        def na?
+          score.nil?
+        end
+      end
+
+      # {mean, median, count} — one component distribution (variety or mass).
+      VarietyMass::Component = Struct.new(:mean, :median, :count, keyword_init: true)
+
       module_function
 
       # Parse the OPTIONAL top-level scores.connectivity object. Returns a
@@ -500,6 +524,48 @@ module Archbuddy
           median:      block["median"],
           count:       block["count"],
           by_category: block["by_category"]
+        )
+      end
+
+      # v0.12: committed aggregate TOP-LEVEL `variety_mass` (v4) — NIL on
+      # absent/empty (v1/v2/v3 docs). The engine N/A form parses to an honest
+      # present-but-nil-score struct (the presenter omits the line).
+      def variety_mass_from_aggregate(doc)
+        variety_mass_from((doc || {})["variety_mass"])
+      end
+
+      # Legacy variant — `scores.variety_mass` off an opaque findings-1.7 doc.
+      # Hotspots (opaque ep ids) are NOT parsed — dropped at both producers.
+      def variety_mass_from_findings(findings_doc)
+        variety_mass_from(((findings_doc || {})["scores"] || {})["variety_mass"])
+      end
+
+      # Because guard R1 pins the committed and findings spellings 1:1, ONE
+      # builder serves both paths (the depth_stats_from precedent).
+      # by_category stays a raw Hash on the struct (not rendered in v0.12;
+      # committed data product + HTML future use — the DepthStats posture).
+      def variety_mass_from(block)
+        return nil if block.nil? || block.empty?
+
+        VarietyMass.new(
+          score:             block["score"],
+          median:            block["median"],
+          count:             block["count"],
+          capped_fraction:   block["capped_fraction"],
+          fallback_fraction: block["fallback_fraction"],
+          variety:           vm_component_from(block["variety"]),
+          mass:              vm_component_from(block["mass"]),
+          by_category:       block["by_category"]
+        )
+      end
+
+      # {mean, median, count} → VarietyMass::Component; nil on absent/empty
+      # (absence, never a fabricated zero-struct).
+      def vm_component_from(stat)
+        return nil if stat.nil? || stat.empty?
+
+        VarietyMass::Component.new(
+          mean: stat["mean"], median: stat["median"], count: stat["count"]
         )
       end
 

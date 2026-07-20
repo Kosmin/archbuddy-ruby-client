@@ -589,3 +589,83 @@ RSpec.describe "v0.11 counter structs (W-C)" do
     end
   end
 end
+
+# v0.12 (serializer v4 / findings 1.7): the UNGRADED Variety+Mass composite —
+# ONE builder serves the committed-aggregate and opaque-findings shapes (guard
+# R1 pins the spellings 1:1); nil-on-absent (pre-v4/pre-1.7 docs); the engine
+# N/A form parses to an honest present-but-nil-score struct (na? true).
+RSpec.describe "v0.12 VarietyMass struct + parsers (W-CLI-B)" do
+  S = Archbuddy::Report::Scores unless defined?(S)
+
+  # The I3-4 committed/findings block shape (worked numbers = the L15 FULL
+  # execute anchor: 57 = variety 16 + mass 41).
+  def vm_block
+    {
+      "score" => 57.0, "median" => 57.0, "count" => 2,
+      "capped_fraction" => 0.0214, "fallback_fraction" => 0.0009,
+      "variety" => { "mean" => 16.0, "median" => 16.0, "count" => 2 },
+      "mass"    => { "mean" => 41.0, "median" => 41.0, "count" => 2 },
+      "by_category" => {
+        "controllers" => { "score" => 57.0, "median" => 57.0, "count" => 2 }
+      }
+    }
+  end
+
+  it "parses the committed v4 top-level block verbatim (every scalar)" do
+    vm = S.variety_mass_from_aggregate("variety_mass" => vm_block)
+    expect(vm).to be_a(S::VarietyMass)
+    expect(vm.score).to eq(57.0)
+    expect(vm.median).to eq(57.0)
+    expect(vm.count).to eq(2)
+    expect(vm.capped_fraction).to eq(0.0214)
+    expect(vm.fallback_fraction).to eq(0.0009)
+    expect(vm.variety).to be_a(S::VarietyMass::Component)
+    expect(vm.variety.mean).to eq(16.0)
+    expect(vm.mass.mean).to eq(41.0)
+    expect(vm.mass.count).to eq(2)
+    expect(vm.by_category).to have_key("controllers") # raw Hash (DepthStats posture)
+    expect(vm.na?).to be(false)
+  end
+
+  it "parses the legacy scores.variety_mass off an opaque findings-1.7 doc (hotspots never parsed)" do
+    doc = { "scores" => { "variety_mass" => vm_block.merge("hotspots" => %w[n_a n_b]) } }
+    vm = S.variety_mass_from_findings(doc)
+    expect(vm.score).to eq(57.0)
+    expect(vm.fallback_fraction).to eq(0.0009)
+    expect(vm).not_to respond_to(:hotspots)
+    expect(vm).not_to respond_to(:grade) # UNGRADED — no grade member EVER
+  end
+
+  it "returns nil on absent/empty blocks (v1/v2/v3 docs — absence, never a zero-struct)" do
+    expect(S.variety_mass_from_aggregate("serializer_version" => 3)).to be_nil
+    expect(S.variety_mass_from_aggregate(nil)).to be_nil
+    expect(S.variety_mass_from_aggregate("variety_mass" => {})).to be_nil
+    expect(S.variety_mass_from_findings("scores" => {})).to be_nil
+  end
+
+  it "parses the engine N/A form to an honest present-but-nil struct (na? true)" do
+    vm = S.variety_mass_from_aggregate(
+      "variety_mass" => {
+        "score" => nil, "median" => nil, "count" => 0,
+        "capped_fraction" => nil, "fallback_fraction" => nil,
+        "variety" => { "mean" => nil, "median" => nil, "count" => 0 },
+        "mass"    => { "mean" => nil, "median" => nil, "count" => 0 }
+      }
+    )
+    expect(vm).to be_a(S::VarietyMass)
+    expect(vm.na?).to be(true)
+    expect(vm.count).to eq(0)
+    expect(vm.variety.mean).to be_nil
+    expect(vm.variety.count).to eq(0)
+  end
+
+  it "empty component hash → nil member (absence, never fabricated zeros)" do
+    vm = S.variety_mass_from_aggregate(
+      "variety_mass" => { "score" => 3.0, "median" => 3.0, "count" => 1,
+                          "variety" => {}, "mass" => nil }
+    )
+    expect(vm.score).to eq(3.0)
+    expect(vm.variety).to be_nil
+    expect(vm.mass).to be_nil
+  end
+end

@@ -98,11 +98,14 @@ module Archbuddy
           dynamic_dispatch: result.dynamic_dispatch,
           # v0.11 (W-C): the four business-metric blocks (serializer v3 /
           # findings 1.6) — nil on older docs, so the Business Impact section
-          # is omitted entirely (back-compat).
+          # is omitted entirely (back-compat). v0.12 adds the fifth:
+          # `variety_mass` (serializer v4 / findings 1.7) — nil on older docs,
+          # so Q1 renders byte-identically to v0.10.0.
           blast_radius:     result.blast_radius,
           forward_depth:    result.forward_depth,
           reverse_depth:    result.reverse_depth,
-          branching_factor: result.branching_factor
+          branching_factor: result.branching_factor,
+          variety_mass:     result.variety_mass
         )
 
         puts formatter_class.new(context).render

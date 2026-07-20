@@ -240,6 +240,34 @@ RSpec.describe "report reads the committed real-name cache (R2-1)" do
         expect(result.forward_depth).to be_nil
         expect(result.reverse_depth).to be_nil
         expect(result.branching_factor).to be_nil
+        # v0.12: the fifth business-metric field is nil-tolerant too (pre-1.7)
+        expect(result.variety_mass).to be_nil
+      end
+    end
+
+    # v0.12 W-CLI-B (serializer v4 / findings 1.7): the UNGRADED Variety+Mass
+    # block threads as the fifth business-metric field — nil on pre-v4 docs.
+    it "populates variety_mass from a v4 aggregate" do
+      Dir.mktmpdir do |dir|
+        agg = File.join(dir, "archbuddy-findings.json")
+        File.write(agg, JSON.generate(
+                          "serializer_version" => 4, "sources" => {},
+                          "variety_mass" => {
+                            "score" => 57.0, "median" => 57.0, "count" => 2,
+                            "capped_fraction" => 0.0, "fallback_fraction" => 0.5,
+                            "variety" => { "mean" => 16.0, "median" => 16.0, "count" => 2 },
+                            "mass"    => { "mean" => 41.0, "median" => 41.0, "count" => 2 }
+                          }
+                        ))
+
+        result = Archbuddy::Report::Reconnect.from_cache(aggregate_path: agg, id_map_path: nil)
+
+        expect(result.variety_mass).to be_a(Archbuddy::Report::Scores::VarietyMass)
+        expect(result.variety_mass.score).to eq(57.0)
+        expect(result.variety_mass.fallback_fraction).to eq(0.5)
+        expect(result.variety_mass.variety.mean).to eq(16.0)
+        expect(result.variety_mass.mass.mean).to eq(41.0)
+        expect(result.variety_mass.na?).to be(false)
       end
     end
   end

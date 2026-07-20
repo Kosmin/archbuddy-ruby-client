@@ -48,11 +48,15 @@ module Archbuddy
       # business-metric blocks (Scores::BlastRadius / Scores::DepthStats x2 /
       # Scores::BranchingFactor) — FLAT fields, same spellings as the findings
       # keys (guard R1); NIL on v1/v2 aggregates and pre-1.6 findings.
+      # `variety_mass` (v0.12, serializer v4 / findings 1.7) is the fifth —
+      # the UNGRADED Variety+Mass composite (Scores::VarietyMass); NIL on
+      # pre-v4 aggregates and pre-1.7 findings.
       Result = Struct.new(
         :bottlenecks, :id_map, :findings_doc, :scores, :connectivity,
         :multiplexer_proxies, :graph, :real_name,
         :entrypoints, :egress, :dynamic_dispatch,
         :blast_radius, :forward_depth, :reverse_depth, :branching_factor,
+        :variety_mass,
         keyword_init: true
       ) do
         # Look up a (possibly missing) opaque id → Model::Location. Memoize the
@@ -214,7 +218,10 @@ module Archbuddy
           blast_radius:        Scores.blast_radius_from_aggregate(doc),
           forward_depth:       Scores.forward_depth_from_aggregate(doc),
           reverse_depth:       Scores.reverse_depth_from_aggregate(doc),
-          branching_factor:    Scores.branching_factor_from_aggregate(doc)
+          branching_factor:    Scores.branching_factor_from_aggregate(doc),
+          # v0.12: the v4 UNGRADED Variety+Mass block (doc ROOT). NIL on
+          # pre-v4 aggregates (back-compat).
+          variety_mass:        Scores.variety_mass_from_aggregate(doc)
         )
       end
 
@@ -295,7 +302,11 @@ module Archbuddy
           blast_radius:        Scores.blast_radius_from_findings(@findings_doc, @resolver),
           forward_depth:       Scores.forward_depth_from_findings(@findings_doc),
           reverse_depth:       Scores.reverse_depth_from_findings(@findings_doc),
-          branching_factor:    Scores.branching_factor_from_findings(@findings_doc)
+          branching_factor:    Scores.branching_factor_from_findings(@findings_doc),
+          # v0.12: `scores.variety_mass` off the opaque findings-1.7 doc — no
+          # ids inside the block (hotspots dropped at parse), so the resolver
+          # is never consulted. NIL on pre-1.7 docs.
+          variety_mass:        Scores.variety_mass_from_findings(@findings_doc)
         )
       end
 

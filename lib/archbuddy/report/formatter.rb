@@ -41,11 +41,15 @@ module Archbuddy
       # @param branching_factor [Scores::BranchingFactor,nil] v0.11 ungraded
       #                       per-hop branching density (median-first); nil when
       #                       absent — all four feed the Business Impact section
+      # @param variety_mass  [Scores::VarietyMass,nil] the v0.12 (serializer v4 /
+      #                       findings 1.7) UNGRADED Variety+Mass composite;
+      #                       nil when absent → no Q1 detail line (back-compat)
       RenderContext = Struct.new(
         :ranked, :class_rollups, :generator, :graph, :resolver, :scores, :connectivity,
         :max_nodes, :multiplexer_proxies,
         :entrypoints, :egress, :dynamic_dispatch,
         :blast_radius, :forward_depth, :reverse_depth, :branching_factor,
+        :variety_mass,
         keyword_init: true
       )
 
