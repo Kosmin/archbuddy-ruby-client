@@ -62,6 +62,61 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
     end
   end
 
+  # --- v0.12 W-CLI-B: the Q1 Variety+Mass detail line (copy table, byte-pinned;
+  # worked numbers = the MEASURED L15 FULL execute anchor 57 = 16 + 41) --------
+  describe "the pinned Variety+Mass copy table (v0.12, A7)" do
+    def vm(score: 57.0, median: 57.0, capped: 0.0, variety: 16.0, mass: 41.0)
+      RS::VarietyMass.new(
+        score: score, median: median, count: 2,
+        capped_fraction: capped, fallback_fraction: 0.0,
+        variety: variety && RS::VarietyMass::Component.new(mean: variety, median: variety, count: 2),
+        mass:    mass && RS::VarietyMass::Component.new(mean: mass, median: mass, count: 2)
+      )
+    end
+
+    def q1_line(variety_mass)
+      q1 = BI.questions(context_with(scores: [forward_dim], variety_mass: variety_mass))
+             .find { |q| q.id == "q1" }
+      q1.detail_lines.grep(/\Avariety \+ mass/).first
+    end
+
+    it "components present, reconciling → the '=' equation form (the A7 common case)" do
+      expect(q1_line(vm)).to eq(
+        "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
+      )
+    end
+
+    it "capped 0 < f < 0.5 → equation + lower-bound note, real median kept" do
+      expect(q1_line(vm(capped: 0.021))).to eq(
+        "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0) — 2.1% of routes at cap (lower bound)"
+      )
+    end
+
+    it "capped f >= 0.5 → 'at cap' median cell (one cap vocabulary — median_cell/cap_note reused verbatim)" do
+      expect(q1_line(vm(capped: 0.5))).to eq(
+        "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median at cap) — 50.0% of routes at cap (lower bound)"
+      )
+    end
+
+    it "components absent → composite-only copy" do
+      expect(q1_line(vm(variety: nil, mass: nil))).to eq(
+        "variety + mass: complexity 57.0 (median 57.0)"
+      )
+    end
+
+    it "non-reconciling components → the comma form (copy degrades, never lies)" do
+      expect(q1_line(vm(mass: 41.5))).to eq(
+        "variety + mass: complexity 57.0, variety 16.0, mass 41.5 (median 57.0)"
+      )
+    end
+
+    it "block absent or N/A → NO line (Q1 renders byte-identically to v0.10.0)" do
+      expect(q1_line(nil)).to be_nil
+      na = RS::VarietyMass.new(score: nil, median: nil, count: 0)
+      expect(q1_line(na)).to be_nil
+    end
+  end
+
   describe "the I8 worked examples (byte-exact answers)" do
     it "q3: the measured nexus blast numbers" do
       qs = BI.questions(context_with(blast_radius: blast))
@@ -203,7 +258,8 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
         blast_radius:     RS.blast_radius_from_aggregate(doc),
         forward_depth:    RS.forward_depth_from_aggregate(doc),
         reverse_depth:    RS.reverse_depth_from_aggregate(doc),
-        branching_factor: RS.branching_factor_from_aggregate(doc)
+        branching_factor: RS.branching_factor_from_aggregate(doc),
+        variety_mass:     RS.variety_mass_from_aggregate(doc)
       )
     end
 
@@ -214,7 +270,8 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
         blast_radius:     RS.blast_radius_from_findings(doc, resolver),
         forward_depth:    RS.forward_depth_from_findings(doc),
         reverse_depth:    RS.reverse_depth_from_findings(doc),
-        branching_factor: RS.branching_factor_from_findings(doc)
+        branching_factor: RS.branching_factor_from_findings(doc),
+        variety_mass:     RS.variety_mass_from_findings(doc)
       )
     end
 
@@ -344,6 +401,72 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
       qs = BI.questions(context_from_aggregate(doc))
 
       expect(qs.map(&:id)).to eq(%w[q1 q2]) # q3 OMITTED — never "0 use cases at risk"
+    end
+
+    # --- v0.12 W-CLI-B (serializer v4 / findings 1.7) rows 8–10 --------------
+    # These are also the A8-reassigned findings-1.7 tolerance coverage: a 1.7
+    # doc renders through the REAL extended parser set with zero raises, and
+    # the pre-1.7 rows 1–7 above prove byte-stability through the same set.
+
+    let(:v4_vm_block) do
+      { "score" => 57.0, "median" => 57.0, "count" => 2,
+        "capped_fraction" => 0.0, "fallback_fraction" => 0.5,
+        "variety" => { "mean" => 16.0, "median" => 16.0, "count" => 2 },
+        "mass"    => { "mean" => 41.0, "median" => 41.0, "count" => 2 } }
+    end
+    let(:row5_doc) do
+      {
+        "serializer_version" => 3,
+        "scores" => {
+          "forward_discoverability" => { "grade" => "F", "score" => 30_992.17, "median" => 2.0,
+                                         "median_grade" => "A", "capped_fraction" => 0.0214 },
+          "reverse_traceability"    => { "grade" => "F", "score" => 32_402.84, "median" => 1_000_000.0,
+                                         "median_grade" => "F", "capped_fraction" => 0.9764 }
+        },
+        "entrypoints" => { "total" => 1611, "count" => 1611,
+                           "by_category" => { "controllers" => 1611 },
+                           "mean" => 30_992.17, "median" => 2.0 }
+      }.merge(v3_blocks)
+    end
+
+    it "row 8 — v4 aggregate over engine-1.7: all six render AND q1 carries the pinned VM line" do
+      doc = row5_doc.merge("serializer_version" => 4, "variety_mass" => v4_vm_block)
+      qs = BI.questions(context_from_aggregate(doc))
+
+      expect(qs.map(&:id)).to eq(%w[q1 q2 q3 q4 q5 bf])
+      q1 = qs.find { |q| q.id == "q1" }
+      expect(q1.detail_lines).to include(
+        "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
+      )
+    end
+
+    it "row 9 — v4 aggregate whose variety_mass is the N/A form: q1 detail byte-equal to row 5 (no VM line)" do
+      row5_q1 = BI.questions(context_from_aggregate(row5_doc)).find { |q| q.id == "q1" }
+      na = { "score" => nil, "median" => nil, "count" => 0,
+             "capped_fraction" => nil, "fallback_fraction" => nil,
+             "variety" => { "mean" => nil, "median" => nil, "count" => 0 },
+             "mass"    => { "mean" => nil, "median" => nil, "count" => 0 } }
+      doc = row5_doc.merge("serializer_version" => 4, "variety_mass" => na)
+      q1 = BI.questions(context_from_aggregate(doc)).find { |q| q.id == "q1" }
+
+      expect(q1.detail_lines).to eq(row5_q1.detail_lines)
+      expect(q1.answer).to eq(row5_q1.answer)
+    end
+
+    it "row 10 — legacy opaque findings-1.7 + id-map: the VM line renders identically (resolver never consulted)" do
+      findings = {
+        "findings_schema_version" => "1.7",
+        "scores" => {
+          "forward_discoverability" => { "grade" => "F", "score" => 30_992.17, "median" => 2.0 },
+          "variety_mass" => v4_vm_block.merge("hotspots" => %w[n_1 n_2])
+        }
+      }
+      resolver = Archbuddy::Report::Reconnect::IdMapResolver.new("ids" => {})
+      q1 = BI.questions(context_from_findings(findings, resolver)).find { |q| q.id == "q1" }
+
+      expect(q1.detail_lines).to include(
+        "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
+      )
     end
   end
 

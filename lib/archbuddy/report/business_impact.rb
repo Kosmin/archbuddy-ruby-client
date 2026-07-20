@@ -74,11 +74,17 @@ module Archbuddy
 
         capped = fwd&.capped_fraction || (ep && ep.capped_fraction)
         detail = ep&.by_category_cost_display
+        # v0.12 (1.7): the Variety+Mass detail line rides AFTER the existing
+        # by-category line (whose bytes are untouched); absent pre-1.7 and on
+        # N/A, so pre-1.7 Q1 renders byte-identically to v0.10.0 (L7).
+        detail_lines = detail ? ["by category: #{detail}"] : []
+        vm_line = variety_mass_line(context.variety_mass)
+        detail_lines << vm_line if vm_line
         Question.new(
           id: "q1", text: Q1_TEXT, grade: fwd&.grade,
           answer: cost_answer(mean: mean, grade: fwd&.grade, median: median,
                               median_grade: fwd&.median_grade, capped_fraction: capped),
-          detail_lines: detail ? ["by category: #{detail}"] : []
+          detail_lines: detail_lines
         )
       end
 
@@ -165,6 +171,40 @@ module Archbuddy
         answer << " · median #{median_cell(median, capped_fraction)}" unless median.nil?
         answer << cap_note(capped_fraction)
         answer
+      end
+
+      # v0.12 (1.7): the Variety+Mass reading beside the existing cost — the
+      # owner's "complexity 57 = variety 16 + mass 41"-style line, every
+      # number a VERBATIM engine figure (D17; the "=" is display only — the
+      # engine caps variety BEFORE summing and publishes component stats over
+      # the SAME capped per-row values, so score = variety.mean + mass.mean
+      # within display rounding is the COMMON case, A7; when the three
+      # figures don't reconcile the copy degrades to the comma form rather
+      # than print a false equation). nil (no line) when the block is absent
+      # (pre-1.7) or N/A — byte-identical absence. UNGRADED — no letter ever.
+      def variety_mass_line(vm)
+        return nil if vm.nil? || vm.score.nil?
+
+        line = +"variety + mass: complexity #{format('%.1f', vm.score)}#{vm_equation(vm)}"
+        line << " (median #{median_cell(vm.median, vm.capped_fraction)})" unless vm.median.nil?
+        line << cap_note(vm.capped_fraction)
+        line
+      end
+
+      # " = variety 16.0 + mass 41.0" — only when both component means are
+      # published AND they reconcile with the composite within display
+      # rounding (0.05); ", variety 16.0, mass 41.0" when published but
+      # non-reconciling; "" when the engine published no components.
+      def vm_equation(vm)
+        v = vm.variety&.mean
+        m = vm.mass&.mean
+        return "" if v.nil? || m.nil?
+
+        if (vm.score - (v + m)).abs <= 0.05
+          " = variety #{format('%.1f', v)} + mass #{format('%.1f', m)}"
+        else
+          ", variety #{format('%.1f', v)}, mass #{format('%.1f', m)}"
+        end
       end
 
       # ", median: A" — only when the ENGINE published the secondary letter

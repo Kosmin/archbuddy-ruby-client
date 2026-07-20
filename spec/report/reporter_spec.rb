@@ -370,6 +370,27 @@ RSpec.describe "Reporter end-to-end (R-1..R-7)" do
       expect(out).to eq(render(blast_radius: nil, forward_depth: nil,
                                reverse_depth: nil, branching_factor: nil))
     end
+
+    # v0.12 W-CLI-B smoke: the VM detail line rides Q1 through the generic
+    # detail_lines rendering — ZERO formatter code change.
+    it "renders the v0.12 Variety+Mass detail line under Q1 (v4/1.7 context)" do
+      vm = S::VarietyMass.new(
+        score: 57.0, median: 57.0, count: 2,
+        capped_fraction: 0.0, fallback_fraction: 0.5,
+        variety: S::VarietyMass::Component.new(mean: 16.0, median: 16.0, count: 2),
+        mass:    S::VarietyMass::Component.new(mean: 41.0, median: 41.0, count: 2)
+      )
+      out = render(
+        scores: [S::DimensionScore.new(key: "forward_discoverability", label: "f", question: "",
+                                       score: 30_992.17, grade: "F", hotspots: [], median: 2.0)],
+        variety_mass: vm
+      )
+
+      expect(out).to include("  Q1 ")
+      expect(out).to include(
+        "     variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
+      )
+    end
   end
 
   # --- R-6: structured exports ------------------------------------------------

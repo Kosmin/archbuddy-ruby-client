@@ -33,7 +33,8 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
   end
 
   def render(findings:, graph: nil, max_nodes: nil, entrypoints: nil, egress: nil, dynamic_dispatch: nil,
-             blast_radius: nil, forward_depth: nil, reverse_depth: nil, branching_factor: nil)
+             blast_radius: nil, forward_depth: nil, reverse_depth: nil, branching_factor: nil,
+             variety_mass: nil)
     result = result_for(findings)
     ranker = Archbuddy::Report::Ranker.new(result)
     context = Archbuddy::Report::Formatter::RenderContext.new(
@@ -53,7 +54,9 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       blast_radius:     blast_radius,
       forward_depth:    forward_depth,
       reverse_depth:    reverse_depth,
-      branching_factor: branching_factor
+      branching_factor: branching_factor,
+      # v0.12 (W-CLI-B): the fifth (nil = pre-v4/pre-1.7 doc).
+      variety_mass:     variety_mass
     )
     Archbuddy::Report::Formatter.for("html").new(context).render
   end
@@ -663,6 +666,25 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
 
       expect(html).not_to include("<script>alert(1)</script>")
       expect(html).to include("&lt;script&gt;alert(1)&lt;/script&gt;#pwn (9 use cases)")
+    end
+
+    # v0.12 W-CLI-B smoke: the VM detail line rides the q1 card through the
+    # generic detail_lines rendering — ZERO formatter code change; plain text,
+    # nothing new to escape.
+    it "renders the v0.12 Variety+Mass detail line inside the q1 card (v4/1.7 context)" do
+      vm = scores_mod::VarietyMass.new(
+        score: 57.0, median: 57.0, count: 2,
+        capped_fraction: 0.0, fallback_fraction: 0.5,
+        variety: scores_mod::VarietyMass::Component.new(mean: 16.0, median: 16.0, count: 2),
+        mass:    scores_mod::VarietyMass::Component.new(mean: 41.0, median: 41.0, count: 2)
+      )
+      html = render(findings: v13_yml, variety_mass: vm)
+      section = html[%r{<section id="business-impact">.*?</section>}m]
+
+      expect(section).not_to be_nil
+      expect(section).to include(
+        "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
+      )
     end
   end
 end
