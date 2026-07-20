@@ -189,7 +189,7 @@ headline**; the letter grade is a tentative secondary indicator:
   block (findings 1.3): `Connectivity: N/total nodes scored (P%)`. A low percentage (e.g. 5/1672,
   0.3%) flags that only a small sample of the graph was reachable from entrypoints — treat the
   dimension scores as indicative, not representative.
-- **v0.10 counter banners** — a SERIALIZER v2+ committed aggregate (v3 as of v0.11) carries three
+- **v0.10 counter banners** — a SERIALIZER v2+ committed aggregate (v4 as of v0.12) carries three
   counter blocks, each rendered as a nil-tolerant banner beside connectivity (absent on an older
   aggregate — back-compat):
   - `Entrypoints: N total (controllers 3, jobs 1, …)` — ingress counts by category; once the

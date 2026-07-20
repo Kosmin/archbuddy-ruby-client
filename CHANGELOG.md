@@ -1,6 +1,38 @@
 # Changelog
 
-## [Unreleased] — v0.12 collector wave (W-CLI-A)
+## [0.11.0] — v0.12 counter wave (W-CLI-B)
+
+The client half of the v0.12 read/report side: the release's single committed-cache
+serializer bump (v3 → v4) plus the `variety_mass` read path, presenter line, and version bump.
+Everything ADDITIVE and nil-tolerant — pre-1.7 docs render byte-identically to 0.10.0.
+
+### Added
+- **SERIALIZER v4 (R1 — THE one serializer bump of the release, sole owner):** the committed
+  aggregate carries the findings-1.7 `variety_mass` block VERBATIM as a top-level peer of
+  `blast_radius` (UNGRADED — no grade key exists or is ever minted; `capped_fraction` = the CAP
+  disclosure, `fallback_fraction` = THE L17 low-confidence disclosure; first-class `variety`/`mass`
+  component stats; opaque `hotspots` lists DROPPED at both levels — the headline_scores posture);
+  `preserve_existing_scores` carries it across collect-only rewrites (a v3 prior grafts nothing).
+  Fragment nodes additionally carry `outcome_arity` (int|null — null = unresolved, NEVER
+  fabricated) + `escapes` (bool) read from the id-map descriptor mirror — the collector wave's
+  keys ride THIS stamp (one committed-cache churn event, A5).
+- **Read side (R2):** `Scores::VarietyMass` (+`::Component`) incl. `fallback_fraction`
+  (`na?` = score nil); dual-shape nil-on-absent parsers `variety_mass_from_aggregate` /
+  `variety_mass_from_findings` (ONE builder — the committed and findings spellings are pinned
+  1:1); threaded `Result` → `RenderContext` → CLI as the fifth business-metric field.
+- **Business Impact (R3):** Q1 gains the spec-pinned Variety+Mass detail line —
+  `variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)` — the "=" equation
+  is the common case (the engine caps variety BEFORE summing, A7); a non-reconciling triple
+  degrades to the comma form (never a false equation); absent/N/A → NO line. Formatters:
+  ZERO code change (generic `detail_lines` rendering). The L9 change-impact ripple line is
+  DEFERRED (gated off, zero code — v0.13).
+
+### Changed
+- Client version 0.10.0 → 0.11.0.
+- Spec re-baselines: the six committed-stamp assertions read `eq(4)`; v1/v2/v3-vintage doc
+  INPUT fixtures retained as tolerance pins (they must keep passing).
+
+## [0.11.0] — v0.12 collector wave (W-CLI-A, ships with the counter wave above)
 
 The client half of the engine's v0.12 `cost = Variety + Mass` dimension: extraction of the two
 graph-1.4 INPUT facts. Output-compatible with every current setup — emission is probe-gated

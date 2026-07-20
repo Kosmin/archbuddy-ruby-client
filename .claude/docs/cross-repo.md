@@ -74,13 +74,38 @@ remote.
 
 ## Versions and release sequence
 
-The client is at **0.10.0** (the v0.11 business-metrics release, branch
-`feat/v0.11-business-metrics`); the sibling engine is at **0.8.0** (branch `feat/v0.11-metrics`;
-graph schema **1.3** unchanged, findings schema **1.6**, `SUPPORTED_VERSIONS` 1.0–1.6). The
-mandatory release sequence is **engine `main` first, then client**: the client's
-`metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS` constant at test time, so the
-engine must already carry a matching version before the client suite can be verified green.
-(The `### v0.11` … entries below are the historical changelog, newest first.)
+The client is at **0.11.0** (the v0.12 Variety+Mass release, branch
+`feat/v0.12-variety-mass`); the sibling engine is at **0.9.0** (branch `feat/v0.12-variety-mass`;
+graph schema **1.4** — additive optional `outcome_arity`/`escapes` node fields, findings schema
+**1.7** — additive UNGRADED `scores.variety_mass`, `SUPPORTED_VERSIONS` 1.0–1.7; committed-cache
+**SERIALIZER v4**, client-owned). The mandatory release sequence is **engine `main` first, then
+client**: the client's `metric_kernel_consistency_spec` loads the live engine `METRIC_KEYS`
+constant at test time, so the engine must already carry a matching version before the client
+suite can be verified green.
+(The `### v0.12` … entries below are the historical changelog, newest first.)
+
+### v0.12 client bump (0.11.0) — engine 0.9.0 (graph 1.4 / findings 1.7)
+
+Two client waves, same gated-additive posture:
+
+- **Client → engine (graph 1.4, probe-gated — the collector wave W-CLI-A):** the client extracts
+  each in-tree definition's caller-visible **outcome arity** (five-class taxonomy
+  {VALUE, NIL, TRUE, FALSE, RAISE}, floor ≥ 1, Layer-2 memo-forwarder fixpoint) and the
+  callee-definition **escape** property (`yield`/used-`&blk`/`block_given?`/callable-param
+  `.call`/dynamic meta-send), stamping graph nodes ONLY behind the schema-acceptance probes
+  (`graph_schema_accepts_outcome_arity?`/`…_escapes?` — dormant/byte-identical against a 1.3
+  engine); unresolved arity is ABSENT, never fabricated (L17); sinks are never stamped (the
+  engine reads absent-on-external as a lenient single-outcome terminal). Both facts ride the
+  id-map descriptor unconditionally. `COLLECTOR_VERSION` 1→2 (client-internal re-parse stamp).
+- **Engine → client (findings 1.7, read nil-tolerantly — the counter wave W-CLI-B):** ONE new
+  OPTIONAL block, `scores.variety_mass` (`cost = Variety + Mass`, UNGRADED — no grade key,
+  schema-enforced), folded VERBATIM into the committed aggregate under **SERIALIZER v4** (the
+  release's single bump; hotspots dropped; `fallback_fraction` = THE L17 disclosure), parsed to
+  `Scores::VarietyMass` nil-on-absent, and rendered as one spec-pinned Q1 detail line
+  (`variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)` — the "=" holds
+  because the engine caps variety before summing). Fragment nodes carry `outcome_arity`/`escapes`
+  under the same v4 stamp — ONE committed-cache churn event per audited repo. Pre-1.7 docs
+  render byte-identically to 0.10.0.
 
 ### v0.11 client bump (0.10.0) — engine 0.8.0 (graph 1.3 / findings 1.6)
 

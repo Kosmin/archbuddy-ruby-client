@@ -83,6 +83,27 @@ Commit both together as one event. **Downgrade caveat:** running an OLDER client
 a v3 cache rewrites the aggregate back to that client's v2 shape (the v3 blocks drop) — harmless;
 the next `analyze` with a current client restores them.
 
+## Upgrading to archbuddy 0.11.0 (v0.12) — one expected churn event
+
+Same pattern as the v0.11 upgrade — ONE larger-than-usual committed diff on the first
+`collect`/`reset`, then surgical again:
+
+- **Fragment stamps + node keys, together** — every fragment's `serializer_version` bumps 3 → 4
+  (a stamp rewrite, not a re-parse), and every fragment node gains two keys in the SAME event:
+  `outcome_arity` (int, 1..5 — or null when statically unresolved; never fabricated) and
+  `escapes` (bool). One churn event by design: the arity/escape keys ride the v4 stamp rather
+  than a second bump.
+- **Aggregate** — the next `analyze` (against an engine ≥ 0.9.0 / findings 1.7) folds the new
+  `variety_mass` block (UNGRADED; hotspots dropped; `fallback_fraction` = the low-confidence
+  disclosure) into the aggregate. Against an older engine there is no block — an honest absence.
+- (One-time, machine-local, NOT committed: `COLLECTOR_VERSION` 1 → 2 forces a full re-parse of
+  the gitignored speed cache on first run — slower once, zero committed diff from it.)
+
+Commit the stamp + key churn together as one event. **Downgrade caveat (repeats v3's):** an
+OLDER client's `collect` over a v4 cache rewrites the committed shape back to that client's
+vintage (the v4 keys/block drop) — harmless; the next `analyze`/`collect` with a current client
+restores them.
+
 ## The CI staleness step
 
 Add `archbuddy collect --check` to CI. It regenerates the committed cache and

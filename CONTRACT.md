@@ -23,7 +23,7 @@ Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `
 ```yaml
 schema_version: "1.3"
 generator:               # all 3 keys required
-  tool: "archbuddy 0.10.0"     # "archbuddy #{Archbuddy::VERSION}"
+  tool: "archbuddy 0.11.0"     # "archbuddy #{Archbuddy::VERSION}"
   adapter: "ruby"
   capture: "static"      # static capture ⇒ all timing fields below are null (D4)
 nodes:                    # array; each node:
@@ -316,6 +316,25 @@ fabrication. **Downgrade caveat:** an old (pre-0.10.0) client's `collect` over a
 aggregate back to its own v2 shape — acceptable and probed; the next `analyze` with a current client
 restores v3. The E1 fragment-edge symbol churn and the v2→v3 stamp churn ship as ONE committed-cache
 churn event per audited repo.
+
+**v0.12 read posture (findings 1.7, SERIALIZER v4):** the client reads findings 1.7 NIL-TOLERANTLY —
+the one new block, `scores.variety_mass` (the UNGRADED `cost = Variety + Mass` composite), folds into
+the committed aggregate VERBATIM as a top-level peer under the SAME spelling:
+`{score, median, count, capped_fraction, fallback_fraction, variety, mass, by_category?}` where
+`variety`/`mass` are `{mean, median, count}` component stats over the CAPPED per-row values (so
+`score = variety.mean + mass.mean` within display rounding — the Q1 "=" equation), `capped_fraction`
+is the CAP disclosure and **`fallback_fraction` is THE L17 low-confidence disclosure** (share of scored
+routes whose variety product includes an in-tree full-b fallback factor; null when score null); opaque
+`hotspots` id lists are DROPPED at both levels (the headline_scores posture; a v0.13 report candidate).
+NO grade key exists anywhere in the block — the engine schema rejects one; the client never grades.
+The engine N/A form (score null, count 0 — e.g. a pre-1.4 graph with zero arity stamps) folds
+present-but-null and renders NO Q1 line — omission, never "complexity 0.0". Fragment nodes carry
+`outcome_arity` (int|null — null = statically unresolved, never fabricated) and `escapes` (bool)
+from the id-map descriptor mirror. A 1.6-or-older doc has no `variety_mass` → no v4 block, Q1
+byte-identical to 0.10.0. **Downgrade caveat (repeats v3's):** an old (pre-0.11.0) client's `collect`
+over a v4 cache rewrites the aggregate back to its own shape — acceptable; the next `analyze` with a
+current client restores v4. The v3→v4 stamp churn and the new fragment keys ship as ONE
+committed-cache churn event per audited repo (A5).
 
 **Score semantics (findings 1.3):** `score` is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost to a `db_op` terminal — an **unbounded architectural cost**
