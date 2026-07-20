@@ -151,7 +151,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir)
 
       frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/controllers/orders_controller.rb.json")))
-      expect(frag["serializer_version"]).to eq(3)
+      expect(frag["serializer_version"]).to eq(4)
       action = frag["nodes"].find { |n| n["symbol"] == "OrdersController#index" }
       expect(action["entrypoint"]).to be(true)
       expect(action["entrypoint_kind"]).to eq("controllers")
@@ -160,6 +160,156 @@ RSpec.describe Archbuddy::Cache::Writer do
       plain = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
       expect(plain["entrypoint"]).to be(false)
       expect(plain["entrypoint_kind"]).to be_nil
+    end
+  end
+
+  # --- v0.12 (serializer v4): the findings-1.7 variety_mass fold -------------
+
+  # A full 1.7-shaped variety_mass block (doc-shaped — the I3-4/I3-9 keys):
+  # composite + BOTH disclosures (capped_fraction = CAP, fallback_fraction =
+  # THE L17 one) + first-class component stats + by_category, with opaque
+  # hotspot id lists at both levels (which the committed fold must DROP).
+  def vm_17_block
+    {
+      "score" => 57.0, "median" => 57.0, "count" => 2,
+      "capped_fraction" => 0.0, "fallback_fraction" => 0.5,
+      "hotspots" => %w[n_aaa n_bbb],
+      "variety" => { "mean" => 16.0, "median" => 16.0, "count" => 2 },
+      "mass"    => { "mean" => 41.0, "median" => 41.0, "count" => 2 },
+      "by_category" => {
+        "controllers" => {
+          "score" => 57.0, "median" => 57.0, "count" => 2,
+          "capped_fraction" => 0.0, "fallback_fraction" => 0.5,
+          "hotspots" => %w[n_aaa],
+          "variety" => { "mean" => 16.0, "median" => 16.0, "count" => 2 },
+          "mass"    => { "mean" => 41.0, "median" => 41.0, "count" => 2 }
+        }
+      }
+    }
+  end
+
+  def findings_with_vm(vm)
+    {
+      "scores" => {
+        "forward_discoverability" => { "grade" => "B", "score" => 82.0 },
+        "reverse_traceability"    => { "grade" => "F", "score" => 41.0 },
+        "multiplexer_proxies"     => [],
+        "variety_mass"            => vm
+      }
+    }
+  end
+
+  it "folds the 1.7 variety_mass block verbatim (zero arithmetic), hotspots dropped at both levels" do
+    Dir.mktmpdir do |dir|
+      write_into(dir, findings: findings_with_vm(vm_17_block))
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      vm  = agg["variety_mass"]
+
+      # every folded scalar deep-equals the source (verbatim — D17)
+      expect(vm["score"]).to eq(57.0)
+      expect(vm["median"]).to eq(57.0)
+      expect(vm["count"]).to eq(2)
+      expect(vm["capped_fraction"]).to eq(0.0)
+      expect(vm["fallback_fraction"]).to eq(0.5)
+      expect(vm["variety"]).to eq("mean" => 16.0, "median" => 16.0, "count" => 2)
+      expect(vm["mass"]).to eq("mean" => 41.0, "median" => 41.0, "count" => 2)
+      # UNGRADED end-to-end: no grade key is ever minted
+      expect(vm.keys).not_to include("grade", "median_grade")
+      # opaque hotspot id lists dropped — top level AND per kind
+      expect(vm).not_to have_key("hotspots")
+      cat = vm["by_category"]["controllers"]
+      expect(cat).not_to have_key("hotspots")
+      expect(cat["score"]).to eq(57.0)
+      expect(cat["fallback_fraction"]).to eq(0.5)
+      expect(cat["variety"]).to eq("mean" => 16.0, "median" => 16.0, "count" => 2)
+    end
+  end
+
+  it "writes NO variety_mass key from a 1.6-shaped findings doc (absence, never fabricated)" do
+    Dir.mktmpdir do |dir|
+      findings = findings_with_vm(nil).tap { |f| f["scores"].delete("variety_mass") }
+      write_into(dir, findings: findings)
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(agg).not_to have_key("variety_mass")
+    end
+  end
+
+  it "passes the engine N/A form through as an honest present-but-null block" do
+    Dir.mktmpdir do |dir|
+      na = {
+        "score" => nil, "median" => nil, "count" => 0,
+        "capped_fraction" => nil, "fallback_fraction" => nil,
+        "hotspots" => [],
+        "variety" => { "mean" => nil, "median" => nil, "count" => 0 },
+        "mass"    => { "mean" => nil, "median" => nil, "count" => 0 }
+      }
+      write_into(dir, findings: findings_with_vm(na))
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      vm  = agg["variety_mass"]
+      expect(vm["score"]).to be_nil
+      expect(vm["count"]).to eq(0)
+      expect(vm["fallback_fraction"]).to be_nil
+      expect(vm["variety"]).to eq("mean" => nil, "median" => nil, "count" => 0)
+      # absent by_category on the source → honest empty lens
+      expect(vm["by_category"]).to eq({})
+    end
+  end
+
+  it "carries variety_mass forward on a collect-only write; a v3 prior grafts nothing" do
+    Dir.mktmpdir do |dir|
+      # analyze write → rich v4 aggregate; collect-only re-write → carried verbatim
+      write_into(dir, findings: findings_with_vm(vm_17_block))
+      rich = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      write_into(dir, findings: nil)
+      after = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(after["variety_mass"]).to eq(rich["variety_mass"])
+
+      # v3-vintage prior (no variety_mass key) → a collect manufactures nothing
+      prior = after.reject { |k, _| k == "variety_mass" }.merge("serializer_version" => 3)
+      File.write(File.join(dir, "archbuddy-findings.json"), JSON.generate(prior))
+      write_into(dir, findings: nil)
+      regrafted = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(regrafted).not_to have_key("variety_mass")
+    end
+  end
+
+  # --- v0.12 (serializer v4, A5): fragment outcome_arity / escapes keys ------
+
+  it "stamps outcome_arity/escapes on fragment nodes from the id-map descriptor (serializer v4)" do
+    Dir.mktmpdir do |dir|
+      write_into(dir)
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      model["nodes"].each do |n|
+        expect(n).to have_key("outcome_arity")
+        expect(n).to have_key("escapes")
+        expect(n["outcome_arity"]).to be_an(Integer).and(be >= 1) unless n["outcome_arity"].nil?
+        expect([true, false]).to include(n["escapes"])
+      end
+      # a literal-returning closed method resolves to arity 1 (VALUE)
+      subtotal = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#subtotal" }
+      expect(subtotal["outcome_arity"]).to eq(1)
+      expect(subtotal["escapes"]).to be(false)
+    end
+  end
+
+  it "never fabricates fragment arity: an unresolved descriptor writes null, escapes defaults false" do
+    Dir.mktmpdir do |dir|
+      graph = {
+        "schema_version" => "1.0", "language" => "ruby",
+        "nodes" => [{ "id" => "n_1", "kind" => "function", "branches" => 1, "decisions" => 0 }],
+        "edges" => [], "entrypoints" => []
+      }
+      id_map = {
+        "ids" => {
+          # descriptor WITHOUT outcome_arity/escapes — the unresolved shape
+          "n_1" => { "symbol" => "Foo#bar", "kind" => "function", "file" => "lib/foo.rb" }
+        }
+      }
+      Archbuddy::Cache::Writer.new(project_root: dir).write(graph: graph, id_map: id_map)
+      frag = JSON.parse(File.read(File.join(dir, ".archbuddy/lib/foo.rb.json")))
+      node = frag["nodes"].first
+      expect(node["outcome_arity"]).to be_nil
+      expect(node["escapes"]).to be(false)
     end
   end
 

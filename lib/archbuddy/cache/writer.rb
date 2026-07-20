@@ -73,7 +73,17 @@ module Archbuddy
       # egress cost keys (`egress.{mean, median, capped_fraction,
       # by_category_cost}` — per-exit-point averages post-E1). NOT a contract
       # (graph/findings) change — the committed cache is a client-owned shape.
-      SERIALIZER_VERSION = 3
+      #
+      # v4 (v0.12 counter wave — THE one serializer bump of the release, sole
+      # owner): the aggregate additionally carries the findings-1.7
+      # `variety_mass` block VERBATIM (UNGRADED — no grade key exists;
+      # components {variety, mass} first-class beside the composite score;
+      # `fallback_fraction` is THE L17 disclosure, `capped_fraction` the CAP
+      # one; hotspots dropped — opaque, the headline_scores posture); fragment
+      # nodes additionally carry `outcome_arity`/`escapes` (the collector
+      # wave's keys, read from the id-map descriptor — they ride THIS stamp,
+      # no second bump: ONE committed-cache churn event for the release).
+      SERIALIZER_VERSION = 4
 
       # @param project_root [String] the audited repo root (CWD by default).
       def initialize(project_root: Dir.pwd)
@@ -138,7 +148,15 @@ module Archbuddy
             # the `entrypoint` boolean. nil for non-entrypoints and for
             # category-unknown entrypoints. A category word, NOT a line —
             # the C1 line-free invariant is untouched.
-            "entrypoint_kind" => desc["entrypoint_kind"]
+            "entrypoint_kind" => desc["entrypoint_kind"],
+            # v0.12 (v4): the collector wave's outcome contract, read from the
+            # id-map descriptor mirror (unconditional there — the committed
+            # layer never re-derives). `outcome_arity` int|null (null =
+            # statically unresolved / sink — NEVER fabricated, L17);
+            # `escapes` bool (descriptor nil reads false). Not a line, not an
+            # id — the C1 line-free invariant is untouched.
+            "outcome_arity"   => desc["outcome_arity"],
+            "escapes"         => desc["escapes"] || false
             # NO line — display-only, resolved at RENDER from the id-map.
           }
         end
@@ -276,6 +294,11 @@ module Archbuddy
             doc["forward_depth"]    = stat_copy(scores["forward_depth"])   if scores.key?("forward_depth")
             doc["reverse_depth"]    = stat_copy(scores["reverse_depth"])   if scores.key?("reverse_depth")
             doc["branching_factor"] = stat_copy(scores["branching_factor"]) if scores.key?("branching_factor")
+            # v0.12 (serializer v4): the findings-1.7 UNGRADED Variety+Mass
+            # block, verbatim — block-present-iff-source-present (a 1.6 doc
+            # writes no key; the engine N/A form passes through present-but-
+            # null). Hotspots dropped at both levels (opaque).
+            doc["variety_mass"] = variety_mass_block(scores) if scores.key?("variety_mass")
             # v0.11: light up the (1.5-live, until-now-unread) egress cost
             # keys — per-exit-point averages once E1 splits the sinks.
             merge_egress_cost!(doc["egress"], scores)
@@ -304,14 +327,15 @@ module Archbuddy
       # freshly-folded counts (counts stay fresh from diagnostics; cost is
       # engine-published and a collect never recomputes it — D17). A v2 prior
       # (no v3 keys) grafts nothing — a collect over a v2 cache does NOT
-      # manufacture v3 blocks.
+      # manufacture v3 blocks. v0.12 (v4): `variety_mass` joins the carry
+      # list under the same rule — a v3 prior (no v4 key) grafts nothing.
       def preserve_existing_scores(rel, doc)
         prior = read_prior_aggregate(rel)
         return if prior.nil?
 
         doc["scores"]              = prior["scores"]              if prior.key?("scores")
         doc["multiplexer_proxies"] = prior["multiplexer_proxies"] if prior.key?("multiplexer_proxies")
-        %w[blast_radius forward_depth reverse_depth branching_factor].each do |key|
+        %w[blast_radius forward_depth reverse_depth branching_factor variety_mass].each do |key|
           doc[key] = prior[key] if prior.key?(key)
         end
         carry_egress_cost!(doc["egress"], prior["egress"]) if prior["egress"].is_a?(Hash)
@@ -573,6 +597,54 @@ module Archbuddy
         }
         out["by_category"] = block["by_category"] if block.key?("by_category")
         out
+      end
+
+      # v0.12 (v4): the findings-1.7 `scores.variety_mass` block, copied
+      # VERBATIM (D17) — UNGRADED (no grade key exists on the source; none is
+      # ever minted). Opaque hotspot id lists are DROPPED at both levels (the
+      # headline_scores posture — VM hotspots are a v0.13 report candidate,
+      # not a committed-cache concern). The engine N/A form (score null,
+      # count 0) passes through as an honest present-but-null block.
+      # `fallback_fraction` is THE L17 low-confidence disclosure (A1/A6) and
+      # `capped_fraction` the CAP disclosure — both verbatim, never re-derived.
+      def variety_mass_block(scores)
+        vm = scores["variety_mass"]
+        {
+          "score"             => vm["score"],
+          "median"            => vm["median"],
+          "count"             => vm["count"],
+          "capped_fraction"   => vm["capped_fraction"],
+          "fallback_fraction" => vm["fallback_fraction"],
+          "variety"           => component_stat(vm["variety"]),
+          "mass"              => component_stat(vm["mass"]),
+          "by_category"       => vm_by_category(vm["by_category"])
+        }
+      end
+
+      # {mean, median, count} verbatim; non-hash source → nil (absence, never
+      # fabricated zeros).
+      def component_stat(stat)
+        return nil unless stat.is_a?(Hash)
+
+        { "mean" => stat["mean"], "median" => stat["median"], "count" => stat["count"] }
+      end
+
+      # Per-kind entries mirror the top shape, hotspots dropped per kind too.
+      # {} on an absent lens (the cost_lens_compaction posture).
+      def vm_by_category(lens)
+        return {} unless lens.is_a?(Hash)
+
+        lens.to_h do |kind, entry|
+          [kind, {
+            "score"             => entry["score"],
+            "median"            => entry["median"],
+            "count"             => entry["count"],
+            "capped_fraction"   => entry["capped_fraction"],
+            "fallback_fraction" => entry["fallback_fraction"],
+            "variety"           => component_stat(entry["variety"]),
+            "mass"              => component_stat(entry["mass"])
+          }]
+        end
       end
 
       # --- filesystem + helpers ------------------------------------------------
