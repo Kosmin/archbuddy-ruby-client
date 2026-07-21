@@ -83,7 +83,32 @@ module Archbuddy
       # nodes additionally carry `outcome_arity`/`escapes` (the collector
       # wave's keys, read from the id-map descriptor — they ride THIS stamp,
       # no second bump: ONE committed-cache churn event for the release).
-      SERIALIZER_VERSION = 4
+      #
+      # v5 (v0.13 compass wave — THE one serializer bump of the release, sole
+      # owner): fragment nodes additionally carry the four per-node
+      # REUSABILITY COMPASS stamps ({leverage, collapse, toll_booth,
+      # quadrant} — COMPASS_KEYS), copied VERBATIM from findings 1.8's
+      # top-level `reusability` map at analyze/reset; on a COLLECT-ONLY
+      # rewrite (no findings) the stamps are CARRIED from the prior committed
+      # fragment per surviving node (carry_prior_compass! — the
+      # preserve_existing_scores rule applied per-fragment; compass values
+      # are analyze-time and are never re-derived here, D17). The aggregate
+      # additionally carries the `reusability` block folded VERBATIM from
+      # findings-1.8 `scores.reusability_compass` (UNGRADED; toll-booth /
+      # extraction worst-lists de-anonymized to real symbols — the
+      # deanon_proxies pattern), and `reusability` joins the collect-only
+      # carry list.
+      SERIALIZER_VERSION = 5
+
+      # v0.13 (v5): the per-node compass stamp keys on committed fragment
+      # nodes. All four ALWAYS present on a v5 fragment (deterministic shape,
+      # the outcome_arity posture): null = "never analyzed / no compass entry"
+      # (non-in-tree kind, the vty N/A gate, a pre-1.8 engine); toll_booth
+      # false is a REAL engine verdict, never fabricated from null. `quadrant`
+      # rides the stamp because the report side panel's ONLY per-node data
+      # route on the default committed path is the fragment (findings.yml is
+      # not readable there).
+      COMPASS_KEYS = %w[leverage collapse toll_booth quadrant].freeze
 
       # @param project_root [String] the audited repo root (CWD by default).
       def initialize(project_root: Dir.pwd)
@@ -103,7 +128,7 @@ module Archbuddy
       # @return [Hash] { aggregate: <rel>, fragments: [<rel>, …] }
       def write(graph:, id_map:, findings: nil, diagnostics: nil)
         resolver  = Deanonymizer.new(id_map)
-        by_file   = group_nodes_by_file(graph, resolver)
+        by_file   = group_nodes_by_file(graph, resolver, findings && findings["reusability"])
         edges     = deanonymize_edges(graph, resolver)
         entry_set = entrypoint_symbols(graph, resolver)
 
@@ -111,6 +136,12 @@ module Archbuddy
         written   = []
 
         by_file.each do |rel_file, nodes|
+          # v0.13 (v5): compass stamps are ANALYZE-time — a collect-only
+          # rewrite grafts the PRIOR committed fragment's stamps (per
+          # surviving node) BEFORE the fragment is rebuilt, so a plain
+          # collect never clobbers them to null (the preserve_existing_scores
+          # rule, per-fragment).
+          carry_prior_compass!(rel_file, nodes) if findings.nil?
           fragment = build_fragment(rel_file, nodes, edges, entry_set)
           mode, files = write_fragment(rel_file, fragment)
           pointers[rel_file] = { "path" => committed_path_for(rel_file, mode), "shard_mode" => mode }
@@ -128,13 +159,19 @@ module Archbuddy
       # Group de-anonymized method/db_op nodes by their owning source file. The
       # external sink (no file) is excluded from the committed detail tree — it
       # carries no app semantics and no real path.
-      def group_nodes_by_file(graph, resolver)
+      #
+      # `reusability` is findings 1.8's OPTIONAL top-level per-node map (opaque
+      # id → compass entry), present only on the analyze/reset path; nil at
+      # collect (carry_prior_compass! grafts prior stamps there) and on
+      # pre-1.8 findings (stamps write null — honest absence, never derived).
+      def group_nodes_by_file(graph, resolver, reusability)
         grouped = Hash.new { |h, k| h[k] = [] }
         (graph["nodes"] || []).each do |node|
           desc = resolver.describe(node["id"])
           file = desc && desc["file"]
           next if file.nil? # external sink / unmapped → not a committed source node
 
+          compass = reusability && reusability[node["id"]]
           grouped[file] << {
             "symbol"    => desc["symbol"],
             "kind"      => desc["kind"],
@@ -156,7 +193,21 @@ module Archbuddy
             # `escapes` bool (descriptor nil reads false). Not a line, not an
             # id — the C1 line-free invariant is untouched.
             "outcome_arity"   => desc["outcome_arity"],
-            "escapes"         => desc["escapes"] || false
+            "escapes"         => desc["escapes"] || false,
+            # v0.13 (v5): the per-node REUSABILITY COMPASS stamps, copied
+            # VERBATIM from findings 1.8's top-level `reusability` map
+            # (keyed by opaque id) at analyze/reset — real-name
+            # localization: any function's leverage / collapse / toll-booth
+            # flag / quadrant is browsable in the committed cache. null when
+            # the node carries no compass entry (non-in-tree kind, the vty
+            # N/A gate, a pre-1.8 engine) — never fabricated; toll_booth
+            # false is a real engine verdict, null means "never analyzed".
+            # Numbers, booleans, and a quadrant word — NOT a line, NOT an
+            # id: the C1 line-free invariant is untouched.
+            "leverage"        => compass && compass["leverage"],
+            "collapse"        => compass && compass["collapse"],
+            "toll_booth"      => compass && compass["toll_booth"],
+            "quadrant"        => compass && compass["quadrant"]
             # NO line — display-only, resolved at RENDER from the id-map.
           }
         end
@@ -194,6 +245,73 @@ module Archbuddy
                                     .sort_by { |n| n["symbol"].to_s },
           "edges"              => file_edges.sort_by { |e| [e["from"].to_s, e["to"].to_s, e["calls"].to_i] }
         }
+      end
+
+      # --- v0.13 (v5): the per-fragment compass carry ---------------------------
+
+      # v0.13 (v5, the verifier MAJOR-2 mechanism): compass values exist only
+      # in findings (analyze-time), but a collect rewrites every fragment
+      # WITHOUT findings — a plain stamp would be CLOBBERED to null on every
+      # collect (and `--check` would drift between collect and analyze).
+      # Mirror preserve_existing_scores PER FRAGMENT: read the PRIOR committed
+      # fragment and graft its compass keys onto each surviving node (matched
+      # by real symbol). Keys drop only when the node itself is gone (it is
+      # not emitted at all); a prior without the keys (a v4 fragment) grafts
+      # nothing — a collect never manufactures stamps; a first-ever collect
+      # has no prior — stamps stay null until the first analyze.
+      def carry_prior_compass!(rel_file, nodes)
+        prior = prior_fragment_compass(rel_file)
+        return if prior.empty?
+
+        nodes.each do |node|
+          stamps = prior[node["symbol"]]
+          next unless stamps
+
+          COMPASS_KEYS.each { |key| node[key] = stamps[key] if stamps.key?(key) }
+        end
+      end
+
+      # {real symbol => {compass keys the prior fragment node carries}} for one
+      # source file's PRIOR committed fragment — reads whichever layout the
+      # prior write chose (single file or shard dir; the reader trusts the
+      # committed tree, never re-derives the layout choice). {} when there is
+      # no prior fragment or no node carries a compass key (a v4-vintage
+      # tree). First occurrence wins across shards (the writer emits identical
+      # node payloads per symbol — the DetailTree rule).
+      def prior_fragment_compass(rel_file)
+        index = {}
+        prior_fragment_docs(rel_file).each do |doc|
+          (doc["nodes"] || []).each do |node|
+            sym = node["symbol"]
+            next if sym.nil? || index.key?(sym)
+
+            stamps = node.slice(*COMPASS_KEYS)
+            index[sym] = stamps unless stamps.empty?
+          end
+        end
+        index
+      end
+
+      # Every parsed prior committed fragment doc for a source file — [] when
+      # absent; a corrupt/unreadable fragment is skipped (fail-safe: it cannot
+      # carry anything, exactly the read_prior_aggregate posture).
+      def prior_fragment_docs(rel_file)
+        single = File.join(@project_root, Layout.single_path(rel_file))
+        shard  = File.join(@project_root, Layout.shard_dir(rel_file))
+        paths =
+          if File.file?(single)
+            [single]
+          elsif File.directory?(shard)
+            Dir.glob(File.join(shard, "**", "*.json")).sort
+          else
+            []
+          end
+
+        paths.filter_map do |path|
+          JSON.parse(File.read(path))
+        rescue StandardError
+          nil
+        end
       end
 
       # --- committed write + adaptive sharding ---------------------------------
@@ -299,6 +417,11 @@ module Archbuddy
             # writes no key; the engine N/A form passes through present-but-
             # null). Hotspots dropped at both levels (opaque).
             doc["variety_mass"] = variety_mass_block(scores) if scores.key?("variety_mass")
+            # v0.13 (serializer v5): the findings-1.8 UNGRADED Reusability
+            # Compass summary, verbatim — block-present-iff-source-present
+            # (a 1.7 doc writes no key). The ONLY computation is the
+            # toll-booth / extraction worst-list de-anonymization.
+            doc["reusability"] = reusability_block(scores, resolver) if scores.key?("reusability_compass")
             # v0.11: light up the (1.5-live, until-now-unread) egress cost
             # keys — per-exit-point averages once E1 splits the sinks.
             merge_egress_cost!(doc["egress"], scores)
@@ -329,13 +452,14 @@ module Archbuddy
       # (no v3 keys) grafts nothing — a collect over a v2 cache does NOT
       # manufacture v3 blocks. v0.12 (v4): `variety_mass` joins the carry
       # list under the same rule — a v3 prior (no v4 key) grafts nothing.
+      # v0.13 (v5): `reusability` joins too — a v4 prior grafts nothing.
       def preserve_existing_scores(rel, doc)
         prior = read_prior_aggregate(rel)
         return if prior.nil?
 
         doc["scores"]              = prior["scores"]              if prior.key?("scores")
         doc["multiplexer_proxies"] = prior["multiplexer_proxies"] if prior.key?("multiplexer_proxies")
-        %w[blast_radius forward_depth reverse_depth branching_factor variety_mass].each do |key|
+        %w[blast_radius forward_depth reverse_depth branching_factor variety_mass reusability].each do |key|
           doc[key] = prior[key] if prior.key?(key)
         end
         carry_egress_cost!(doc["egress"], prior["egress"]) if prior["egress"].is_a?(Hash)
@@ -645,6 +769,48 @@ module Archbuddy
             "mass"              => component_stat(entry["mass"])
           }]
         end
+      end
+
+      # v0.13 (v5): the findings-1.8 `scores.reusability_compass` block, copied
+      # VERBATIM (D17) — UNGRADED (no grade key exists on the source; none is
+      # ever minted). The toll-booth and extraction worst-lists are
+      # de-anonymized to real symbols (the deanon_proxies pattern), the
+      # engine's worst-first order PRESERVED. Honest blanks pass through
+      # (reuse_index nulls / unshared_fraction null when reachability is
+      # unknown; empty lists when nothing qualifies). ADVISORY data: a toll
+      # booth is a "bypass candidate", never "must bypass" — wording lives in
+      # the report layer, the fold carries only figures.
+      def reusability_block(scores, resolver)
+        rc = scores["reusability_compass"]
+        {
+          "reuse_index"       => reuse_index_copy(rc["reuse_index"]),
+          "unshared_fraction" => rc["unshared_fraction"],
+          "toll_booths"       => (rc["toll_booths"] || []).map do |tb|
+            {
+              "symbol"       => resolver.symbol(tb["node"]),
+              "blast"        => tb["blast"],
+              "mass_savings" => tb["mass_savings"]
+            }
+          end,
+          "extraction"        => (rc["extraction"] || []).map do |ex|
+            {
+              "symbol"   => resolver.symbol(ex["node"]),
+              "collapse" => ex["collapse"],
+              "leverage" => ex["leverage"]
+            }
+          end,
+          # {mean, median, count} — the leverage distribution stat summary
+          # (component_stat carries the exact shape; nil on a non-hash source).
+          "leverage"          => component_stat(rc["leverage"])
+        }
+      end
+
+      # {mean, median} verbatim; non-hash source → nil (absence, never
+      # fabricated zeros — the component_stat posture).
+      def reuse_index_copy(reuse_index)
+        return nil unless reuse_index.is_a?(Hash)
+
+        { "mean" => reuse_index["mean"], "median" => reuse_index["median"] }
       end
 
       # --- filesystem + helpers ------------------------------------------------

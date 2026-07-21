@@ -49,7 +49,7 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
         write_collect(dir, anon, diagnostics)
 
         agg = read_aggregate(dir)
-        expect(agg["serializer_version"]).to eq(4)
+        expect(agg["serializer_version"]).to eq(5)
         expect(agg).to have_key("entrypoints")
         expect(agg).to have_key("egress")
         expect(agg).to have_key("dynamic_dispatch")
@@ -174,7 +174,7 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
                                 .write(graph: anon.graph, id_map: anon.id_map, findings: findings)
 
         agg = read_aggregate(dir)
-        expect(agg["serializer_version"]).to eq(4)
+        expect(agg["serializer_version"]).to eq(5)
         expect(agg["scores"]).to have_key("forward_discoverability")
         expect(agg["egress"]).to eq(collect_time["egress"])                       # not zero-clobbered
         expect(agg["dynamic_dispatch"]).to eq(collect_time["dynamic_dispatch"])   # carried forward
@@ -335,7 +335,7 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
                                        findings: findings_16(proxy_id))
         agg = read_aggregate(dir)
 
-        expect(agg["serializer_version"]).to eq(4)
+        expect(agg["serializer_version"]).to eq(5)
         expect(agg["blast_radius"]).to eq(
           "max" => 1569, "p90" => 3.0, "median" => 1.0, "mean" => 121.38,
           "reached_nodes" => 5506, "total_nodes" => 16_173, "total_entrypoints" => 1611,
@@ -406,7 +406,7 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
                                 .write(graph: anon.graph, id_map: anon.id_map, findings: findings_15)
         agg = read_aggregate(dir)
 
-        expect(agg["serializer_version"]).to eq(4)
+        expect(agg["serializer_version"]).to eq(5)
         %w[blast_radius forward_depth reverse_depth branching_factor depth].each do |key|
           expect(agg).not_to have_key(key)
         end
@@ -462,7 +462,7 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
         write_collect(dir, anon, diagnostics)
         agg = read_aggregate(dir)
 
-        expect(agg["serializer_version"]).to eq(4)
+        expect(agg["serializer_version"]).to eq(5)
         %w[blast_radius forward_depth reverse_depth branching_factor depth].each do |key|
           expect(agg).not_to have_key(key)
         end

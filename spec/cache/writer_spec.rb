@@ -151,7 +151,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir)
 
       frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/controllers/orders_controller.rb.json")))
-      expect(frag["serializer_version"]).to eq(4)
+      expect(frag["serializer_version"]).to eq(5)
       action = frag["nodes"].find { |n| n["symbol"] == "OrdersController#index" }
       expect(action["entrypoint"]).to be(true)
       expect(action["entrypoint_kind"]).to eq("controllers")
@@ -313,6 +313,233 @@ RSpec.describe Archbuddy::Cache::Writer do
     end
   end
 
+  # --- v0.13 (serializer v5): fragment compass stamps + the carry mechanism --
+
+  COMPASS_KEYS = %w[leverage collapse toll_booth quadrant].freeze
+
+  # findings 1.8-shaped inputs for the sample fixture: the top-level per-node
+  # `reusability` map (keyed by OPAQUE id) + the scores.reusability_compass
+  # summary (worst-lists carry opaque ids the fold must de-anonymize).
+  def opaque_id_for(a, symbol)
+    id, = a.id_map["ids"].find { |_id, d| d["symbol"] == symbol }
+    id
+  end
+
+  def compass_findings(a, leverage: 4.0)
+    total_id = opaque_id_for(a, "Billing::Invoice#total")
+    sub_id   = opaque_id_for(a, "Billing::Invoice#subtotal")
+    {
+      "scores" => {
+        "forward_discoverability" => { "grade" => "B", "score" => 82.0 },
+        "reverse_traceability"    => { "grade" => "F", "score" => 41.0 },
+        "multiplexer_proxies"     => [],
+        "reusability_compass"     => {
+          "reuse_index"       => { "mean" => 2.4, "median" => 1.0 },
+          "unshared_fraction" => 0.5,
+          "toll_booths"       => [{ "node" => sub_id, "blast" => 4, "mass_savings" => 8 }],
+          "extraction"        => [{ "node" => total_id, "collapse" => 16.0, "leverage" => leverage }],
+          "leverage"          => { "mean" => 3.1, "median" => 2.0, "count" => 2 }
+        }
+      },
+      "reusability" => {
+        total_id => { "leverage" => leverage, "collapse" => 2.0, "toll_booth" => false,
+                      "blast" => 5, "quadrant" => "load_bearing" },
+        sub_id   => { "leverage" => 1.0, "collapse" => 1.0, "toll_booth" => true,
+                      "blast" => 4, "quadrant" => "bypass_candidate" }
+      }
+    }
+  end
+
+  it "stamps compass keys on fragment nodes verbatim from the findings 1.8 reusability map (serializer v5)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+
+      total = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+      expect(total["leverage"]).to eq(4.0)
+      expect(total["collapse"]).to eq(2.0)
+      expect(total["toll_booth"]).to be(false)
+      expect(total["quadrant"]).to eq("load_bearing")
+
+      subtotal = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#subtotal" }
+      expect(subtotal["toll_booth"]).to be(true)
+      expect(subtotal["quadrant"]).to eq("bypass_candidate")
+
+      # a node WITHOUT a reusability entry carries honest nulls (all four
+      # keys PRESENT — the deterministic v5 shape; null = never analyzed)
+      other = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice.overdue" }
+      COMPASS_KEYS.each do |key|
+        expect(other).to have_key(key)
+        expect(other[key]).to be_nil
+      end
+    end
+  end
+
+  it "writes null compass stamps from a pre-1.8 findings doc (absence, never derived)" do
+    Dir.mktmpdir do |dir|
+      write_into(dir, findings: findings_with_vm(vm_17_block)) # a 1.7 doc: no reusability
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      model["nodes"].each do |n|
+        COMPASS_KEYS.each { |key| expect(n[key]).to be_nil }
+      end
+    end
+  end
+
+  it "first-ever collect writes null compass stamps (no prior to carry)" do
+    Dir.mktmpdir do |dir|
+      write_into(dir) # collect-only into a fresh tree
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      model["nodes"].each do |n|
+        COMPASS_KEYS.each do |key|
+          expect(n).to have_key(key)
+          expect(n[key]).to be_nil
+        end
+      end
+    end
+  end
+
+  it "carries fragment compass stamps through a collect-only rewrite BYTE-identically (the MAJOR-2 mechanism)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      analyzed = read_fragments(dir)
+      expect(analyzed).not_to be_empty
+
+      # collect-after-analyze: stamps PRESERVED — every committed FRAGMENT is
+      # byte-identical, so the detail tree never churns between collect and
+      # analyze (the one-churn-event discipline; a plain stamp would have
+      # nulled every compass key here)
+      writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
+      expect(read_fragments(dir)).to eq(analyzed)
+    end
+  end
+
+  it "reset+analyze refreshes stamps: fresh findings win over any prior fragment" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a, leverage: 4.0))
+      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a, leverage: 9.0))
+
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      total = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+      expect(total["leverage"]).to eq(9.0)
+    end
+  end
+
+  it "a v4-vintage prior fragment grafts nothing: stamps stay null, never manufactured" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+
+      # simulate a v4 prior: strip the compass keys off the committed fragment
+      frag_path = File.join(dir, ".archbuddy/app/models/invoice.rb.json")
+      v4 = JSON.parse(File.read(frag_path))
+      v4["serializer_version"] = 4
+      v4["nodes"].each { |n| COMPASS_KEYS.each { |key| n.delete(key) } }
+      File.write(frag_path, JSON.generate(v4))
+
+      writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
+      model = JSON.parse(File.read(frag_path))
+      model["nodes"].each do |n|
+        COMPASS_KEYS.each { |key| expect(n[key]).to be_nil }
+      end
+    end
+  end
+
+  it "drops a gone node's stamps with the node; survivors keep theirs (carry is per surviving symbol)" do
+    Dir.mktmpdir do |dir|
+      two_nodes = {
+        "schema_version" => "1.0", "language" => "ruby",
+        "nodes" => [
+          { "id" => "n_1", "kind" => "function", "branches" => 1, "decisions" => 0 },
+          { "id" => "n_2", "kind" => "function", "branches" => 1, "decisions" => 0 }
+        ],
+        "edges" => [], "entrypoints" => []
+      }
+      id_map = {
+        "ids" => {
+          "n_1" => { "symbol" => "Foo#keep", "kind" => "function", "file" => "lib/foo.rb" },
+          "n_2" => { "symbol" => "Foo#gone", "kind" => "function", "file" => "lib/foo.rb" }
+        }
+      }
+      findings = {
+        "scores" => {},
+        "reusability" => {
+          "n_1" => { "leverage" => 2.0, "collapse" => 1.0, "toll_booth" => false, "quadrant" => "glue" },
+          "n_2" => { "leverage" => 1.0, "collapse" => 1.0, "toll_booth" => true, "quadrant" => "glue" }
+        }
+      }
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: two_nodes, id_map: id_map, findings: findings)
+
+      one_node = two_nodes.merge("nodes" => [two_nodes["nodes"].first])
+      writer.write(graph: one_node, id_map: id_map, findings: nil) # collect-only
+
+      frag = JSON.parse(File.read(File.join(dir, ".archbuddy/lib/foo.rb.json")))
+      symbols = frag["nodes"].map { |n| n["symbol"] }
+      expect(symbols).to eq(["Foo#keep"])
+      expect(frag["nodes"].first["leverage"]).to eq(2.0) # survivor carried
+    end
+  end
+
+  # --- v0.13 (serializer v5): the aggregate reusability fold ------------------
+
+  it "folds the 1.8 reusability_compass block verbatim with de-anonymized worst-lists" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      ru  = agg["reusability"]
+
+      expect(ru["reuse_index"]).to eq("mean" => 2.4, "median" => 1.0)
+      expect(ru["unshared_fraction"]).to eq(0.5)
+      expect(ru["leverage"]).to eq("mean" => 3.1, "median" => 2.0, "count" => 2)
+      # worst-lists de-anonymized to REAL symbols, engine order preserved
+      expect(ru["toll_booths"]).to eq(
+        [{ "symbol" => "Billing::Invoice#subtotal", "blast" => 4, "mass_savings" => 8 }]
+      )
+      expect(ru["extraction"]).to eq(
+        [{ "symbol" => "Billing::Invoice#total", "collapse" => 16.0, "leverage" => 4.0 }]
+      )
+      # UNGRADED end-to-end: no grade key is ever minted
+      expect(ru.keys).not_to include("grade", "median_grade")
+    end
+  end
+
+  it "writes NO reusability key from a 1.7-shaped findings doc (absence, never fabricated)" do
+    Dir.mktmpdir do |dir|
+      write_into(dir, findings: findings_with_vm(vm_17_block))
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(agg).not_to have_key("reusability")
+    end
+  end
+
+  it "carries reusability forward on a collect-only write; a v4 prior grafts nothing" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      rich = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+
+      writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
+      after = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(after["reusability"]).to eq(rich["reusability"])
+
+      # v4-vintage prior (no reusability key) → a collect manufactures nothing
+      prior = after.reject { |k, _| k == "reusability" }.merge("serializer_version" => 4)
+      File.write(File.join(dir, "archbuddy-findings.json"), JSON.generate(prior))
+      writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
+      regrafted = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(regrafted).not_to have_key("reusability")
+    end
+  end
+
   it "produces byte-identical committed output across two runs (determinism)" do
     Dir.mktmpdir do |dir|
       write_into(dir)
@@ -341,6 +568,16 @@ RSpec.describe Archbuddy::Cache::Writer do
 
   def read_committed(dir)
     Dir.glob(File.join(dir, "**", "*.json"))
+       .reject { |p| p.include?("/.archbuddy/.cache/") }
+       .sort
+       .to_h { |p| [p.sub("#{dir}/", ""), File.read(p)] }
+  end
+
+  # The committed DETAIL-TREE fragments only (the root aggregate excluded) —
+  # the surface the v5 compass carry must hold byte-stable. Globbed explicitly
+  # under the dot-directory (a bare `**/*.json` never descends into it).
+  def read_fragments(dir)
+    Dir.glob(File.join(dir, ".archbuddy", "**", "*.json"))
        .reject { |p| p.include?("/.archbuddy/.cache/") }
        .sort
        .to_h { |p| [p.sub("#{dir}/", ""), File.read(p)] }
