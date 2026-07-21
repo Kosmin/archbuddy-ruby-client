@@ -105,7 +105,10 @@ module Archbuddy
           forward_depth:    result.forward_depth,
           reverse_depth:    result.reverse_depth,
           branching_factor: result.branching_factor,
-          variety_mass:     result.variety_mass
+          variety_mass:     result.variety_mass,
+          # v0.13: the sixth — `reusability` (serializer v5 / findings 1.8),
+          # nil on older docs: no Reuse line, no compass section (back-compat).
+          reusability:      result.reusability
         )
 
         puts formatter_class.new(context).render

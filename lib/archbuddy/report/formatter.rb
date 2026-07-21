@@ -44,12 +44,16 @@ module Archbuddy
       # @param variety_mass  [Scores::VarietyMass,nil] the v0.12 (serializer v4 /
       #                       findings 1.7) UNGRADED Variety+Mass composite;
       #                       nil when absent → no Q1 detail line (back-compat)
+      # @param reusability   [Scores::Reusability,nil] the v0.13 (serializer v5 /
+      #                       findings 1.8) UNGRADED Reusability Compass summary
+      #                       (ADVISORY worst-lists); nil when absent → no Reuse
+      #                       line and no compass section (back-compat)
       RenderContext = Struct.new(
         :ranked, :class_rollups, :generator, :graph, :resolver, :scores, :connectivity,
         :max_nodes, :multiplexer_proxies,
         :entrypoints, :egress, :dynamic_dispatch,
         :blast_radius, :forward_depth, :reverse_depth, :branching_factor,
-        :variety_mass,
+        :variety_mass, :reusability,
         keyword_init: true
       )
 

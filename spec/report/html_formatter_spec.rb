@@ -34,7 +34,7 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
 
   def render(findings:, graph: nil, max_nodes: nil, entrypoints: nil, egress: nil, dynamic_dispatch: nil,
              blast_radius: nil, forward_depth: nil, reverse_depth: nil, branching_factor: nil,
-             variety_mass: nil)
+             variety_mass: nil, reusability: nil)
     result = result_for(findings)
     ranker = Archbuddy::Report::Ranker.new(result)
     context = Archbuddy::Report::Formatter::RenderContext.new(
@@ -56,7 +56,9 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       reverse_depth:    reverse_depth,
       branching_factor: branching_factor,
       # v0.12 (W-CLI-B): the fifth (nil = pre-v4/pre-1.7 doc).
-      variety_mass:     variety_mass
+      variety_mass:     variety_mass,
+      # v0.13 (V13-C): the sixth (nil = pre-v5/pre-1.8 doc).
+      reusability:      reusability
     )
     Archbuddy::Report::Formatter.for("html").new(context).render
   end
@@ -685,6 +687,107 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       expect(section).to include(
         "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
       )
+    end
+  end
+
+  # --- v0.13 (V13-C): the Reusability Compass section + node side panel --------
+  #
+  # The binding DATA ROUTE: fragment stamps → DetailTree passthrough →
+  # graph_node_data whitelist → showNode rows. The compass section renders the
+  # committed `reusability` block (VERBATIM engine figures, ADVISORY wording)
+  # plus the quadrant lists grouped from the per-node stamps the reassembled
+  # graph carries. Pre-v5/pre-1.8 docs render NO section (back-compat).
+  describe "Reusability Compass section + side panel (v0.13 V13-C)" do
+    let(:scores_mod) { Archbuddy::Report::Scores }
+    let(:compass) do
+      scores_mod::Reusability.new(
+        reuse_index: scores_mod::Reusability::ReuseIndex.new(mean: 2.4, median: 1.0),
+        unshared_fraction: 0.5,
+        toll_booths: [scores_mod::Reusability::TollBooth.new(
+          symbol: "LandingPageThemesController#content_block_type", blast: 4, mass_savings: 4
+        )],
+        extraction: [scores_mod::Reusability::Extraction.new(
+          symbol: "Api::V1::LandingPageThemesController#build_style", collapse: 16.0, leverage: 32.0
+        )],
+        leverage: scores_mod::Reusability::LeverageStats.new(mean: 3.1, median: 2.0, count: 107)
+      )
+    end
+    # A committed-shaped (real-name) graph whose nodes carry the v5 fragment
+    # stamps — exactly what DetailTree#reassemble passes through wholesale.
+    let(:stamped_graph) do
+      {
+        "nodes" => [
+          { "id" => "Foo#booth", "symbol" => "Foo#booth", "kind" => "function",
+            "leverage" => 1.0, "collapse" => 1.0, "toll_booth" => true, "quadrant" => "bypass_candidate" },
+          { "id" => "Foo#core", "symbol" => "Foo#core", "kind" => "function",
+            "leverage" => 4.0, "collapse" => 2.0, "toll_booth" => false, "quadrant" => "load_bearing" },
+          { "id" => "Foo#plain", "symbol" => "Foo#plain", "kind" => "function",
+            "leverage" => nil, "collapse" => nil, "toll_booth" => nil, "quadrant" => nil }
+        ],
+        "edges" => []
+      }
+    end
+
+    it "renders the section: summary line, quadrant lists, advisory toll-booth + extraction tables" do
+      html = render(findings: v10_yml, graph: stamped_graph, reusability: compass)
+      section = html[%r{<section id="reusability-compass">.*?</section>}m]
+
+      expect(section).not_to be_nil
+      expect(section).to include("<h2>Reusability Compass</h2>")
+      # summary — VERBATIM engine figures, display-formatted only
+      expect(section).to include("Reuse index: mean 2.4 / median 1.0")
+      expect(section).to include("unshared fraction 50.0%")
+      expect(section).to include("leverage mean 3.1 / median 2.0")
+      # quadrant lists grouped from the per-node stamps (display-only grouping)
+      expect(section).to include("Bypass candidates (toll booths — advisory)")
+      expect(section).to include("Load-bearing (protect the contract)")
+      expect(section).to include("Foo#booth")
+      expect(section).to include("Foo#core")
+      # ADVISORY wording — candidates, never mandates
+      expect(section).to include("Candidates, never mandates.")
+      expect(section).not_to include("must bypass")
+      # worst-lists verbatim
+      expect(section).to include("LandingPageThemesController#content_block_type")
+      expect(section).to include("Api::V1::LandingPageThemesController#build_style")
+    end
+
+    it "renders NO section on a pre-v5/pre-1.8 doc (nil block, unstamped graph — back-compat)" do
+      html = render(findings: v10_yml, graph: graph_doc)
+      expect(html).not_to include('<section id="reusability-compass">')
+      expect(html).not_to include("Reusability Compass")
+    end
+
+    it "whitelists the four compass keys into the data blob; unstamped nodes carry honest nulls" do
+      html = render(findings: v10_yml, graph: stamped_graph, reusability: compass)
+      nodes = graph_data(html)["nodes"]
+
+      booth = nodes.find { |n| n["id"] == "Foo#booth" }
+      expect(booth["leverage"]).to eq(1.0)
+      expect(booth["collapse"]).to eq(1.0)
+      expect(booth["toll_booth"]).to be(true)
+      expect(booth["quadrant"]).to eq("bypass_candidate")
+
+      plain = nodes.find { |n| n["id"] == "Foo#plain" }
+      %w[leverage collapse toll_booth quadrant].each do |key|
+        expect(plain).to have_key(key)
+        expect(plain[key]).to be_nil
+      end
+      # the side panel renders the advisory wording, never a mandate
+      expect(html).to include("bypass candidate (advisory)")
+    end
+
+    it "escapes a hostile symbol in the compass tables (trust-boundary text)" do
+      hostile = scores_mod::Reusability.new(
+        reuse_index: nil, unshared_fraction: nil,
+        toll_booths: [scores_mod::Reusability::TollBooth.new(
+          symbol: "<script>alert(1)</script>#pwn", blast: 1, mass_savings: 1
+        )],
+        extraction: [], leverage: nil
+      )
+      html = render(findings: v10_yml, reusability: hostile)
+
+      expect(html).not_to include("<script>alert(1)</script>#pwn")
+      expect(html).to include("&lt;script&gt;alert(1)&lt;/script&gt;#pwn")
     end
   end
 end

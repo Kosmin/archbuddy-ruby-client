@@ -59,6 +59,72 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
       expect(BI::Q4_TEXT).to eq("Implementing a new feature: how many steps does a new flow travel end-to-end?")
       expect(BI::Q5_TEXT).to eq("Fixing a bug: how deep is the trace from a use case down to the code?")
       expect(BI::BF_TEXT).to eq("Branching")
+      expect(BI::RC_TEXT).to eq("Reuse")
+    end
+  end
+
+  # --- v0.13: the Reuse compass line (copy table, byte-pinned; worked numbers
+  # = the live-verified app-management compass — 02-verification.md) ----------
+  describe "the pinned Reuse compass copy table (v0.13, advisory wording)" do
+    def compass(reuse_mean: 2.4, reuse_median: 1.0, booths: nil, extraction: nil)
+      booths ||= [
+        RS::Reusability::TollBooth.new(symbol: "LandingPageThemesController#content_block_type",
+                                       blast: 4, mass_savings: 4),
+        RS::Reusability::TollBooth.new(symbol: "AppsController#serialize_navigation_tabs",
+                                       blast: 3, mass_savings: 3)
+      ]
+      extraction ||= [
+        RS::Reusability::Extraction.new(symbol: "Api::V1::LandingPageThemesController#build_style",
+                                        collapse: 16.0, leverage: 32.0)
+      ]
+      RS::Reusability.new(
+        reuse_index: RS::Reusability::ReuseIndex.new(mean: reuse_mean, median: reuse_median),
+        unshared_fraction: 0.5,
+        toll_booths: booths, extraction: extraction,
+        leverage: RS::Reusability::LeverageStats.new(mean: 3.1, median: 2.0, count: 107)
+      )
+    end
+
+    def rc_answer(reusability)
+      BI.questions(context_with(reusability: reusability))
+        .find { |q| q.id == "rc" }&.answer
+    end
+
+    it "full form → the plan-pinned three-clause line (advisory: candidates, never mandates)" do
+      expect(rc_answer(compass)).to eq(
+        "the average node serves 2.4 use cases (median 1); 2 toll booths (bypassing saves ~7 mass); " \
+        "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
+      )
+    end
+
+    it "reachability unknown (nil reuse index) → the reuse clause drops, never '0 use cases'" do
+      expect(rc_answer(compass(reuse_mean: nil, reuse_median: nil))).to eq(
+        "2 toll booths (bypassing saves ~7 mass); " \
+        "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
+      )
+    end
+
+    it "singular booth + unknown blast → '1 toll booth' with NO savings parenthetical (never a fabricated 0)" do
+      one = [RS::Reusability::TollBooth.new(symbol: "Foo#fwd", blast: nil, mass_savings: nil)]
+      expect(rc_answer(compass(booths: one))).to eq(
+        "the average node serves 2.4 use cases (median 1); 1 toll booth; " \
+        "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
+      )
+    end
+
+    it "no extraction candidate → the clause drops; a real 0-booth verdict still counts" do
+      expect(rc_answer(compass(booths: [], extraction: []))).to eq(
+        "the average node serves 2.4 use cases (median 1); 0 toll booths"
+      )
+    end
+
+    it "block absent → NO line; the honest-blank form (vty gate) → NO line (never a lone '0 toll booths')" do
+      expect(rc_answer(nil)).to be_nil
+      blank = RS::Reusability.new(
+        reuse_index: RS::Reusability::ReuseIndex.new(mean: nil, median: nil),
+        unshared_fraction: nil, toll_booths: [], extraction: [], leverage: nil
+      )
+      expect(rc_answer(blank)).to be_nil
     end
   end
 
@@ -259,7 +325,8 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
         forward_depth:    RS.forward_depth_from_aggregate(doc),
         reverse_depth:    RS.reverse_depth_from_aggregate(doc),
         branching_factor: RS.branching_factor_from_aggregate(doc),
-        variety_mass:     RS.variety_mass_from_aggregate(doc)
+        variety_mass:     RS.variety_mass_from_aggregate(doc),
+        reusability:      RS.reusability_from_aggregate(doc)
       )
     end
 
@@ -271,7 +338,8 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
         forward_depth:    RS.forward_depth_from_findings(doc),
         reverse_depth:    RS.reverse_depth_from_findings(doc),
         branching_factor: RS.branching_factor_from_findings(doc),
-        variety_mass:     RS.variety_mass_from_findings(doc)
+        variety_mass:     RS.variety_mass_from_findings(doc),
+        reusability:      RS.reusability_from_findings(doc, resolver)
       )
     end
 
@@ -466,6 +534,73 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
 
       expect(q1.detail_lines).to include(
         "variety + mass: complexity 57.0 = variety 16.0 + mass 41.0 (median 57.0)"
+      )
+    end
+
+    # --- v0.13 (serializer v5 / findings 1.8) rows 11–13 ----------------------
+    # The findings-1.8 tolerance coverage: a 1.8 doc renders through the REAL
+    # extended parser set with zero raises; rows 1–10 above prove the pre-1.8
+    # vintages stay byte-stable through the same set (rc simply absent).
+
+    let(:v5_reusability_block) do
+      { "reuse_index"       => { "mean" => 2.4, "median" => 1.0 },
+        "unshared_fraction" => 0.5,
+        "toll_booths"       => [{ "symbol" => "LandingPageThemesController#content_block_type",
+                                  "blast" => 4, "mass_savings" => 4 }],
+        "extraction"        => [{ "symbol" => "Api::V1::LandingPageThemesController#build_style",
+                                  "collapse" => 16.0, "leverage" => 32.0 }],
+        "leverage"          => { "mean" => 3.1, "median" => 2.0, "count" => 107 } }
+    end
+
+    it "row 11 — v5 aggregate over engine-1.8: all seven render, rc carries the pinned compass line" do
+      doc = row5_doc.merge("serializer_version" => 5, "reusability" => v5_reusability_block)
+      qs = BI.questions(context_from_aggregate(doc))
+
+      expect(qs.map(&:id)).to eq(%w[q1 q2 q3 q4 q5 bf rc])
+      expect(qs.find { |q| q.id == "rc" }.answer).to eq(
+        "the average node serves 2.4 use cases (median 1); 1 toll booth (bypassing saves ~4 mass); " \
+        "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
+      )
+    end
+
+    it "row 12 — v5 aggregate whose reusability is the honest-blank form: rc OMITTED, rest byte-equal to row 5" do
+      row5_qs = BI.questions(context_from_aggregate(row5_doc))
+      blank = { "reuse_index"       => { "mean" => nil, "median" => nil },
+                "unshared_fraction" => nil,
+                "toll_booths"       => [], "extraction" => [],
+                "leverage"          => { "mean" => nil, "median" => nil, "count" => 0 } }
+      doc = row5_doc.merge("serializer_version" => 5, "reusability" => blank)
+      qs = BI.questions(context_from_aggregate(doc))
+
+      expect(qs.map(&:id)).to eq(%w[q1 q2 q3 q4 q5 bf]) # no lone "0 toll booths"
+      expect(qs.map(&:answer)).to eq(row5_qs.map(&:answer))
+    end
+
+    it "row 13 — legacy opaque findings-1.8 + id-map: rc renders with worst ids RESOLVED" do
+      findings = {
+        "findings_schema_version" => "1.8",
+        "scores" => {
+          "forward_discoverability" => { "grade" => "F", "score" => 30_992.17, "median" => 2.0 },
+          "reusability_compass" => {
+            "reuse_index"       => { "mean" => 2.4, "median" => 1.0 },
+            "unshared_fraction" => 0.5,
+            "toll_booths"       => [{ "node" => "n_tb", "blast" => 4, "mass_savings" => 4 }],
+            "extraction"        => [{ "node" => "n_ex", "collapse" => 16.0, "leverage" => 32.0 }],
+            "leverage"          => { "mean" => 3.1, "median" => 2.0, "count" => 107 }
+          }
+        }
+      }
+      resolver = Archbuddy::Report::Reconnect::IdMapResolver.new(
+        "ids" => {
+          "n_tb" => { "symbol" => "LandingPageThemesController#content_block_type", "file" => "a.rb", "line" => 1 },
+          "n_ex" => { "symbol" => "Api::V1::LandingPageThemesController#build_style", "file" => "b.rb", "line" => 2 }
+        }
+      )
+      rc = BI.questions(context_from_findings(findings, resolver)).find { |q| q.id == "rc" }
+
+      expect(rc.answer).to eq(
+        "the average node serves 2.4 use cases (median 1); 1 toll booth (bypassing saves ~4 mass); " \
+        "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
       )
     end
   end

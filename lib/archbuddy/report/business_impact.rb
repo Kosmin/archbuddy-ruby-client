@@ -15,6 +15,8 @@ module Archbuddy
     #   q5  bug-fix trace depth      — NEW reverse depth (1.6)
     #   bf  branching footer         — NEW per-hop branching density b-bar,
     #                                  UNGRADED, median-first (L15)
+    #   rc  reuse footer             — NEW Reusability Compass line (1.8),
+    #                                  UNGRADED, ADVISORY wording (v0.13)
     #
     # Every number is a VERBATIM engine figure (D17) — the only client
     # arithmetic is display formatting (ratio x 100, rounding). Conventions:
@@ -43,6 +45,7 @@ module Archbuddy
       Q4_TEXT = "Implementing a new feature: how many steps does a new flow travel end-to-end?"
       Q5_TEXT = "Fixing a bug: how deep is the trace from a use case down to the code?"
       BF_TEXT = "Branching"
+      RC_TEXT = "Reuse"
 
       # The share of capped routes at/above which the median itself sits at
       # the publish cap — rendering the capped number would be false precision.
@@ -56,7 +59,7 @@ module Archbuddy
       def questions(context)
         [
           q1(context), q2(context), q3(context),
-          q4(context), q5(context), bf(context)
+          q4(context), q5(context), bf(context), rc(context)
         ].compact
       end
 
@@ -158,6 +161,69 @@ module Archbuddy
                   "×#{format('%.2f', b.median)} (median#{mean_clause})",
           detail_lines: []
         )
+      end
+
+      # -- rc: the ungraded Reusability Compass footer (v0.13 / 1.8) -----------
+
+      # "the average node serves N use cases (median M); K toll booths
+      # (bypassing saves ~S mass); top extraction candidate X (collapse ×C)"
+      # — the plan-pinned compass line, every figure a VERBATIM engine value
+      # (the only client arithmetic is the display SUM of the published
+      # per-booth mass_savings — the plan's "~S" headline; D17 otherwise).
+      # ADVISORY wording: toll booths are bypass CANDIDATES — the copy never
+      # says "must bypass". Clauses degrade independently (nil reuse_index /
+      # empty extraction drop their clause); the question is OMITTED when the
+      # block is absent (pre-1.8/pre-v5 — byte-identical back-compat).
+      def rc(context)
+        ru = context.reusability
+        return nil if ru.nil?
+
+        reuse   = reuse_clause(ru)
+        extract = extraction_clause(ru)
+        # The honest-blank form (the vty gate / no reachability: nil reuse
+        # index, empty lists) is OMITTED — a lone "0 toll booths" off an
+        # unmeasurable doc would read as a verdict (fabrication, I2).
+        return nil if reuse.nil? && extract.nil? && (ru.toll_booths || []).empty?
+
+        Question.new(
+          id: "rc", text: RC_TEXT, grade: nil,
+          answer: [reuse, toll_booth_clause(ru), extract].compact.join("; "),
+          detail_lines: []
+        )
+      end
+
+      # "the average node serves 2.4 use cases (median 1)" — dropped when
+      # reachability is unknown (nil reuse index — never "0 use cases").
+      def reuse_clause(reusability)
+        ri = reusability.reuse_index
+        return nil if ri.nil? || ri.mean.nil?
+
+        clause = "the average node serves #{format('%.1f', ri.mean)} use cases"
+        clause += " (median #{plain(ri.median)})" unless ri.median.nil?
+        clause
+      end
+
+      # "32 toll booths (bypassing saves ~118 mass)" — the count is a real
+      # verdict even at 0 (scored, none found); the savings parenthetical is
+      # the sum of the engine-published per-booth mass_savings and drops when
+      # no booth carries one (unknown blast — never a fabricated 0).
+      def toll_booth_clause(reusability)
+        booths = reusability.toll_booths || []
+        clause = "#{booths.length} toll booth#{booths.length == 1 ? '' : 's'}"
+        savings = booths.filter_map(&:mass_savings)
+        clause += " (bypassing saves ~#{plain(savings.sum)} mass)" unless savings.empty?
+        clause
+      end
+
+      # "top extraction candidate Foo#bar (collapse ×16.0)" — dropped when the
+      # engine found no candidate (collapse > 1 population empty).
+      def extraction_clause(reusability)
+        top = (reusability.extraction || []).first
+        return nil if top.nil?
+
+        clause = "top extraction candidate #{top.symbol}"
+        clause += " (collapse ×#{format('%.1f', top.collapse)})" unless top.collapse.nil?
+        clause
       end
 
       # -- shared formatting helpers -------------------------------------------

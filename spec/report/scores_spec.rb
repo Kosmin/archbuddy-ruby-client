@@ -669,3 +669,112 @@ RSpec.describe "v0.12 VarietyMass struct + parsers (W-CLI-B)" do
     expect(vm.mass).to be_nil
   end
 end
+
+# v0.13 (serializer v5 / findings 1.8): the UNGRADED Reusability Compass —
+# ONE builder serves the committed-aggregate ({symbol} worst entries) and
+# opaque-findings ({node} entries, id-map resolved) shapes; nil-on-absent
+# (pre-v5/pre-1.8 docs); honest blanks parse to nil members. ADVISORY data.
+RSpec.describe "v0.13 Reusability struct + parsers (V13-C)" do
+  S = Archbuddy::Report::Scores unless defined?(S)
+
+  # The committed v5 block shape (worked numbers = the live-verified
+  # app-management compass, 02-verification.md).
+  def reusability_block
+    {
+      "reuse_index"       => { "mean" => 2.4, "median" => 1.0 },
+      "unshared_fraction" => 0.5,
+      "toll_booths"       => [
+        { "symbol" => "LandingPageThemesController#content_block_type", "blast" => 4, "mass_savings" => 4 },
+        { "symbol" => "GraphqlController#handle_error_in_development", "blast" => 2, "mass_savings" => 2 }
+      ],
+      "extraction"        => [
+        { "symbol" => "Api::V1::LandingPageThemesController#build_style", "collapse" => 16.0, "leverage" => 32.0 }
+      ],
+      "leverage"          => { "mean" => 3.1, "median" => 2.0, "count" => 107 }
+    }
+  end
+
+  it "parses the committed v5 top-level block verbatim (every scalar, engine order preserved)" do
+    ru = S.reusability_from_aggregate("reusability" => reusability_block)
+    expect(ru).to be_a(S::Reusability)
+    expect(ru.reuse_index.mean).to eq(2.4)
+    expect(ru.reuse_index.median).to eq(1.0)
+    expect(ru.unshared_fraction).to eq(0.5)
+    expect(ru.toll_booths.map(&:symbol)).to eq(
+      %w[LandingPageThemesController#content_block_type GraphqlController#handle_error_in_development]
+    )
+    expect(ru.toll_booths.first.blast).to eq(4)
+    expect(ru.toll_booths.first.mass_savings).to eq(4)
+    expect(ru.extraction.first.symbol).to eq("Api::V1::LandingPageThemesController#build_style")
+    expect(ru.extraction.first.collapse).to eq(16.0)
+    expect(ru.extraction.first.leverage).to eq(32.0)
+    expect(ru.leverage.mean).to eq(3.1)
+    expect(ru.leverage.count).to eq(107)
+    expect(ru).not_to respond_to(:grade) # UNGRADED — no grade member EVER
+  end
+
+  it "parses the legacy scores.reusability_compass off an opaque findings-1.8 doc, node ids RESOLVED" do
+    doc = {
+      "scores" => {
+        "reusability_compass" => reusability_block.merge(
+          "toll_booths" => [{ "node" => "n_1", "blast" => 4, "mass_savings" => 4 }],
+          "extraction"  => [{ "node" => "n_2", "collapse" => 16.0, "leverage" => 32.0 }]
+        )
+      }
+    }
+    resolver = Archbuddy::Report::Reconnect::IdMapResolver.new(
+      "ids" => { "n_1" => { "symbol" => "Foo#booth", "file" => "a.rb", "line" => 1 },
+                 "n_2" => { "symbol" => "Foo#extract_me", "file" => "a.rb", "line" => 9 } }
+    )
+    ru = S.reusability_from_findings(doc, resolver)
+    expect(ru.toll_booths.first.symbol).to eq("Foo#booth")
+    expect(ru.extraction.first.symbol).to eq("Foo#extract_me")
+  end
+
+  it "a missing id degrades to the opaque id (never raises); no resolver degrades the same way" do
+    doc = { "scores" => { "reusability_compass" => reusability_block.merge(
+      "toll_booths" => [{ "node" => "n_gone", "blast" => 1, "mass_savings" => 1 }]
+    ) } }
+    with_resolver = S.reusability_from_findings(doc, Archbuddy::Report::Reconnect::IdMapResolver.new("ids" => {}))
+    expect(with_resolver.toll_booths.first.symbol).to include("n_gone")
+    without = S.reusability_from_findings(doc, nil)
+    expect(without.toll_booths.first.symbol).to eq("n_gone")
+  end
+
+  it "returns nil on absent/empty blocks (v1..v4 / pre-1.8 docs — absence, never a zero-struct)" do
+    expect(S.reusability_from_aggregate("serializer_version" => 4)).to be_nil
+    expect(S.reusability_from_aggregate(nil)).to be_nil
+    expect(S.reusability_from_aggregate("reusability" => {})).to be_nil
+    expect(S.reusability_from_findings("scores" => {})).to be_nil
+  end
+
+  it "parses the honest-blank form to nil members (nulls pass through, never fabricated zeros)" do
+    ru = S.reusability_from_aggregate(
+      "reusability" => {
+        "reuse_index"       => { "mean" => nil, "median" => nil },
+        "unshared_fraction" => nil,
+        "toll_booths"       => [],
+        "extraction"        => [],
+        "leverage"          => { "mean" => nil, "median" => nil, "count" => 0 }
+      }
+    )
+    expect(ru).to be_a(S::Reusability)
+    expect(ru.reuse_index.mean).to be_nil
+    expect(ru.unshared_fraction).to be_nil
+    expect(ru.toll_booths).to eq([])
+    expect(ru.extraction).to eq([])
+    expect(ru.leverage.count).to eq(0)
+  end
+
+  it "non-hash reuse_index/leverage → nil member; nil mass_savings passes through (unknown blast)" do
+    ru = S.reusability_from_aggregate(
+      "reusability" => {
+        "toll_booths" => [{ "symbol" => "Foo#fwd", "blast" => nil, "mass_savings" => nil }]
+      }
+    )
+    expect(ru.reuse_index).to be_nil
+    expect(ru.leverage).to be_nil
+    expect(ru.toll_booths.first.blast).to be_nil
+    expect(ru.toll_booths.first.mass_savings).to be_nil
+  end
+end

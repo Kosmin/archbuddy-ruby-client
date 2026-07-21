@@ -55,6 +55,7 @@ module Archbuddy
             #{business_impact_html}
             #{scores_header_html}
             #{graph_section_html}
+            #{reusability_compass_html}
             #{bottleneck_table_html}
             <script>#{cytoscape_library}</script>
             <script id="archbuddy-data" type="application/json">#{data_json}</script>
@@ -352,6 +353,141 @@ module Archbuddy
           HTML
         end
 
+        # v0.13: the quadrant display order for the Reusability Compass section
+        # (worst-actionable first) + the human labels. ADVISORY wording — a
+        # toll booth is a bypass CANDIDATE, never "must bypass".
+        QUADRANT_ORDER = [
+          ["bypass_candidate", "Bypass candidates (toll booths — advisory)"],
+          ["load_bearing",     "Load-bearing (protect the contract)"],
+          ["underused",        "Underused abstractions (reuse more)"],
+          ["glue",             "Glue"]
+        ].freeze
+
+        # Cap per quadrant list — the compass is a localization aid, not a dump.
+        QUADRANT_LIST_CAP = 10
+
+        # v0.13 (C2c): the Reusability Compass section — the localized
+        # "extract more reusability here, or duplicate the call and bypass?"
+        # surface. Three nil-tolerant parts, each dropped when its source is
+        # absent (pre-v5/pre-1.8 docs render NO section — byte-identical):
+        #   * a summary line from the committed `reusability` block (VERBATIM
+        #     engine figures — reuse index / unshared fraction / leverage),
+        #   * the QUADRANT LISTS grouped from the per-node fragment stamps the
+        #     reassembled graph carries (grouping is display-only — the
+        #     quadrant verdicts themselves are engine-published),
+        #   * the toll-booth / extraction worst-lists (engine order VERBATIM).
+        def reusability_compass_html
+          ru = context.reusability
+          quadrants = quadrant_groups
+          return "" if ru.nil? && quadrants.empty?
+
+          <<~HTML
+            <section id="reusability-compass">
+              <h2>Reusability Compass</h2>
+              #{compass_summary_html(ru)}
+              #{quadrant_lists_html(quadrants)}
+              #{toll_booth_table_html(ru)}
+              #{extraction_table_html(ru)}
+            </section>
+          HTML
+        end
+
+        # "Reuse index: mean 2.4 / median 1 · unshared fraction 50.0% ·
+        # leverage mean 3.1 / median 2.0" — clauses drop nil-tolerantly;
+        # "" when the whole block is absent.
+        def compass_summary_html(ru)
+          return "" if ru.nil?
+
+          clauses = []
+          if (ri = ru.reuse_index) && ri.mean
+            clauses << "Reuse index: mean #{format('%.1f', ri.mean)}" \
+                       "#{ri.median.nil? ? '' : " / median #{format('%.1f', ri.median)}"}"
+          end
+          clauses << "unshared fraction #{format('%.1f%%', ru.unshared_fraction * 100)}" unless ru.unshared_fraction.nil?
+          if (lv = ru.leverage) && lv.mean
+            clauses << "leverage mean #{format('%.1f', lv.mean)}" \
+                       "#{lv.median.nil? ? '' : " / median #{format('%.1f', lv.median)}"}"
+          end
+          return "" if clauses.empty?
+
+          %(<div class="compass-summary">#{escape(clauses.join(' · '))}</div>)
+        end
+
+        # The per-quadrant node lists off the reassembled graph's fragment
+        # stamps ({} on a legacy opaque graph / pre-v5 tree — no fabricated
+        # grouping). Node order follows the graph's deterministic id order.
+        def quadrant_groups
+          (context.graph && context.graph["nodes"] || [])
+            .select { |gn| gn["quadrant"] }
+            .group_by { |gn| gn["quadrant"] }
+        end
+
+        def quadrant_lists_html(quadrants)
+          return "" if quadrants.empty?
+
+          items = QUADRANT_ORDER.filter_map do |key, label|
+            nodes = quadrants[key]
+            next if nodes.nil? || nodes.empty?
+
+            shown = nodes.first(QUADRANT_LIST_CAP).map { |gn| escape(gn["symbol"] || gn["id"]) }
+            more  = nodes.length - shown.length
+            list  = shown.join(", ") + (more.positive? ? ", +#{more} more" : "")
+            %(<div class="q"><strong>#{escape(label)}</strong> (#{nodes.length}): #{list}</div>)
+          end
+          return "" if items.empty?
+
+          %(<div class="quadrants">\n#{items.join("\n")}\n</div>)
+        end
+
+        # The toll-booth worst-list (engine order VERBATIM — blast DESC).
+        # ADVISORY caption; "" when absent, an explicit "(none)" when the
+        # engine scored and found none (absence vs emptiness, R1 posture).
+        def toll_booth_table_html(ru)
+          return "" if ru.nil?
+
+          booths = ru.toll_booths || []
+          if booths.empty?
+            return %(<div class="q">Toll booths: none — no logic-free pure forwarder qualifies.</div>)
+          end
+
+          rows = booths.map do |tb|
+            <<~HTML.chomp
+              <tr><td>#{escape(tb.symbol)}</td><td class="num">#{compass_num(tb.blast)}</td><td class="num">#{compass_num(tb.mass_savings)}</td></tr>
+            HTML
+          end.join("\n")
+          <<~HTML
+            <h3>Toll booths — bypass candidates (advisory)</h3>
+            <div class="q">Bypassing a toll booth (callers call its sole callee directly) saves the listed mass at zero variety cost — but thin proxies can carry invisible value (memoization, naming, test seams). Candidates, never mandates.</div>
+            <table><thead><tr><th>Symbol</th><th>blast</th><th>mass savings</th></tr></thead>
+            <tbody>#{rows}</tbody></table>
+          HTML
+        end
+
+        # The extraction worst-list (engine order VERBATIM — collapse DESC).
+        def extraction_table_html(ru)
+          return "" if ru.nil?
+
+          candidates = ru.extraction || []
+          return "" if candidates.empty?
+
+          rows = candidates.map do |ex|
+            <<~HTML.chomp
+              <tr><td>#{escape(ex.symbol)}</td><td class="num">#{compass_num(ex.collapse)}</td><td class="num">#{compass_num(ex.leverage)}</td></tr>
+            HTML
+          end.join("\n")
+          <<~HTML
+            <h3>Extraction candidates (collapse potential)</h3>
+            <table><thead><tr><th>Symbol</th><th>collapse</th><th>leverage</th></tr></thead>
+            <tbody>#{rows}</tbody></table>
+          HTML
+        end
+
+        # A verbatim compass number cell — "N/A" on nil (unknown blast /
+        # arity-absent leverage — honest, never fabricated).
+        def compass_num(value)
+          value.nil? ? "N/A" : escape(format_num(value))
+        end
+
         # The metric columns shown in the bottleneck table. `clutter_score` is the
         # default sort key (desc) — see init_script's sort state defaults.
         TABLE_METRIC_COLS = %w[clutter_score centrality fan_in fan_out path_length].freeze
@@ -532,7 +668,17 @@ module Archbuddy
               "class_id"      => loc.class_id,
               "clutter_score" => b&.clutter_score,
               "metrics"       => b ? metric_keys.each_with_object({}) { |k, m| m[k] = b.metrics[k] } : {},
-              "findings"      => findings
+              "findings"      => findings,
+              # v0.13 (v5): the per-node REUSABILITY COMPASS stamps — the
+              # binding DATA ROUTE is fragment stamps → DetailTree
+              # reassembly (wholesale passthrough) → THIS whitelist →
+              # showNode rows. nil on legacy opaque-graph nodes (no stamps)
+              # and on never-analyzed nodes — the side-panel rows drop
+              # nil-tolerantly (never a fabricated value).
+              "leverage"      => gn["leverage"],
+              "collapse"      => gn["collapse"],
+              "toll_booth"    => gn["toll_booth"],
+              "quadrant"      => gn["quadrant"]
             }
           end
         end
@@ -862,11 +1008,20 @@ module Archbuddy
                 var rows = Object.keys(m).map(function (k) {
                   return '<dt>' + k + '</dt><dd>' + (m[k] === null ? 'null' : m[k]) + '</dd>';
                 }).join('');
+                // v0.13: the per-function compass rows (fragment stamps via
+                // the data blob). Each row drops when its stamp is absent
+                // (legacy graph / never analyzed) — nil-tolerant, never
+                // fabricated. Advisory wording only.
+                var compass = '';
+                if (n.leverage !== null && n.leverage !== undefined) compass += '<dt>leverage</dt><dd>' + n.leverage + '</dd>';
+                if (n.collapse !== null && n.collapse !== undefined) compass += '<dt>collapse</dt><dd>' + n.collapse + '</dd>';
+                if (n.quadrant !== null && n.quadrant !== undefined) compass += '<dt>quadrant</dt><dd>' + esc(n.quadrant) + '</dd>';
+                if (n.toll_booth === true) compass += '<dt>toll booth</dt><dd>bypass candidate (advisory)</dd>';
                 var fl = n.resolved ? (n.file || '') + (n.line ? ':' + n.line : '') : '(unresolved)';
                 var findings = (n.findings && n.findings.length) ? n.findings.join(', ') : 'none';
                 side.innerHTML = '<h3>' + esc(n.symbol) + '</h3>' +
                   '<div class="muted">' + esc(fl) + ' &middot; ' + esc(n.kind) + '</div>' +
-                  '<dl><dt>clutter</dt><dd>' + (n.clutter_score === null ? 'n/a' : n.clutter_score) + '</dd>' + rows + '</dl>' +
+                  '<dl><dt>clutter</dt><dd>' + (n.clutter_score === null ? 'n/a' : n.clutter_score) + '</dd>' + rows + compass + '</dl>' +
                   '<div class="muted">findings:</div><div>' + esc(findings) + '</div>';
               }
               function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }

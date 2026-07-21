@@ -347,6 +347,44 @@ module Archbuddy
       # {mean, median, count} — one component distribution (variety or mass).
       VarietyMass::Component = Struct.new(:mean, :median, :count, keyword_init: true)
 
+      # v0.13 (v5/1.8): the UNGRADED Reusability Compass summary — "extract
+      # more reusability here, or duplicate the call and bypass?" localized.
+      # NO grade member EVER (the VarietyMass/BranchingFactor precedent).
+      # Everything VERBATIM from the committed aggregate / findings 1.8
+      # `scores.reusability_compass` (D17); ADVISORY data — a toll booth is a
+      # "bypass candidate", never "must bypass" (thin proxies can carry
+      # invisible value: memoization, naming, test seams).
+      #   reuse_index       — {mean, median} blast over reached non-external
+      #                       nodes ("the average node serves N use cases";
+      #                       median 1 = under-shared); nulls when
+      #                       reachability is unknown (no live entrypoints).
+      #   unshared_fraction — share of the reached population with blast == 1;
+      #                       nil when the population is empty (never 0).
+      #   toll_booths       — EVERY toll booth, engine worst-first (blast
+      #                       DESC), each {symbol, blast, mass_savings};
+      #                       mass_savings = the exact project-wide mass a
+      #                       bypass saves (engine spec-proven), nil when
+      #                       blast is unknown.
+      #   extraction        — top-k extraction candidates (collapse DESC),
+      #                       each {symbol, collapse, leverage}.
+      #   leverage          — the leverage distribution {mean, median, count}.
+      Reusability = Struct.new(
+        :reuse_index, :unshared_fraction, :toll_booths, :extraction, :leverage,
+        keyword_init: true
+      )
+
+      # {mean, median} — the C4 reuse index (blast over reached non-externals).
+      Reusability::ReuseIndex = Struct.new(:mean, :median, keyword_init: true)
+
+      # One toll-booth advisory entry (worst-first from the engine, VERBATIM).
+      Reusability::TollBooth = Struct.new(:symbol, :blast, :mass_savings, keyword_init: true)
+
+      # One extraction-candidate entry (collapse DESC from the engine, VERBATIM).
+      Reusability::Extraction = Struct.new(:symbol, :collapse, :leverage, keyword_init: true)
+
+      # {mean, median, count} — the leverage distribution stat summary.
+      Reusability::LeverageStats = Struct.new(:mean, :median, :count, keyword_init: true)
+
       module_function
 
       # Parse the OPTIONAL top-level scores.connectivity object. Returns a
@@ -566,6 +604,57 @@ module Archbuddy
 
         VarietyMass::Component.new(
           mean: stat["mean"], median: stat["median"], count: stat["count"]
+        )
+      end
+
+      # v0.13: committed aggregate TOP-LEVEL `reusability` (v5) — NIL on
+      # absent/empty (v1..v4 docs). Worst-list entries carry `symbol`
+      # (de-anonymized at WRITE — no resolver needed).
+      def reusability_from_aggregate(doc)
+        block = (doc || {})["reusability"]
+        return nil if block.nil? || block.empty?
+
+        build_reusability(block) { |entry| entry["symbol"] }
+      end
+
+      # Legacy variant — `scores.reusability_compass` off an opaque
+      # findings-1.8 doc, worst-list `node` ids resolved via the SAME id-map
+      # join (the blast_radius_from_findings pattern; a missing id degrades to
+      # the opaque id, never raises). NIL on pre-1.8 docs.
+      def reusability_from_findings(findings_doc, resolver = nil)
+        block = ((findings_doc || {})["scores"] || {})["reusability_compass"]
+        return nil if block.nil? || block.empty?
+
+        build_reusability(block) do |entry|
+          id  = entry["node"]
+          loc = resolver ? resolver.resolve(id) : nil
+          loc&.symbol || id
+        end
+      end
+
+      # Build one Reusability from either producer shape (guard R1 — the
+      # committed and findings spellings mirror 1:1 apart from the worst-list
+      # symbol/node key, supplied by the yielded block). Everything VERBATIM
+      # (D17); honest blanks parse to nil members, never fabricated zeros.
+      def build_reusability(block)
+        ri = block["reuse_index"]
+        lv = block["leverage"]
+        Reusability.new(
+          reuse_index:
+            ri.is_a?(Hash) ? Reusability::ReuseIndex.new(mean: ri["mean"], median: ri["median"]) : nil,
+          unshared_fraction: block["unshared_fraction"],
+          toll_booths: (block["toll_booths"] || []).map do |tb|
+            Reusability::TollBooth.new(
+              symbol: yield(tb), blast: tb["blast"], mass_savings: tb["mass_savings"]
+            )
+          end,
+          extraction: (block["extraction"] || []).map do |ex|
+            Reusability::Extraction.new(
+              symbol: yield(ex), collapse: ex["collapse"], leverage: ex["leverage"]
+            )
+          end,
+          leverage:
+            lv.is_a?(Hash) ? Reusability::LeverageStats.new(mean: lv["mean"], median: lv["median"], count: lv["count"]) : nil
         )
       end
 
