@@ -23,7 +23,7 @@ Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `
 ```yaml
 schema_version: "1.3"
 generator:               # all 3 keys required
-  tool: "archbuddy 0.11.0"     # "archbuddy #{Archbuddy::VERSION}"
+  tool: "archbuddy 0.12.0"     # "archbuddy #{Archbuddy::VERSION}"
   adapter: "ruby"
   capture: "static"      # static capture ⇒ all timing fields below are null (D4)
 nodes:                    # array; each node:
@@ -335,6 +335,26 @@ byte-identical to 0.10.0. **Downgrade caveat (repeats v3's):** an old (pre-0.11.
 over a v4 cache rewrites the aggregate back to its own shape — acceptable; the next `analyze` with a
 current client restores v4. The v3→v4 stamp churn and the new fragment keys ship as ONE
 committed-cache churn event per audited repo (A5).
+
+**v0.13 read posture (findings 1.8, SERIALIZER v5):** the client reads findings 1.8 NIL-TOLERANTLY.
+Two new surfaces, both UNGRADED and ADVISORY: **(a)** the `scores.reusability_compass` summary folds
+into the committed aggregate as the top-level `reusability` block —
+`{reuse_index: {mean, median}, unshared_fraction, toll_booths[], extraction[], leverage: {mean,
+median, count}}` — with the toll-booth/extraction worst-lists de-anonymized at write to
+`{symbol, …}` (engine worst-first order preserved; `mass_savings` = the exact project-wide mass a
+bypass saves, null when blast is unknown); **(b)** findings 1.8's top-level per-node `reusability`
+map stamps every fragment node with `{leverage, collapse, toll_booth, quadrant}` (all four keys
+always present on v5; null = never analyzed — `toll_booth` false is a real engine verdict). Compass
+values are ANALYZE-time: a collect-only rewrite CARRIES the prior fragment's stamps per surviving
+node (the per-fragment carry — fragments stay byte-identical between collect and analyze; keys drop
+only with the node; a v4 prior grafts nothing). Honest blanks throughout: `reuse_index`/
+`unshared_fraction` null when reachability is unknown (never 0); leverage/collapse null on
+arity-absent nodes (never a fabricated denominator); the report wording is ADVISORY — a toll booth
+is a "bypass candidate", never "must bypass". A 1.7-or-older doc has no compass → no v5 block, no
+`Reuse` line, no compass section — byte-identical to 0.11.0. **Downgrade caveat (repeats v4's):**
+an old (pre-0.12.0) client's `collect` over a v5 cache rewrites the committed shape back to its own
+vintage — acceptable; the next `analyze` with a current client restores v5. The v4→v5 stamp churn
+and the new fragment keys ship as ONE committed-cache churn event per audited repo.
 
 **Score semantics (findings 1.3):** `score` is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost to a `db_op` terminal — an **unbounded architectural cost**

@@ -104,6 +104,27 @@ OLDER client's `collect` over a v4 cache rewrites the committed shape back to th
 vintage (the v4 keys/block drop) — harmless; the next `analyze`/`collect` with a current client
 restores them.
 
+## Upgrading to archbuddy 0.12.0 (v0.13) — one expected churn event
+
+Same pattern again — ONE larger-than-usual committed diff, then surgical:
+
+- **Fragment compass stamps** — every fragment's `serializer_version` bumps 4 → 5 (a stamp
+  rewrite, not a re-parse) and every fragment node gains four keys in the SAME event:
+  `leverage`, `collapse`, `toll_booth`, `quadrant` (all null until the first `analyze` against
+  an engine ≥ 0.10.0 / findings 1.8 — honest "never analyzed", never fabricated). Once an
+  analyze fills them, **collect-only rewrites carry the stamps forward per surviving node**
+  (the per-fragment carry) — fragments stay byte-identical between collect and analyze, so
+  `--check` never sees compass churn.
+- **Aggregate** — the next `analyze` folds the new `reusability` block (UNGRADED; the
+  toll-booth/extraction worst-lists de-anonymized; ADVISORY — bypass *candidates*, never
+  mandates). Against an older engine there is no block — an honest absence.
+- (No `COLLECTOR_VERSION` change — the collector is untouched this release; no forced
+  re-parse of the machine-local speed cache.)
+
+**Downgrade caveat (repeats v4's):** an OLDER client's `collect` over a v5 cache rewrites the
+committed shape back to that client's vintage (the compass keys/block drop) — harmless; the
+next `analyze` with a current client restores them.
+
 ## The CI staleness step
 
 Add `archbuddy collect --check` to CI. It regenerates the committed cache and

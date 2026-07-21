@@ -189,7 +189,7 @@ headline**; the letter grade is a tentative secondary indicator:
   block (findings 1.3): `Connectivity: N/total nodes scored (P%)`. A low percentage (e.g. 5/1672,
   0.3%) flags that only a small sample of the graph was reachable from entrypoints — treat the
   dimension scores as indicative, not representative.
-- **v0.10 counter banners** — a SERIALIZER v2+ committed aggregate (v4 as of v0.12) carries three
+- **v0.10 counter banners** — a SERIALIZER v2+ committed aggregate (v5 as of v0.13) carries three
   counter blocks, each rendered as a nil-tolerant banner beside connectivity (absent on an older
   aggregate — back-compat):
   - `Entrypoints: N total (controllers 3, jobs 1, …)` — ingress counts by category; once the
@@ -223,6 +223,25 @@ headline**; the letter grade is a tentative secondary indicator:
   capped the median renders as "at cap" instead of a falsely-precise number. Questions whose
   blocks the engine has not published are OMITTED (never "N/A" noise): a pre-1.6 engine yields
   only the first two questions; a v1/v2 cache renders byte-identically to v0.10 (no section).
+
+- **v0.13 Reusability Compass** — three per-function signals (findings 1.8, SERIALIZER v5)
+  answering *"extract more reusability here, or duplicate the call and bypass?"*, ALL ADVISORY
+  and UNGRADED:
+  - **leverage** = variety hidden / arity exposed (≫ 1 = a real abstraction; null when the
+    outcome arity is unknown — honest N/A, never a fabricated denominator);
+  - **collapse** = a node's own inline branching over its contract width (the extraction
+    dividend — how much complexity could hide behind a contract);
+  - **toll booth** = a logic-free pure forwarder whose bypass saves the listed mass at zero
+    variety cost — a *bypass candidate*, never "must bypass" (thin proxies can carry invisible
+    value: memoization, naming, test seams).
+
+  The Business Impact section gains a `Reuse` footer ("the average node serves N use cases
+  (median M); K toll booths (bypassing saves ~S mass); top extraction candidate X (collapse
+  ×C)"), the HTML report gains a **Reusability Compass** section (quadrant lists + the
+  toll-booth/extraction worst-lists), and the node **side panel** (click a node) shows each
+  function's leverage / collapse / quadrant — the per-function localization surface, read
+  straight from the committed fragment stamps (carried across collect-only rewrites; refreshed
+  on analyze). Pre-1.8/pre-v5 caches render byte-identically to v0.11 (no line, no section).
 
 **Interpreting the cost:** the score is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost — an **unbounded architectural cost** (≥ 0, no upper

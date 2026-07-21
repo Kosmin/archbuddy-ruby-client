@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.12.0] — v0.13 Reusability Compass wave (V13-C)
+
+The client half of the v0.13 Reusability Compass (engine 0.10.0 / findings 1.8): the release's
+single committed-cache serializer bump (v4 → 5) plus the compass read path, the Business Impact
+Reuse line, and the per-function side-panel/table surfaces. Everything ADDITIVE, UNGRADED, and
+nil-tolerant — pre-1.8/pre-v5 docs render byte-identically to 0.11.0. ADVISORY throughout: a
+toll booth is a "bypass candidate", never "must bypass".
+
+### Added
+- **SERIALIZER v5 (C1 — THE one serializer bump of the release, sole owner):** fragment nodes
+  carry the four per-node compass stamps `{leverage, collapse, toll_booth, quadrant}` beside
+  `outcome_arity`, copied VERBATIM from findings 1.8's top-level `reusability` map at
+  analyze/reset (all four keys always present on v5; null = never analyzed — `toll_booth` false
+  is a real engine verdict, never fabricated from null). **THE CARRY MECHANISM:** compass values
+  are analyze-time, so a collect-only rewrite grafts the PRIOR committed fragment's stamps per
+  surviving node (`carry_prior_compass!` — `preserve_existing_scores` applied per-fragment;
+  keys drop only when the node is gone; a v4 prior grafts nothing; first-ever collect stays
+  null). Spec-proven: collect-after-analyze keeps every fragment byte-identical. The aggregate
+  additionally carries the `reusability` block folded VERBATIM from
+  `scores.reusability_compass` (reuse_index / unshared_fraction / leverage stats; toll-booth +
+  extraction worst-lists de-anonymized to real symbols, engine order preserved), and
+  `reusability` joins the collect-only carry list.
+- **Read side (C2):** `Scores::Reusability` (+`::ReuseIndex`/`::TollBooth`/`::Extraction`/
+  `::LeverageStats`) — UNGRADED, no grade member ever; dual-shape nil-on-absent parsers
+  `reusability_from_aggregate` / `reusability_from_findings` (ONE builder; legacy worst-list
+  `node` ids resolved via the SAME id-map join, missing ids degrade gracefully); threaded
+  `Result` → `RenderContext` → CLI as the sixth business-metric field.
+- **Business Impact (C2):** the spec-pinned `Reuse` footer — "the average node serves N use
+  cases (median M); K toll booths (bypassing saves ~S mass); top extraction candidate X
+  (collapse ×C)". Clauses degrade independently (unknown reachability drops the reuse clause;
+  unknown blast drops the savings parenthetical); the honest-blank form (vty gate) is OMITTED —
+  never a lone "0 toll booths" verdict. `~S` is the display sum of the engine-published
+  per-booth `mass_savings`; every other figure is VERBATIM (D17).
+- **HTML (C2):** the node side panel gains leverage / collapse / quadrant / "toll booth:
+  bypass candidate (advisory)" rows via the binding DATA ROUTE (fragment stamps → DetailTree
+  passthrough → `graph_node_data` whitelist → `showNode`) — the click-a-node localization
+  surface; plus a `Reusability Compass` section (summary line, quadrant lists grouped from the
+  per-node stamps — display-only grouping of engine verdicts, capped at 10 per quadrant — and
+  the toll-booth/extraction worst-list tables with the advisory caption). "" on pre-v5 docs.
+
+### Changed
+- Client version 0.11.0 → 0.12.0.
+- Spec re-baselines: the six committed-stamp assertions read `eq(5)`; v1..v4-vintage doc INPUT
+  fixtures retained as tolerance pins (they must keep passing); nil-tolerance matrix rows 11–13
+  (v5/1.8 full render, honest-blank omission, legacy opaque 1.8 + id-map).
+
 ## [0.11.0] — v0.12 counter wave (W-CLI-B)
 
 The client half of the v0.12 read/report side: the release's single committed-cache
