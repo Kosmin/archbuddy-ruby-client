@@ -32,11 +32,18 @@ RSpec.describe Archbuddy::Review::RuleEngine do
     end
   end
 
+  # Hermetic registry swap ([S:F10]): these tests exercise the ENGINE through
+  # spec-local doubles in isolation — real rule classes register at load time
+  # from P1-T5 on, so the whole registry is parked and restored around each
+  # block (never leaked into, never dropped from, the suite).
   def with_rules(mapping)
+    saved = Engine.registry.dup
+    saved.each_key { |name| Engine.unregister(name) }
     mapping.each { |name, klass| Engine.register(name, klass) }
     yield
   ensure
-    mapping.each_key { |name| Engine.unregister(name) }
+    Engine.registry.keys.each { |name| Engine.unregister(name) }
+    saved.each { |name, klass| Engine.register(name, klass) }
   end
 
   def node_rule_double(threshold: 5)
