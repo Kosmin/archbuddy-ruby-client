@@ -29,8 +29,10 @@ RSpec.describe "Rule-family evaluability battery" do
 
   def v1_vintage
     # 6-key fragments: no edges, no escapes, no outcome_arity stamps.
+    # One ep so the edge/arity reasons are reached (not the Q8 zero-ep gate).
     ReviewStubs::StubVintage.new(nodes: [
-      ReviewStubs.stub_node(file: "app/a.rb", symbol: "A#monster", branches: 65_536),
+      ReviewStubs.stub_node(file: "app/a.rb", symbol: "A#monster", branches: 65_536,
+                            entrypoint: true),
       ReviewStubs.stub_node(file: "app/a.rb", symbol: "A#tiny", branches: 2)
     ], edges: false)
   end
@@ -40,6 +42,14 @@ RSpec.describe "Rule-family evaluability battery" do
     en = result.findings.select { |f| f.rule == "ExponentialNode" }
     expect(en.map(&:symbol)).to eq(["A#monster"])
     expect(result.not_evaluable.map { |n| n[:rule] }).not_to include("ExponentialNode")
+  end
+
+  it "v1: UseCaseComplexity honestly declares `fragments carry no edges`" do
+    result = evaluate(v1_vintage)
+    expect(result.not_evaluable).to include(
+      rule: "UseCaseComplexity", reason: "fragments carry no edges"
+    )
+    expect(result.findings.map(&:rule)).not_to include("UseCaseComplexity")
   end
 
   it "fabrication guard: findings NEVER contain a not-evaluable rule's entries" do

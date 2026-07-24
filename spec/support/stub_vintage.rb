@@ -27,6 +27,24 @@ module ReviewStubs
     )
   end
 
+  EP_METRICS_DEFAULTS = {
+    branching_log2: 0.0, mass: 0, reach: 1, files: 1, depth: 1, own_branches: 1,
+    max_cone_node: nil, vty_log: nil, vty_floor_log: nil, dividend: nil,
+    dividend_log2: nil, escapes_in_cone: [], entrypoint_kind: "api",
+    top_nodes: [], top_dividend_nodes: nil, cone_size: 1
+  }.freeze
+
+  # An I-C3' EpMetrics row with defaults (max_cone_node derived from the ep's
+  # own branches unless overridden) — the rule specs' fixture unit.
+  def stub_ep_metrics(file:, symbol:, **overrides)
+    attrs = EP_METRICS_DEFAULTS.merge(overrides)
+    attrs[:max_cone_node] ||= {
+      file: file, symbol: symbol, branches: attrs[:own_branches],
+      log2: Math.log2([attrs[:own_branches], 1].max)
+    }
+    Archbuddy::Review::EpMetrics.new(**attrs)
+  end
+
   class StubVintage
     def initialize(nodes: [], edges: true, analyzed: false, eps: nil, graph: nil,
                    corrupt_files: [], meta: {})
