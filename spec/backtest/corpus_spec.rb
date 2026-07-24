@@ -60,7 +60,7 @@ RSpec.describe "Backtest corpus access" do
       corpus = described_class.new(CORPUS)
       expect(corpus.validate!).to be(true)
       expect(corpus.prs.size).to eq(3)
-      expect(corpus.pr_files.first["file"]).to eq("app/api/fixture.rb")
+      expect(corpus.pr_files.first["path"]).to eq("app/api/fixture.rb")
       expect(corpus.snapshot_dir("a" * 40)).to eq(SNAP_A)
     end
 
@@ -119,9 +119,11 @@ RSpec.describe "Backtest corpus access" do
     end
 
     it "exits 0 on the fixture corpus (unregistered tiers skip loudly)" do
-      _out, err, code = run_script({ "ARCHBUDDY_STUDY_CORPUS" => CORPUS }, "--tier", "0")
+      # tiers 0/1 register at P3-T4; tier 2 stays unregistered until P3-T6
+      out, err, code = run_script({ "ARCHBUDDY_STUDY_CORPUS" => CORPUS }, "--tier", "2")
       expect(code).to eq(0)
-      expect(err).to include("note: tier 0 not registered")
+      expect(err).to include("note: tier 2 not registered")
+      expect(out).to eq("")
     end
 
     it "exits 2 on usage errors" do

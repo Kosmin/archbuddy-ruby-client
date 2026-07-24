@@ -17,7 +17,7 @@ module Backtest
       "h2_pr_table.csv" => %w[repo pr_number t_quartile t_max_log2_b_own latency_hours
                               churn in_t2_corpus].freeze,
       "pr_predictors.csv" => %w[repo pr_number base_sha pr_max_log2_b_own arm].freeze,
-      "pr_files.csv" => %w[repo pr_number file].freeze
+      "pr_files.csv" => %w[repo pr_number path file_class change_type previous_path].freeze
     }.freeze
 
     REQUIRED = (ALLOWLISTS.keys.map { |f| File.join("data", "derived", f) } + ["snapshots"]).freeze

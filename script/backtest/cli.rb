@@ -20,6 +20,13 @@ module Backtest
       TIERS[name.to_s] = callable
     end
 
+    # Tier implementations load archbuddy (and the engine gem) — required
+    # only AFTER the env gate passes so the graceful-skip path stays
+    # dependency-free.
+    def load_tiers
+      Dir[File.join(__dir__, "tier*.rb")].sort.each { |file| require file }
+    end
+
     def run(argv)
       opts = parse(argv)
       return 2 if opts.nil?
@@ -37,6 +44,8 @@ module Backtest
         warn "error: #{e.message}"
         return 2
       end
+
+      load_tiers
 
       tiers = opts[:tier] == "all" ? %w[0 1 2 3] : [opts[:tier]]
       codes = tiers.map { |tier| run_tier(tier, corpus, opts) }

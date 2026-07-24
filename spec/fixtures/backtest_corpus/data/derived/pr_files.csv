@@ -1,4 +1,4 @@
-repo,pr_number,file,author_login
-thanx/alpha,101,app/api/fixture.rb,TRIPWIRE_NEVER_READ
-thanx/alpha,102,app/api/fixture.rb,TRIPWIRE_NEVER_READ
-thanx/beta,201,README.md,TRIPWIRE_NEVER_READ
+repo,pr_number,path,file_class,change_type,previous_path,author_login
+thanx/alpha,101,app/api/fixture.rb,scorable_app,modified,,TRIPWIRE_NEVER_READ
+thanx/alpha,102,app/api/fixture.rb,scorable_app,modified,,TRIPWIRE_NEVER_READ
+thanx/beta,201,README.md,other,modified,,TRIPWIRE_NEVER_READ
