@@ -17,3 +17,4 @@ end
 
 require_relative "review/vintage"
 require_relative "review/fragment_walk"
+require_relative "review/graph"
