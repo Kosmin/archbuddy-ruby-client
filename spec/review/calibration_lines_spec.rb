@@ -6,21 +6,21 @@ require_relative "../../lib/archbuddy/review/calibration"
 # L-NET, L-Q4, L-BUGFIX, L-UC-Q4, L-RS, L-DIV, L-FB-NONE (G4/R53); rendering
 # laws R-HONEST-1/2 (Q6) spec-gated, incl. the ×352 regression.
 RSpec.describe Archbuddy::Review::Calibration::Lines do
-  Calibration = Archbuddy::Review::Calibration
+  CalibrationNS = Archbuddy::Review::Calibration
 
-  FindingDouble = Struct.new(:rule, :symbol, :components, :threshold_raw, :contributors,
+  CalFindingDouble = Struct.new(:rule, :symbol, :components, :threshold_raw, :contributors,
                              keyword_init: true)
-  DeltaDouble = Struct.new(:net_log2, keyword_init: true)
+  CalDeltaDouble = Struct.new(:net_log2, keyword_init: true)
 
-  let(:builtin) { Calibration.resolve(nil) }
-  let(:prov) { Calibration::PROVENANCE_BUILTIN }
+  let(:builtin) { CalibrationNS.resolve(nil) }
+  let(:prov) { CalibrationNS::PROVENANCE_BUILTIN }
 
   def en_finding
-    FindingDouble.new(rule: "ExponentialNode", symbol: "Api::V1::RedeemTemplates#PATCH[0]")
+    CalFindingDouble.new(rule: "ExponentialNode", symbol: "Api::V1::RedeemTemplates#PATCH[0]")
   end
 
   def ucc_finding(max_cone_node_log2: 16.0, branching_log2: 16.0)
-    FindingDouble.new(
+    CalFindingDouble.new(
       rule: "UseCaseComplexity", symbol: "Api::V1::RedeemTemplates#PATCH[0]",
       components: { "branching_log2" => branching_log2, "max_cone_node_log2" => max_cone_node_log2,
                     "mass" => 83, "reach" => 2, "files" => 1, "depth" => 2 }
@@ -28,7 +28,7 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
   end
 
   def ucd_finding(contributors: [{ symbol: "Api::V1::RedeemTemplates#PATCH[0]", value_log2: 16.0 }])
-    FindingDouble.new(
+    CalFindingDouble.new(
       rule: "UseCaseDividend", symbol: "Api::V1::RedeemTemplates#PATCH[0]",
       components: { "dividend" => 65536, "dividend_log2" => 16.0,
                     "v_now_log2" => 16.0, "v_floor_log2" => 0.0 },
@@ -37,7 +37,7 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
   end
 
   def fb_finding
-    FindingDouble.new(rule: "FirewallBreaches", symbol: "Api::V1::RedeemTemplates#PATCH[0]")
+    CalFindingDouble.new(rule: "FirewallBreaches", symbol: "Api::V1::RedeemTemplates#PATCH[0]")
   end
 
   describe "the Q5-canon golden (I8 — diff-shaped input)" do
@@ -45,7 +45,7 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
       lines = described_class.build(
         resolved: builtin,
         findings: [ucc_finding, ucd_finding, en_finding],
-        delta: DeltaDouble.new(net_log2: 3.000),
+        delta: CalDeltaDouble.new(net_log2: 3.000),
         review_surface: { union: 1, q4_count: 1 }
       )
 
@@ -72,7 +72,7 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
   describe "the substrate #2083-shaped golden" do
     it "renders exactly 3 lines with the provenance suffix on every line" do
       lines = described_class.build(
-        resolved: builtin, findings: [en_finding], delta: DeltaDouble.new(net_log2: 3.000)
+        resolved: builtin, findings: [en_finding], delta: CalDeltaDouble.new(net_log2: 3.000)
       )
       expect(lines.size).to eq(3)
       expect(lines[0]).to include("net +3.000 log2 units → ×1.37")
@@ -94,7 +94,7 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
     it "exponentiates ONLY delta.net_log2 even when huge components ride along" do
       findings = [ucc_finding(branching_log2: 55.585, max_cone_node_log2: 8.0)]
       lines = described_class.build(resolved: builtin, findings: findings,
-                                    delta: DeltaDouble.new(net_log2: 3.000))
+                                    delta: CalDeltaDouble.new(net_log2: 3.000))
       multiplier_lines = lines.grep(/expected review-latency multiplier/)
       expect(multiplier_lines.size).to eq(1)
       expect(multiplier_lines.first).to include("×1.37")
@@ -136,10 +136,10 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
     end
 
     it "renders [] under source: local and source: none" do
-      local = Calibration.resolve("source" => "local", "provenance" => "mine")
+      local = CalibrationNS.resolve("source" => "local", "provenance" => "mine")
       expect(described_class.build(resolved: local, findings: [fb_finding])).to eq([])
 
-      none = Calibration.resolve("source" => "none")
+      none = CalibrationNS.resolve("source" => "none")
       expect(described_class.build(resolved: none, findings: [fb_finding])).to eq([])
     end
   end
@@ -154,12 +154,12 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
 
   describe "source: local subset rendering" do
     it "renders exactly one line, no caveat, local provenance verbatim" do
-      local = Calibration.resolve(
+      local = CalibrationNS.resolve(
         "source" => "local", "provenance" => "internal 2026-Q3 study",
         "latency_multiplier_per_log2_unit" => 1.11184
       )
       lines = described_class.build(resolved: local, findings: [en_finding],
-                                    delta: DeltaDouble.new(net_log2: 3.000))
+                                    delta: CalDeltaDouble.new(net_log2: 3.000))
       expect(lines.size).to eq(1)
       expect(lines.first).to eq(
         "net +3.000 log2 units → ×1.37 expected review-latency multiplier — internal 2026-Q3 study"
@@ -174,14 +174,14 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
 
     it "net within ±0.005 → no L-NET" do
       expect(described_class.build(resolved: builtin, findings: [],
-                                   delta: DeltaDouble.new(net_log2: 0.004))).to eq([])
+                                   delta: CalDeltaDouble.new(net_log2: 0.004))).to eq([])
     end
 
     it "source: none → [] unconditionally (L-FB-NONE included)" do
-      none = Calibration.resolve("source" => "none")
+      none = CalibrationNS.resolve("source" => "none")
       lines = described_class.build(
         resolved: none, findings: [en_finding, ucc_finding, ucd_finding, fb_finding],
-        delta: DeltaDouble.new(net_log2: 3.0), review_surface: { union: 5, q4_count: 2 }
+        delta: CalDeltaDouble.new(net_log2: 3.0), review_surface: { union: 5, q4_count: 2 }
       )
       expect(lines).to eq([])
     end
@@ -192,14 +192,14 @@ RSpec.describe Archbuddy::Review::Calibration::Lines do
     end
 
     it "a UseCaseComplexity finding lacking max_cone_node_log2 never counts toward k" do
-      finding = FindingDouble.new(rule: "UseCaseComplexity", symbol: "X#y",
+      finding = CalFindingDouble.new(rule: "UseCaseComplexity", symbol: "X#y",
                                   components: { "reach" => 200 })
       lines = described_class.build(resolved: builtin, findings: [finding])
       expect(lines.grep(/use case\(s\) contain a node above the Q4 boundary/)).to eq([])
     end
 
     it "reads the I-P5' {value:, threshold:, breached:} component triple too" do
-      finding = FindingDouble.new(
+      finding = CalFindingDouble.new(
         rule: "UseCaseComplexity", symbol: "X#y",
         components: { "max_cone_node_log2" => { value: 16.0, threshold: 5.0, breached: true } }
       )
