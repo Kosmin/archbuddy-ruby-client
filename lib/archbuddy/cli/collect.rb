@@ -4,6 +4,7 @@ require "dry/cli"
 require "fileutils"
 require_relative "../collect"
 require_relative "../cache/checker"
+require_relative "../cache/collect_manifest"
 
 module Archbuddy
   module CLI
@@ -104,6 +105,15 @@ module Archbuddy
         paths = Archbuddy::Collect::Emitter.new(out_dir: out_dir, project_root: target_root).emit(
           graph: anon.graph, id_map: anon.id_map, diagnostics: adapter_result.diagnostics
         )
+
+        # v0.15 P2-T6 (P6 exactness): record the enumerated file set + content
+        # hashes so head freshness is an exact, mtime-free check. Re-enumerate
+        # with the SAME config the collect used (measured hash-pass cost
+        # 0.045 s / 0.71 s at 192 / 5,017 files). Gitignored speed-cache path —
+        # zero committed-diff impact.
+        enumerated = Archbuddy::Collect::Adapters::Ruby::FileEnumerator
+                     .new(path, config).files.map(&:last)
+        Archbuddy::Cache::CollectManifest.write(project_root: target_root, files: enumerated)
 
         skipped = adapter_result.diagnostics[:meta_sites_skipped].to_i
         if skipped.positive?
