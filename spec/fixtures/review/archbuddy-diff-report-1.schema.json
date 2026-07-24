@@ -1,0 +1,185 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "archbuddy-diff-report/1",
+  "type": "object",
+  "required": ["schema", "tool", "run", "summary", "findings", "grandfathered", "calibration", "exit_code"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "enum": ["archbuddy-diff-report/1"] },
+    "tool": { "type": "object" },
+    "run": {
+      "type": "object",
+      "required": ["command", "target", "advisory", "fail_level"],
+      "properties": {
+        "command": { "enum": ["diff", "lint"] },
+        "target": { "type": ["string", "null"] },
+        "config": { "type": ["string", "null"] },
+        "advisory": { "type": "boolean" },
+        "fail_level": { "enum": ["none", "info", "warn", "error"] },
+        "base": { "type": "object" },
+        "head": { "type": "object" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["counts", "not_evaluable", "excluded_files"],
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "type": "object",
+          "required": ["error", "warn", "info", "grandfathered"],
+          "properties": {
+            "error": { "type": "integer" },
+            "warn": { "type": "integer" },
+            "info": { "type": "integer" },
+            "grandfathered": { "type": "integer" }
+          }
+        },
+        "delta": {
+          "type": "object",
+          "required": ["nodes_new", "nodes_grown", "nodes_shrunk", "nodes_removed", "net_log2_b_own"],
+          "properties": {
+            "nodes_new": { "type": "integer" },
+            "nodes_grown": { "type": "integer" },
+            "nodes_shrunk": { "type": "integer" },
+            "nodes_removed": { "type": "integer" },
+            "net_log2_b_own": { "type": "number" }
+          }
+        },
+        "unreachable_from_entrypoints": {
+          "type": "object",
+          "required": ["nodes", "share", "files"],
+          "properties": {
+            "nodes": { "type": "integer" },
+            "share": { "type": "number" },
+            "files": { "type": "integer" }
+          }
+        },
+        "disclosures": {
+          "type": "object",
+          "required": ["orphan_touched_files", "offsetting_zero_count"],
+          "properties": {
+            "orphan_touched_files": { "type": "array", "items": { "type": "string" } },
+            "offsetting_zero_count": { "type": "integer" }
+          }
+        },
+        "not_evaluable": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rule", "reason"],
+            "properties": { "rule": { "type": "string" }, "reason": { "type": "string" } }
+          }
+        },
+        "excluded_files": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "use_cases": {
+      "type": "object",
+      "required": ["count", "leaderboard"],
+      "properties": {
+        "count": { "type": "integer" },
+        "leaderboard": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rank", "ep", "kind", "file", "branching_log2", "mass", "reach", "files", "depth", "dividend", "max_cone_node_log2", "cost_note"]
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule", "severity", "line", "message", "grandfathered", "fingerprint"],
+        "properties": {
+          "rule": { "type": "string" },
+          "severity": { "enum": ["error", "warn", "info"] },
+          "file": { "type": ["string", "null"] },
+          "symbol": { "type": ["string", "null"] },
+          "line": { "type": "null" },
+          "values": { "type": ["object", "null"] },
+          "value_raw": { "type": ["integer", "null"] },
+          "value_log2": { "type": ["number", "null"] },
+          "delta_log2": { "type": ["number", "null"] },
+          "threshold_raw": { "type": ["number", "null"] },
+          "threshold_log2": { "type": ["number", "null"] },
+          "message": { "type": "string" },
+          "grandfathered": { "type": "boolean" },
+          "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "components": { "type": "object" },
+          "contributors": { "type": "array" },
+          "contributors_omitted": { "type": "integer" },
+          "entrypoint_kind": { "type": "string" },
+          "scope": { "enum": ["pr"] }
+        }
+      }
+    },
+    "delta_top": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "symbol", "classification", "base_branches", "head_branches", "delta_log2"],
+        "properties": { "classification": { "enum": ["NEW", "GROWN", "SHRUNK", "REMOVED", "CHANGED_ATTRS"] } }
+      }
+    },
+    "ratchet": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scope", "kind", "budget_log2", "verdict", "severity"],
+        "properties": {
+          "kind": { "enum": ["paths", "entrypoint"] },
+          "verdict": { "enum": ["pass", "breach", "no_match"] },
+          "observed_log2": { "type": ["number", "null"] },
+          "empty_scope": { "type": "boolean" }
+        }
+      }
+    },
+    "review_surface": {
+      "type": "object",
+      "required": ["union", "sum", "eps", "unreachable_touched"],
+      "properties": {
+        "union": { "type": "integer" },
+        "sum": { "type": "integer" },
+        "eps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "ep_symbol", "branching_log2", "classification"],
+            "properties": { "classification": { "enum": ["NEW", "REMOVED", "MATCHED"] } }
+          }
+        },
+        "unreachable_touched": {
+          "type": "object",
+          "required": ["count", "nodes"]
+        }
+      }
+    },
+    "ratchet_context": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scope_paths", "kind", "budget_log2", "current_total_log2", "matched_files"]
+      }
+    },
+    "grandfathered": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule", "file", "symbol", "recorded", "current", "healed"]
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "required": ["source", "provenance", "lines"],
+      "properties": {
+        "source": { "enum": ["builtin-study-v1", "local", "none"] },
+        "provenance": { "type": ["string", "null"] },
+        "lines": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "exit_code": { "enum": [0, 1, 2] }
+  }
+}

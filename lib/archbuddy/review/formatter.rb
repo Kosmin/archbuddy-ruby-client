@@ -50,12 +50,13 @@ module Archbuddy
 
       attr_reader :context
 
-      # Deterministic finding order: severity rank desc, file, symbol
-      # (nil file/symbol — the :pr findings — sort last).
+      # Deterministic finding order: severity rank desc, file, symbol, rule
+      # (nil file/symbol — the :pr findings — sort first within severity;
+      # the rule tiebreak keeps same-node multi-rule output byte-stable).
       def sorted_findings
         rank = Config::Schema::SEVERITIES
         (context.findings || []).sort_by do |f|
-          [-rank.fetch(f.severity, 0), f.file.to_s, f.symbol.to_s]
+          [-rank.fetch(f.severity, 0), f.file.to_s, f.symbol.to_s, f.rule.to_s]
         end
       end
 
