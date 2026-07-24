@@ -1,0 +1,9 @@
+{
+  "serializer_version": 4,
+  "sources": {
+    "lib/orders.rb": {
+      "path": ".archbuddy/lib/orders.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

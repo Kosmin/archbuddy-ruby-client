@@ -1,0 +1,13 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "app/api/api/v1/redeem_templates.rb": {
+      "path": ".archbuddy/app/api/api/v1/redeem_templates.rb.json",
+      "shard_mode": "single"
+    },
+    "app/models/program/redeem/template.rb": {
+      "path": ".archbuddy/app/models/program/redeem/template.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

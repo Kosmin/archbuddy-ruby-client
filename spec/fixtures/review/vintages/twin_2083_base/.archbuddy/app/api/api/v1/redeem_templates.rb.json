@@ -1,0 +1,53 @@
+{
+  "serializer_version": 5,
+  "file": "app/api/api/v1/redeem_templates.rb",
+  "nodes": [
+    {
+      "symbol": "Api::V1::RedeemTemplates#PATCH[0]",
+      "kind": "endpoint",
+      "class": "Api::V1::RedeemTemplates",
+      "branches": 8192,
+      "decisions": 13,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "Api::V1::RedeemTemplates#collection",
+      "kind": "function",
+      "class": "Api::V1::RedeemTemplates",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Api::V1::RedeemTemplates#PATCH[0]",
+      "to": "Api::V1::RedeemTemplates#collection",
+      "calls": 70
+    },
+    {
+      "from": "Api::V1::RedeemTemplates#PATCH[0]",
+      "to": "Model.save",
+      "calls": 2
+    },
+    {
+      "from": "Api::V1::RedeemTemplates#collection",
+      "to": "Model.where",
+      "calls": 1
+    }
+  ]
+}

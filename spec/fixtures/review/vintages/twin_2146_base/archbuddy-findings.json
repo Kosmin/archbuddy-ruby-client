@@ -1,0 +1,9 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "app/models/anchor.rb": {
+      "path": ".archbuddy/app/models/anchor.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

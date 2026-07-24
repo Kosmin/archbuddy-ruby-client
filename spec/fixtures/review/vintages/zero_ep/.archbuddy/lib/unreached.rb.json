@@ -1,0 +1,48 @@
+{
+  "serializer_version": 5,
+  "file": "lib/unreached.rb",
+  "nodes": [
+    {
+      "symbol": "Unreached#alpha",
+      "kind": "function",
+      "class": "Unreached",
+      "branches": 4,
+      "decisions": 2,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 2,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "Unreached#beta",
+      "kind": "function",
+      "class": "Unreached",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Unreached#alpha",
+      "to": "Unreached#beta",
+      "calls": 1
+    },
+    {
+      "from": "Unreached#beta",
+      "to": "Ext.sink",
+      "calls": 1
+    }
+  ]
+}

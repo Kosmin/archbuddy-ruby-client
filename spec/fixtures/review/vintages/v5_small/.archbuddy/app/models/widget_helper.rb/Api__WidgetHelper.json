@@ -1,0 +1,29 @@
+{
+  "serializer_version": 5,
+  "file": "app/models/widget_helper.rb",
+  "class": "Api::WidgetHelper",
+  "nodes": [
+    {
+      "symbol": "Api::WidgetHelper#lookup",
+      "kind": "function",
+      "class": "Api::WidgetHelper",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": true,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Api::WidgetHelper#lookup",
+      "to": "Model.where",
+      "calls": 1
+    }
+  ]
+}

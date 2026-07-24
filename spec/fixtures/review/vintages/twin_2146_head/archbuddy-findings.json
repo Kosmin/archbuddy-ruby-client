@@ -1,0 +1,13 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "app/api/api/v1/segment_activation_preferences.rb": {
+      "path": ".archbuddy/app/api/api/v1/segment_activation_preferences.rb.json",
+      "shard_mode": "single"
+    },
+    "app/models/anchor.rb": {
+      "path": ".archbuddy/app/models/anchor.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

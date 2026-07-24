@@ -1,0 +1,22 @@
+{
+  "serializer_version": 5,
+  "file": "lib/pointed.rb",
+  "nodes": [
+    {
+      "symbol": "Pointed#run",
+      "kind": "function",
+      "class": "Pointed",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": true,
+      "entrypoint_kind": "top_level",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": []
+}

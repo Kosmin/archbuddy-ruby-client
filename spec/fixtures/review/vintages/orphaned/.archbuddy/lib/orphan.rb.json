@@ -1,0 +1,22 @@
+{
+  "serializer_version": 5,
+  "file": "lib/orphan.rb",
+  "nodes": [
+    {
+      "symbol": "Orphan#ghost",
+      "kind": "function",
+      "class": "Orphan",
+      "branches": 64,
+      "decisions": 6,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": []
+}

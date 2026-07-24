@@ -1,0 +1,51 @@
+{
+  "serializer_version": 4,
+  "file": "lib/orders.rb",
+  "nodes": [
+    {
+      "symbol": "Orders#place",
+      "kind": "function",
+      "class": "Orders",
+      "branches": 8,
+      "decisions": 3,
+      "entrypoint": true,
+      "entrypoint_kind": "controllers",
+      "escapes": false,
+      "outcome_arity": 2
+    },
+    {
+      "symbol": "Orders#validate",
+      "kind": "function",
+      "class": "Orders",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1
+    },
+    {
+      "symbol": "Orders#escape_hatch",
+      "kind": "function",
+      "class": "Orders",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": true,
+      "outcome_arity": 1
+    }
+  ],
+  "edges": [
+    {
+      "from": "Orders#place",
+      "to": "Orders#validate",
+      "calls": 2
+    },
+    {
+      "from": "Orders#validate",
+      "to": "DB.exec",
+      "calls": 1
+    }
+  ]
+}

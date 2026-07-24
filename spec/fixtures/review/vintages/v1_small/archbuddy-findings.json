@@ -1,0 +1,9 @@
+{
+  "serializer_version": 1,
+  "sources": {
+    "lib/legacy.rb": {
+      "path": ".archbuddy/lib/legacy.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

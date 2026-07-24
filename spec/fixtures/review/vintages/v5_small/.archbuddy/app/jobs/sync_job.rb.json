@@ -1,0 +1,37 @@
+{
+  "serializer_version": 5,
+  "file": "app/jobs/sync_job.rb",
+  "nodes": [
+    {
+      "symbol": "SyncJob#perform",
+      "kind": "function",
+      "class": "SyncJob",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": true,
+      "entrypoint_kind": "jobs",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "SyncJob#note",
+      "kind": "function",
+      "class": "SyncJob",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": []
+}

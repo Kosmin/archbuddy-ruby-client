@@ -1,0 +1,9 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "lib/pointed.rb": {
+      "path": ".archbuddy/lib/pointed.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

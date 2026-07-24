@@ -1,0 +1,9 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "app/api/capped.rb": {
+      "path": ".archbuddy/app/api/capped.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

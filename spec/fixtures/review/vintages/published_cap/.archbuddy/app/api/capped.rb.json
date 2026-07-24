@@ -1,0 +1,22 @@
+{
+  "serializer_version": 5,
+  "file": "app/api/capped.rb",
+  "nodes": [
+    {
+      "symbol": "Api::Capped#GET[0]",
+      "kind": "endpoint",
+      "class": "Api::Capped",
+      "branches": 1048576,
+      "decisions": 20,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": []
+}

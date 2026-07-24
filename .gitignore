@@ -43,3 +43,11 @@ Gemfile.lock
 *.swp
 .idea/
 .vscode/
+
+# ─── EXCEPTION: spec fixtures are SYNTHETIC (hand-written vintages, tripwire
+# id-maps carrying no real data) — the secrecy/dogfood rules above target REAL
+# captured artifacts, never these. Narrow re-includes only:
+!spec/fixtures/**/.archbuddy/
+!spec/fixtures/**/.archbuddy/**
+!spec/fixtures/**/archbuddy-findings.json
+!spec/fixtures/backtest_corpus/snapshots/*/id-map.yml

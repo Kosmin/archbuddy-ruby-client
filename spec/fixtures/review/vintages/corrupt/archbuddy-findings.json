@@ -1,0 +1,13 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "lib/bad.rb": {
+      "path": ".archbuddy/lib/bad.rb.json",
+      "shard_mode": "single"
+    },
+    "lib/good.rb": {
+      "path": ".archbuddy/lib/good.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "serializer_version": 1,
+  "file": "lib/legacy.rb",
+  "nodes": [
+    {
+      "symbol": "Legacy#run",
+      "kind": "function",
+      "class": "Legacy",
+      "branches": 3,
+      "decisions": 1,
+      "entrypoint": true
+    },
+    {
+      "symbol": "Legacy#helper",
+      "kind": "function",
+      "class": "Legacy",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false
+    }
+  ]
+}

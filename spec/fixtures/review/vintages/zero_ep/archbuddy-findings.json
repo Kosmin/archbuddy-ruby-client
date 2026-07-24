@@ -1,0 +1,9 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "lib/unreached.rb": {
+      "path": ".archbuddy/lib/unreached.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}

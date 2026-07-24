@@ -1,0 +1,48 @@
+{
+  "serializer_version": 5,
+  "file": "app/api/api/v1/segment_activation_preferences.rb",
+  "nodes": [
+    {
+      "symbol": "Api::V1::SegmentActivationPreferences#GET[0]",
+      "kind": "endpoint",
+      "class": "Api::V1::SegmentActivationPreferences",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "Api::V1::SegmentActivationPreferences#PATCH[0]",
+      "kind": "endpoint",
+      "class": "Api::V1::SegmentActivationPreferences",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Api::V1::SegmentActivationPreferences#GET[0]",
+      "to": "Store.read",
+      "calls": 7
+    },
+    {
+      "from": "Api::V1::SegmentActivationPreferences#PATCH[0]",
+      "to": "Store.write",
+      "calls": 22
+    }
+  ]
+}

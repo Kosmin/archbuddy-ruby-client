@@ -1,0 +1,17 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "app/api/widgets.rb": {
+      "path": ".archbuddy/app/api/widgets.rb.json",
+      "shard_mode": "single"
+    },
+    "app/jobs/sync_job.rb": {
+      "path": ".archbuddy/app/jobs/sync_job.rb.json",
+      "shard_mode": "single"
+    },
+    "app/models/widget_helper.rb": {
+      "path": ".archbuddy/app/models/widget_helper.rb",
+      "shard_mode": "per_class"
+    }
+  }
+}

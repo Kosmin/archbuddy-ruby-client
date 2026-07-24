@@ -1,0 +1,9 @@
+{
+  "serializer_version": 5,
+  "sources": {
+    "app/api/fixture.rb": {
+      "path": ".archbuddy/app/api/fixture.rb.json",
+      "shard_mode": "single"
+    }
+  }
+}
