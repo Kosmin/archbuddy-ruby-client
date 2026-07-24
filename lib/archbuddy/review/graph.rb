@@ -36,6 +36,18 @@ module Archbuddy
       def v_floor_log2
         vty_floor_log && vty_floor_log / Math.log(2)
       end
+
+      # The engine-published per-ep variety (cost_policy.rb:62-66 mirror):
+      # exp(vty_log) capped at 1e6 when vty_log >= ln(1e6).
+      def published_variety
+        return nil if vty_log.nil?
+
+        vty_log >= Math.log(1_000_000) ? 1_000_000.0 : Math.exp(vty_log)
+      end
+
+      def capped?
+        !vty_log.nil? && vty_log >= Math.log(1_000_000)
+      end
     end
 
     # Engine-exact client traversal (P2/P4, Q1 construction pins):
@@ -476,14 +488,187 @@ module Archbuddy
           depth: depth(ep.symbol),
           own_branches: ep.branches,
           max_cone_node: node_ref(worst),
-          vty_log: nil, vty_floor_log: nil, dividend: nil, dividend_log2: nil,
           escapes_in_cone: cone.select { |n| n.escapes == true }
                                .map { |n| { file: n.file, symbol: n.symbol } },
           entrypoint_kind: ep.entrypoint_kind,
           top_nodes: ranked.first(5).map { |n| node_ref(n) },
-          top_dividend_nodes: nil,
-          cone_size: cone.size
+          cone_size: cone.size,
+          **variety_members(ep, cone)
         )
+      end
+
+      # ---- the client variety-fold replica (P2-N1, Q1) -----------------------
+
+      LOG_CAP = Math.log(1_000_000)
+      NATURAL_LOG2 = Math.log(2)
+
+      # Per-ep variety members: nil under the HARD N/A GATE
+      # (path_count.rb:332-336 — NO vertex carries outcome_arity ⇒ the fold
+      # never runs; never all-fallback garbage).
+      def variety_members(ep, cone)
+        fold = variety_fold
+        if fold[:vty].nil?
+          return { vty_log: nil, vty_floor_log: nil, dividend: nil,
+                   dividend_log2: nil, top_dividend_nodes: nil }
+        end
+
+        comp = @comp_of[ep.symbol]
+        ep_vty_log = fold[:vty][comp]
+        ep_floor_log = fold[:floor][comp]
+        gap = ep_vty_log - ep_floor_log
+        {
+          vty_log: ep_vty_log,
+          vty_floor_log: ep_floor_log,
+          # exp(vty_log − vty_floor_log) capped at published_cap
+          # (project_scorer.rb:664-672 mirror).
+          dividend: gap >= LOG_CAP ? 1_000_000.0 : Math.exp(gap),
+          # raw, cap-immune — the todo/value channel.
+          dividend_log2: gap / NATURAL_LOG2,
+          top_dividend_nodes: top_dividend_nodes(cone)
+        }
+      end
+
+      # Cone app nodes ranked by the extraction gap
+      # (log2 b_own − log2 min(b_own, arity)); nil-arity nodes rank by full
+      # log2 b_own (extraction can't collapse them); tie (file, symbol) asc.
+      def top_dividend_nodes(cone)
+        cone.select { |n| valid_branches?(n) }
+            .sort_by do |n|
+              own_log2 = Math.log2(n.branches)
+              gap = if n.outcome_arity.nil?
+                      own_log2
+                    else
+                      own_log2 - Math.log2([n.branches, n.outcome_arity].min)
+                    end
+              [-gap, n.file.to_s, n.symbol.to_s]
+            end
+            .first(5)
+            .map { |n| node_ref(n) }
+      end
+
+      # Fallback taint per ep symbol (spec-internal observable): nil under the
+      # N/A gate; else true iff the ep's comp is tainted (path_count.rb:390-397).
+      def variety_fallback?(ep_symbol)
+        fold = variety_fold
+        return nil if fold[:taint].nil?
+
+        fold[:taint][@comp_of[ep_symbol]]
+      end
+      public :variety_fallback?
+
+      NIL_VARIETY_FOLD = { vty: nil, floor: nil, taint: nil }.freeze
+      private_constant :NIL_VARIETY_FOLD
+
+      def variety_fold
+        @variety_fold ||= begin
+          build!
+          if @node_by_symbol.values.none?(&:outcome_arity)
+            NIL_VARIETY_FOLD
+          else
+            compute_variety_fold
+          end
+        end
+      end
+
+      # The engine variety DP replica (path_count.rb:331-397, natural-log
+      # folds — log2 at display only, Q1):
+      #   vty[C]   = b_log(C) + Σ_arms arm(S)
+      #   floor[C] = floor_term(C) + Σ_arms arm(S)   (same arm substitution)
+      #   arm(S)   = (esc[S] || fallback[S]) ? accumulated(S) : a_log(S)
+      #   floor_term = (esc||fallback) ? full b_log : min(b_log, a_log)
+      # Sink comps (out-degree 0) seed at their own term. Lambda locals are
+      # named distinctly from method locals (the R2 closure-capture trap).
+      def compute_variety_fold
+        b_log = comp_b_log
+        a_log = comp_a_log
+        esc = comp_escape_flags
+        arm = lambda do |arm_comp, arm_accumulated|
+          esc[arm_comp] || a_log[arm_comp] == :fallback ? arm_accumulated : a_log[arm_comp]
+        end
+
+        order = reverse_topo_comp_order
+        vty = {}
+        order.each do |comp|
+          vty[comp] = b_log[comp] +
+                      @comp_succ[comp].sort.sum { |succ_comp| arm.call(succ_comp, vty[succ_comp]) }
+        end
+
+        floor_term = lambda do |term_comp|
+          if esc[term_comp] || a_log[term_comp] == :fallback
+            b_log[term_comp] # extraction cannot collapse an escape (path_count.rb:362-376)
+          else
+            [b_log[term_comp], a_log[term_comp]].min
+          end
+        end
+        floor = {}
+        order.each do |comp|
+          floor[comp] = floor_term.call(comp) +
+                        @comp_succ[comp].sort.sum { |succ_comp| arm.call(succ_comp, floor[succ_comp]) }
+        end
+
+        taint = {}
+        order.each do |comp|
+          taint[comp] = a_log[comp] == :fallback ||
+                        @comp_succ[comp].any? do |succ_comp|
+                          (esc[succ_comp] || a_log[succ_comp] == :fallback) && taint[succ_comp]
+                        end
+        end
+
+        { vty: vty, floor: floor, taint: taint }
+      end
+
+      # Σ ln(branches) over members (externals + branch-less nodes contribute
+      # ln(1) = 0).
+      def comp_b_log
+        @comp_b_log ||= @components.transform_values do |members|
+          members.sum do |sym|
+            node = @node_by_symbol[sym]
+            node && valid_branches?(node) ? Math.log(node.branches) : 0.0
+          end
+        end
+      end
+
+      # A_log per comp (path_count.rb:270-297 mirror): arity stamped →
+      # Σ ln(arity) (members SUM — the SCC approximation); nil-arity
+      # function/endpoint member ⇒ whole comp :fallback; nil-arity
+      # external/db_op (incl. pseudo-vertices) → lenient 0.0; arity < 1 →
+      # loud raise (the load-bearing floor).
+      def comp_a_log
+        @comp_a_log ||= @components.transform_values do |members|
+          fallback = members.any? do |sym|
+            node = @node_by_symbol[sym]
+            node && node.outcome_arity.nil? && %w[function endpoint].include?(node.kind)
+          end
+          if fallback
+            :fallback
+          else
+            members.sum do |sym|
+              node = @node_by_symbol[sym]
+              next 0.0 if node.nil? # external pseudo-vertex — lenient a=1
+
+              arity = node.outcome_arity
+              next 0.0 if arity.nil? # non-function/endpoint kind — lenient
+
+              if arity < 1
+                raise VintageError,
+                      "invalid outcome_arity #{arity} on #{node.file}: #{node.symbol}"
+              end
+
+              Math.log(arity)
+            end
+          end
+        end
+      end
+
+      # true iff ANY member escapes (path_count.rb:302-306; the engine
+      # consumes the stamped boolean blindly — never infers).
+      def comp_escape_flags
+        @comp_escape_flags ||= @components.transform_values do |members|
+          members.any? do |sym|
+            node = @node_by_symbol[sym]
+            node && node.escapes == true
+          end
+        end
       end
 
       def node_ref(node)

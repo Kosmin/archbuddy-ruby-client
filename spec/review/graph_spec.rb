@@ -123,14 +123,18 @@ RSpec.describe Archbuddy::Review::Graph do
         .to eq(["Api::Widgets#GET[0]", "Api::WidgetHelper#lookup"])
     end
 
-    it "stages the variety members nil until P2-N1 (the legal N/A shape)" do
-      expect(row.vty_log).to be_nil
-      expect(row.vty_floor_log).to be_nil
-      expect(row.dividend).to be_nil
-      expect(row.dividend_log2).to be_nil
-      expect(row.top_dividend_nodes).to be_nil
-      expect(row.v_now_log2).to be_nil
-      expect(row.v_floor_log2).to be_nil
+    it "carries the P2-N1 variety members (filled once the fold landed)" do
+      # P2-T2 staged these nil; P2-N1 fills them. v5_small GET[0] cone:
+      # ep (b=4, arity 2) → lookup (b=2, arity 1, ESCAPES) → externals.
+      # vty = ln4 + full ln2 (escape arm) = ln8; floor = min(ln4, ln2) + full
+      # ln2 (escape keeps b_log) = ln4; dividend = exp(ln8 − ln4) = 2.
+      expect(row.vty_log).to be_within(1e-9).of(Math.log(8))
+      expect(row.vty_floor_log).to be_within(1e-9).of(Math.log(4))
+      expect(row.dividend.round(6)).to eq(2.0)
+      expect(row.dividend_log2).to be_within(1e-9).of(1.0)
+      expect(row.v_now_log2).to be_within(1e-9).of(3.0)
+      expect(row.v_floor_log2).to be_within(1e-9).of(2.0)
+      expect(row.top_dividend_nodes).not_to be_nil
     end
 
     it "computes a self-only cone honestly (reach 1, mass 0, depth 1)" do
