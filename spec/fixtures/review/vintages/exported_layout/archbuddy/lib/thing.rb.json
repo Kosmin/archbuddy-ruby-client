@@ -1,0 +1,43 @@
+{
+  "serializer_version": 5,
+  "file": "lib/thing.rb",
+  "nodes": [
+    {
+      "symbol": "Thing#call",
+      "kind": "function",
+      "class": "Thing",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": true,
+      "entrypoint_kind": "top_level",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "Thing#assist",
+      "kind": "function",
+      "class": "Thing",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Thing#call",
+      "to": "Thing#assist",
+      "calls": 1
+    }
+  ]
+}
