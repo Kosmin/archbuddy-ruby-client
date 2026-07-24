@@ -1,0 +1,48 @@
+{
+  "serializer_version": 5,
+  "file": "app/api/fixture.rb",
+  "nodes": [
+    {
+      "symbol": "Api::Fixture#GET[0]",
+      "kind": "endpoint",
+      "class": "Api::Fixture",
+      "branches": 4,
+      "decisions": 2,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 2,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "Api::Fixture#assist",
+      "kind": "function",
+      "class": "Api::Fixture",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Api::Fixture#GET[0]",
+      "to": "Api::Fixture#assist",
+      "calls": 2
+    },
+    {
+      "from": "Api::Fixture#assist",
+      "to": "Ext.sink",
+      "calls": 1
+    }
+  ]
+}

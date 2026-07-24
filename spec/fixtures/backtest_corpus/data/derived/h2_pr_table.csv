@@ -1,0 +1,3 @@
+repo,pr_number,t_quartile,t_max_log2_b_own,latency_hours,churn,in_t2_corpus,author_login
+thanx/alpha,101,2,2.0,12.5,40,1,TRIPWIRE_NEVER_READ
+thanx/alpha,102,2,2.0,30.0,120,1,TRIPWIRE_NEVER_READ

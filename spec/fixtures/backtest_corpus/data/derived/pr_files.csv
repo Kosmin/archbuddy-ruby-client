@@ -1,0 +1,4 @@
+repo,pr_number,file,author_login
+thanx/alpha,101,app/api/fixture.rb,TRIPWIRE_NEVER_READ
+thanx/alpha,102,app/api/fixture.rb,TRIPWIRE_NEVER_READ
+thanx/beta,201,README.md,TRIPWIRE_NEVER_READ

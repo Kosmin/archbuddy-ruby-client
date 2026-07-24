@@ -1,0 +1,4 @@
+repo,pr_number,title,author_login,latency_hours,churn,arm,is_bugfix,base_sha,merge_commit_sha,size_stratum,merged_at
+thanx/alpha,101,"fix: widgets, faster",TRIPWIRE_NEVER_READ,12.5,40,edit,0,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,dddddddddddddddddddddddddddddddddddddddd,small,2026-01-05T10:00:00Z
+thanx/alpha,102,"feat: more widgets",TRIPWIRE_NEVER_READ,30.0,120,edit,1,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee,medium,2026-02-11T12:00:00Z
+thanx/beta,201,"docs only",TRIPWIRE_NEVER_READ,4.0,5,non_app,0,cccccccccccccccccccccccccccccccccccccccc,ffffffffffffffffffffffffffffffffffffffff,small,2026-03-20T09:30:00Z

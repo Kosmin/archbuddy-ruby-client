@@ -1,0 +1,43 @@
+{
+  "serializer_version": 5,
+  "file": "lib/quiet.rb",
+  "nodes": [
+    {
+      "symbol": "Quiet#one",
+      "kind": "function",
+      "class": "Quiet",
+      "branches": 2,
+      "decisions": 1,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    },
+    {
+      "symbol": "Quiet#two",
+      "kind": "function",
+      "class": "Quiet",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": null,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Quiet#one",
+      "to": "Quiet#two",
+      "calls": 1
+    }
+  ]
+}

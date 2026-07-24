@@ -1,0 +1,4 @@
+repo,pr_number,base_sha,pr_max_log2_b_own,arm,author_login
+thanx/alpha,101,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,2.0,edit,TRIPWIRE_NEVER_READ
+thanx/alpha,102,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,2.0,edit,TRIPWIRE_NEVER_READ
+thanx/beta,201,cccccccccccccccccccccccccccccccccccccccc,,non_app,TRIPWIRE_NEVER_READ
