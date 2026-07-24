@@ -74,6 +74,42 @@ RSpec.describe "Rule-family evaluability battery" do
     expect(result.findings.map(&:rule) & na_rules).to eq([])
   end
 
+  it "ships base + exactly the SEVEN Q11 rule class files (no NoNew* files)" do
+    rules_dir = File.expand_path("../../lib/archbuddy/review/rules", __dir__)
+    files = Dir[File.join(rules_dir, "*.rb")].map { |f| File.basename(f) }.sort
+    expect(files).to eq(%w[
+      base.rb complexity_ratchet.rb exponential_node.rb firewall_breaches.rb
+      multiplicative_growth.rb review_surface.rb use_case_complexity.rb
+      use_case_dividend.rb
+    ])
+  end
+
+  it "v4 (edges + escapes + outcome_arity, no compass): ALL seven evaluate — zero N/A" do
+    ep = ReviewStubs.stub_node(file: "app/api/a.rb", symbol: "A#GET[0]", branches: 4,
+                               entrypoint: true, entrypoint_kind: "api",
+                               escapes: false, outcome_arity: 2)
+    metrics = ReviewStubs.stub_ep_metrics(file: "app/api/a.rb", symbol: "A#GET[0]",
+                                          branching_log2: 2.0, own_branches: 4,
+                                          vty_log: Math.log(4), vty_floor_log: Math.log(2),
+                                          dividend: 2.0, dividend_log2: 1.0)
+    v4 = ReviewStubs::StubVintage.new(
+      nodes: [ep], edges: true,
+      graph: ReviewStubs::StubGraph.new(
+        ep_metrics: { ["app/api/a.rb", "A#GET[0]"] => metrics }
+      )
+    )
+    lint = evaluate(v4)
+    expect(lint.not_evaluable).to eq([])
+    expect(lint.findings).to eq([])
+
+    delta = ReviewStubs::StubDelta.new(base: v4, head: v4, review_surface: { union: 0,
+                                                                             sum: 0, eps: [], unreachable_touched: { count: 0, nodes: [] } })
+    diff = Archbuddy::Review::RuleEngine.evaluate(vintage: v4, delta: delta,
+                                                  config: build_config, todo: nil)
+    expect(diff.not_evaluable).to eq([])
+    expect(diff.findings).to eq([])
+  end
+
   def v5_nodes
     [ReviewStubs.stub_node(file: "app/a.rb", symbol: "A#monster", branches: 65_536,
                            escapes: false, outcome_arity: 2, toll_booth: false,

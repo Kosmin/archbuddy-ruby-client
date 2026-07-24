@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "set"
 require_relative "base"
 require_relative "../rule_engine"
 
@@ -9,16 +10,18 @@ module Archbuddy
       # The study-calibrated per-node flag (A1): own branching STRICTLY above
       # 2^threshold_log2 (default 5 — the frozen Q4 boundary; 32 does NOT
       # fire, 33 does; 2^k is exact in IEEE so no float hazard at the
-      # boundary). Lint universe = all filtered vintage nodes; the diff-mode
-      # NEW∪GROWN universe branch is added by the P2 lane ([S:§3] shared-edit
-      # order). Universe is reachability-independent (Q8).
+      # boundary). Lint universe = all filtered vintage nodes; diff universe
+      # = NEW ∪ GROWN entries ONLY ([S:G4] — unchanged monsters in touched
+      # files stay lint's + the todo's jurisdiction; SHRUNK-but-still-huge
+      # never fires in diff, reduction is the desired direction). Universe
+      # is reachability-independent (Q8).
       class ExponentialNode < Base
         kind :node
         required_node_keys :branches
         needs_edges false
 
         def evaluate(ctx)
-          ctx.universe_nodes.each do |node|
+          universe(ctx).each do |node|
             next unless node.branches.is_a?(Integer) && node.branches >= 1
 
             threshold = ctx.rule_config(node.file)["threshold_log2"]
@@ -35,6 +38,18 @@ module Archbuddy
         end
 
         private
+
+        def universe(ctx)
+          return ctx.universe_nodes unless ctx.mode == :diff
+
+          allowed = ctx.universe_nodes.to_set { |n| [n.file, n.symbol] }
+          ctx.delta.entries.filter_map do |entry|
+            next unless %i[new grown].include?(entry.classification)
+
+            node = entry.head_node
+            node if node && allowed.include?([node.file, node.symbol])
+          end
+        end
 
         def message(branches, log2, threshold)
           format("own branching %d (2^%.1f) exceeds 2^%g (Q4 boundary)",
