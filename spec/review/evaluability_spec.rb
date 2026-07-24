@@ -60,6 +60,14 @@ RSpec.describe "Rule-family evaluability battery" do
     expect(result.findings.map(&:rule)).not_to include("UseCaseDividend")
   end
 
+  it "v1: FirewallBreaches declares `fragments carry no edges` (cone attribution)" do
+    result = evaluate(v1_vintage)
+    expect(result.not_evaluable).to include(
+      rule: "FirewallBreaches", reason: "fragments carry no edges"
+    )
+    expect(result.findings.map(&:rule)).not_to include("FirewallBreaches")
+  end
+
   it "fabrication guard: findings NEVER contain a not-evaluable rule's entries" do
     result = evaluate(v1_vintage)
     na_rules = result.not_evaluable.map { |n| n[:rule] }
