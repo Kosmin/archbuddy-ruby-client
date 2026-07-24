@@ -52,6 +52,14 @@ RSpec.describe "Rule-family evaluability battery" do
     expect(result.findings.map(&:rule)).not_to include("UseCaseComplexity")
   end
 
+  it "v1: UseCaseDividend hits the edges gate FIRST (before the arity reason)" do
+    result = evaluate(v1_vintage)
+    expect(result.not_evaluable).to include(
+      rule: "UseCaseDividend", reason: "fragments carry no edges"
+    )
+    expect(result.findings.map(&:rule)).not_to include("UseCaseDividend")
+  end
+
   it "fabrication guard: findings NEVER contain a not-evaluable rule's entries" do
     result = evaluate(v1_vintage)
     na_rules = result.not_evaluable.map { |n| n[:rule] }
