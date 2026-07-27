@@ -154,3 +154,46 @@ stay org-policy-safe):
 bundle exec archbuddy collect --check
 # non-zero exit fails the job
 ```
+
+## The diff fast path (0.13.0)
+
+Committing the cache turns `archbuddy diff`'s BASE-vintage read into a ~2 s git
+read even at 17,975-node scale — vs 35.4 s/side for a stateless worktree
+collect (measured on the study monorepo, tree-pinned). The reviewer resolves
+the merge-base commit, checks the cache is committed AT that commit, and reads
+it via `git archive` — zero collects on the base side.
+
+This fast path MUST pair with the staleness gate above (the trust delegation:
+the cache is only as honest as the `collect --check` job that guards it). The
+two jobs side by side:
+
+```sh
+bundle exec archbuddy collect --check          # gate: committed cache == tree
+bundle exec archbuddy diff . origin/main       # review: base read from git
+```
+
+`--trust-cache` is the escape hatch for the HEAD side (reuse a working-tree
+cache without a freshness check) — deliberately LOUD on stderr, CI should not
+need it. Note: no repo commits its cache today; this section is adoption
+step 1.
+
+### Stale-fragment hygiene (unreferenced fragment files)
+
+The writer never deletes fragments of removed source files — only the
+aggregate's pointers drop. Archbuddy readers are pointer-driven and immune
+(398 unreferenced fragment files measured on the study monorepo), but
+committed stale fragments accumulate as repo noise. Regenerate with
+`archbuddy reset .` + a fresh `collect`, or clean paths the aggregate no
+longer names:
+
+```sh
+comm -23 <(find .archbuddy -name '*.json' | sort) \
+         <(jq -r '.sources[].path' archbuddy-findings.json | sort) | xargs rm -f
+```
+
+Writer-side GC is a possible future nicety — NOT shipped in 0.13.0.
+
+Disambiguation: an unreferenced fragment file (a cache file no aggregate
+pointer names) is unrelated to the review output's "not reachable from any
+entrypoint" disclosure — that one is about call-graph reachability (see
+docs/CONFIGURATION.md).
