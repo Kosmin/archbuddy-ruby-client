@@ -20,6 +20,9 @@ your repo ──▶ COLLECTOR (collect) ──▶ graph.yml + id-map.yml(SECRET)
 - **The committed Cache** ([Concern 3](#concern-3--committed-incremental-cache-libarchbuddycache), v0.8)
   rides both flows: de-anonymized-at-write real-name metadata an audited repo commits, read by
   `report` with no id-map.
+- **The Reviewer** ([Concern 4](#concern-4--reviewer-libarchbuddyreview--libarchbuddyconfig), v0.13)
+  reads committed caches (never the id-map) and prices use cases: `diff` gates a PR's delta,
+  `lint` ranks the repo's entrypoints.
 
 The boundary that makes this safe is the **Anonymizer** (single trust boundary): real symbols enter, an
 opaque graph and a secret map leave. See the [trust boundary](#the-trust-boundary) section.
@@ -260,11 +263,38 @@ is client-owned (`cli/analyze.rb` reads the SECRET id-map HERE, never commits it
 
 ---
 
+## Concern 4 — Reviewer (`lib/archbuddy/review/` + `lib/archbuddy/config*`)
+
+The v0.13 CI reviewer: price **use cases** (entrypoint nodes) and gate PR deltas against
+budgets. Everything reads the COMMITTED real-name cache; the reviewer never opens the SECRET
+`id-map.yml`.
+
+```
+base cache ──▶ Vintage ─┐
+                        ├──▶ Delta (ep-matched pairs) ──▶ RuleEngine (7 rules) ──▶ Findings
+head cache ──▶ Vintage ─┘                                        │
+              Config (.archbuddy.yml v1) + Todo (value-pinned) ──┘
+                                   Calibration (presenter-only) ──▶ formatters (terminal/markdown/json)
+```
+
+| Component | Role |
+|---|---|
+| `review/fragment_walk.rb` (`FragmentWalk`) | **The reviewer's cache reader.** Walks aggregate + pointed fragments keeping the **(file, symbol) identity that `DetailTree#reassemble` drops** (reassemble keys nodes by symbol only — `cache/detail_tree.rb`); corrupt fragment ⇒ the whole source file is excluded, loudly. Normalizes **dotted/undotted fragment roots** (study snapshots hold `archbuddy/` on disk with `.archbuddy/…` pointer strings) — without the prefix swap every air-gapped `--base-cache` feed breaks. Never globs a cache dir (snapshot dirs may hold a SECRET id-map). |
+| `review/vintage.rb` / `review/vintage_source.rb` | One side of a comparison (base or head): nodes, ep-fold metrics, provenance. `VintageSource` resolves working-tree vs `--base-cache` vs git-ref sources. |
+| `review/graph.rb` | **The ep fold owns per-use-case metrics**: cone branching (Σlog2), mass, reach, files, depth, variety (V_now/V_floor → dividend) folded per entrypoint. Contributors are named **(file, symbol) from this client-side fold** — engine findings ids are anonymized and unusable for naming (the id-map stays out of reach). |
+| `review/delta.rb` | Ep-matched base↔head pairs: NEW / GROWN / SHRUNK / REMOVED / MATCHED classification, `net_log2`, review-surface (∪ of touched use cases), unreachable-touched disclosure. |
+| `review/rule_engine.rb` + `review/rules/` | The 7-rule business family: `UseCaseComplexity`, `UseCaseDividend`, `FirewallBreaches`, `ReviewSurface`, `ComplexityRatchet` (path budgets, never grandfathered), `ExponentialNode` (strictly above 2^5 = 32), `MultiplicativeGrowth`. One finding per ep per rule. |
+| `config.rb` + `config/` | `.archbuddy.yml` schema v1: presence activates gating, absence = advisory (exit 0). Validation errors name retired rules' successors. |
+| `review/calibration.rb` + `calibration/lines.rb` | **Presenter-only** study numbers (`builtin-study-v1` frozen exacts) + the honest-copy line renderer (provenance suffix exactly on lines quoting study values; bugfix caveat mandatory; `source: local`/`none` swap/suppress). Rules and exit paths never read calibration (grep-gated). |
+| `review/formatters/` | terminal / markdown / json renderers of the one ReviewContext; json emits the `archbuddy-diff-report/1` envelope. |
+| `script/backtest/` | **Repo-local, env-gated, never packaged** (gemspec excludes `script/**`): the 19-gate backtest harness replaying the study corpus through the shipped reader/rules/CLI (`ARCHBUDDY_STUDY_CORPUS` + `ARCHBUDDY_STUDY_REPOS`; skips gracefully unset). Output: `tmp/backtest/` + `docs/BACKTEST.md`. |
+
 ## CLI
 
-`Archbuddy::CLI` (dry-cli, D48) registers **four** commands (v0.8 committed-cache surface): `collect`,
-`analyze`, `report`, `reset`. `collect` is the sole producer of the SECRET `id-map.yml`; the *committed*
-cache is de-anonymized at WRITE time and readable with NO id-map.
+`Archbuddy::CLI` (dry-cli, D48) registers **six** commands: `collect`, `analyze`, `report`,
+`reset` (the committed-cache surface) plus `diff` and `lint` (the v0.13 reviewer surface).
+`collect` is the sole producer of the SECRET `id-map.yml`; the *committed* cache is de-anonymized
+at WRITE time and readable with NO id-map; `diff`/`lint` read ONLY committed caches.
 
 ### `archbuddy collect PATH` — `cli/collect.rb`
 
@@ -341,6 +371,23 @@ verdict).
 | `--graph` | `.archbuddy/graph.yml` **if present** | Path to graph.yml; **required for `--format dot`**, used by `--format html` (html degrades gracefully without it). Default only applies when the workspace file exists, so terminal/yaml/json don't warn about a missing graph. |
 | `--top` | — | Show only the top N bottlenecks. |
 
+### `archbuddy diff [TARGET] [BASE_REF]` — `cli/diff.rb`
+
+The PR reviewer (Concern 4). Base side: `git merge-base BASE_REF HEAD` (BASE_REF defaults to the
+first of origin/main, origin/master, main, master) or an explicit `--base-cache DIR`
+(pre-collected vintage — air-gapped CI). Head side: the working tree (`--trust-cache` skips the
+freshness check). Renders one ReviewContext through `--format terminal|markdown|json`; gates per
+config/`--fail-level` (`--advisory` never gates). Exit 0 clean/advisory, 1 gated findings or
+ratchet breach, 2 loud error (stdout emits NOTHING on any exit-2 path).
+
+### `archbuddy lint [TARGET]` — `cli/lint.rb`
+
+Whole-repo pricing of the SAME rule family in level mode: the use-case leaderboard (worst-first
+by cone branching), the mandatory unreachable-from-entrypoints disclosure, ratchet context,
+grandfathered table, business impact. `--auto-gen-todo` regenerates the value-pinned
+`.archbuddy_todo.yml` from current breaching findings (`--stamp` adds the invocation line);
+same format/gate/todo flags as `diff`.
+
 ---
 
 ## Tests (`spec/`)
@@ -407,10 +454,15 @@ verdict).
 | `spec/report/html_formatter_spec.rb` | **Offline `html` formatter**: registry, valid-ish self-contained HTML (cy container + inlined cytoscape lib >200KB + inlined data JSON), **ZERO external resource refs** (the offline guarantee), both dimension scores+grades, de-anonymized real symbols + file:line, **verbatim** bottleneck table, graph nodes/edges in the data JSON, hotspot ids per dimension, graceful `<external>` graph node, **no-graph degradation** (scores+table+notice), forward **N/A**, **1.0 back-compat** (no scores header), **table sort/pagination controls** (sortable headers w/ keys+handler, default clutter desc, page-size 25/50/100/All, Prev/Next, null-last sort), the **graph min-score filter** (slider+number, focused-default heuristic, incident-edge hide, debounced re-layout, graceful empty-threshold), and **V8 connectivity banner** (present and positioned BEFORE the scores-section `.cards` div when findings carry connectivity block; HTML-escaped; absent on 1.1 doc — back-compat). **v0.11:** the `<section id="business-impact">` describes — full render between header and Project Scores, section ABSENT on v1/v2 no-data docs (header shape untouched), `<script>`-bearing worst symbols escaped; the banner-ordering pin is scoped to `<section id="scores">` (the BI section renders `.cards` earlier — see execution mismatch M4). Both `RenderContext.new` call sites updated. Headless-verified with Playwright. |
 | `spec/report/scores_spec.rb` | **R-8 project dimension scores + V8 connectivity**: parse + verbatim unbounded cost/grade (real-space arithmetic mean, no K multiplier), worst-first hotspot de-anon with driving metrics, graceful `<external>` for absent hotspot ids, **N/A forward** (null score → reason, not a number), terminal summary header (cost number is the headline, grade is parenthetical/advisory; hotspots framed as relative contributors, rendered BEFORE the bottleneck list), yaml/json exports include the scores, **1.0 back-compat** (no header, no `scores` export key). Also covers `Connectivity` struct: parse four-field block (`forward`/`reverse`/`scored_nodes`/`total_nodes`), `forward_pct_display` formatting (0..1 ratio → "0.3%", nil → "N/A"), `scored_ratio` ("5/1672"), terminal banner format, nil back-compat on 1.0/1.1/1.2 docs. **v0.12:** the VarietyMass parser battery (verbatim / legacy hotspot-drop / nil-on-absent / N/A `na?` / empty-component-nil). **v0.13:** the Reusability parser battery (committed verbatim with engine order preserved / legacy node-id resolution incl. graceful missing-id degrade / nil-on-absent for v1..v4 / honest blanks to nil members / nil `mass_savings` passthrough — UNGRADED asserted). |
 | `spec/report/metric_kernel_consistency_spec.rb` | **4c metric-kernel lockstep**: client constant == engine `METRIC_KEYS` (set + order). Unaffected by scores (scores are separate from the 8 per-node metrics). |
+| `spec/config/` | **v0.13 `.archbuddy.yml` schema v1**: loader/validator (unknown keys with did-you-mean, retired-rule errors naming successors), rule overrides + precedence (config < CLI), `PathMatcher`, the value-pinned todo document format + validation. |
+| `spec/review/` | **v0.13 the reviewer namespace**: FragmentWalk (dotted/undotted roots, corrupt-fragment exclusion), Vintage/Delta (ep matching, net_log2, review surface), the 7-rule batteries (one finding per ep; ExponentialNode strictly above 2^5), RuleEngine dispatch, calibration exacts + honest-copy lines + the presenter-only isolation greps, all three formatters, engine-parity + variety-fold parity on corpus snapshots (env-gated). |
+| `spec/cli/` | **v0.13 `diff`/`lint` end-to-end**: exit-code map (0/1/2; exit-2 stdout silence), degenerate inputs, todo lifecycle (`--auto-gen-todo`/`--stamp`), calibration integration, the Q5-canon worked-example gates on the committed twins (#2083 blocked, #2146 clean), real-cache lint gates (env-gated). |
+| `spec/backtest/` | **v0.13 the 19-gate backtest harness** (repo-local `script/backtest/`): corpus whitelist reader (author columns unreachable; id-map never read), HeadScorer caching, tiers 0–3, report generation + the A6 author-scan (quarantine on any match), gates↔json equality. Env-gated: skips without `ARCHBUDDY_STUDY_CORPUS`. |
+| `spec/docs/` | **Doc-executed contracts**: CI_RECIPES jq snippets run against a fixture report; CONFIGURATION.md drift rows (schema keys, 7 rule names, retired-name table). |
 | `spec/fixtures/sample/` | Tiny Rails-shaped fixture (`OrdersController`, `Billing::Invoice < ApplicationRecord`) exercising each resolver tier. |
 | `spec/fixtures/report/` | `findings_fixture.yml` (1.0, no scores; deliberately-absurd `fan_in=42` to prove no-recompute) + `id_map_fixture.yml` (with a deliberately-absent `ext_` id to prove graceful de-anon) + `findings_v11_fixture.yml` (1.1 with both dimensions scored + hotspots) + `findings_v11_forward_na_fixture.yml` (1.1 with forward N/A) + `graph_fixture.yml` (opaque graph.yml edge list — nodes/edges incl. the absent `ext_` sink — for the dot/html graph render; the `db_op` node carries **no `sink_open`** — L3/v0.6 revert, a db_op is a plain COST-1 terminal, the field stays DECLARED-but-optional in the schema) + `findings_v13_connectivity_fixture.yml` (1.3, four-field `scores.connectivity` block — forward/reverse 0.003, scored_nodes 5, total_nodes 1672; no `verdict`) + `findings_v14_multiplexer_fixture.yml` (1.4 with a `scores.multiplexer_proxies` worst-first list) + `findings_v14_empty_smell_fixture.yml` (1.4 with an empty proxy list → the honest `(none)` note). |
 
-Run all: `bundle exec rspec` (579 examples across the collect/cache/report suites; prefix with
+Run all: `bundle exec rspec` (1245+ examples across the collect/cache/report/config/review/cli/backtest/docs suites; prefix with
 `RBENV_VERSION=ruby-3.4.2` if your shell doesn't auto-switch from `.ruby-version`). Requires the engine
 gem installed (`bundle install` — see the cross-repo doc; the metric-kernel spec loads the live engine
 `METRIC_KEYS`).

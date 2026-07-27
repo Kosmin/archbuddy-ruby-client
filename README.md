@@ -367,6 +367,107 @@ is no committed baseline. It never reads the SECRET `id-map.yml`. See
 [`docs/COMMITTING_ARCHBUDDY.md`](docs/COMMITTING_ARCHBUDDY.md) for the audited-repo `.gitignore` template
 and a generic CI snippet.
 
+## The CI reviewer — archbuddy diff / lint
+
+**archbuddy prices USE CASES — what each entrypoint costs to change, verify, and carry — not
+function style.** A *use case* is an entrypoint node (a Grape route, a job perform, a rake task);
+everything below it is priced into that entrypoint's cone. `archbuddy lint` ranks the repo's use
+cases; `archbuddy diff` prices one PR's change to them. The study-era leaderboard (rendered
+terminal rows; symbols and numbers only — see [`docs/BACKTEST.md`](docs/BACKTEST.md) §2b):
+
+```
+use cases (worst 5 by cone branching):
+  1. Api::V1::Campaigns::Requirements#GET[0] — branching 2^53.0, mass 300, reach 41, files 3, depth 10, dividend ×1
+  2. Api::V1::PointsProducts#PATCH[0] — branching 2^48.6, mass 293, reach 37, files 3, depth 8, dividend ×4 — contains a Q4-boundary node
+  3. Api::V1::AppLandingPageThemes#PUT[0] — branching 2^43.0, mass 244, reach 29, files 3, depth 9, dividend ×16
+  4. Api::V1::Campaigns#PATCH[0] — branching 2^41.0, mass 267, reach 34, files 2, depth 7, dividend ×8
+  5. Api::V1::AppLandingPageThemes::NavigationTabs#PUT[0] — branching 2^40.6, mass 202, reach 27, files 2, depth 9, dividend ×4
+```
+
+### The seven rules (the business taxonomy)
+
+| rule | what it prices |
+|---|---|
+| `UseCaseComplexity` | **cost to change** — total branching, mass, reach, files, depth of one use case's cone |
+| `UseCaseDividend` | **cost that shouldn't exist** — variety carried only because decisions are inline (V_now vs V_floor) |
+| `FirewallBreaches` | **contract-boundedness** — escape hatches that leak un-priced behavior past the entrypoint contract |
+| `ReviewSurface` | **cost to verify** — the ∪ of use cases a reviewer must re-verify to land the change |
+| `ComplexityRatchet` | **the team budget** — net Δlog2 against per-path budgets (never grandfathered) |
+| `ExponentialNode` | study-calibrated flag: a single node whose own branching fires strictly above 2^5 = 32 |
+| `MultiplicativeGrowth` | study-calibrated flag: one change multiplying a node's branching (exponential growth events) |
+
+The two calibrated flags keep the study's strict comparator: they fire strictly above 2^5 = 32
+(`b_own > 2^5 = 32`), never at it.
+
+### What a blocked PR looks like (#2083)
+
+One real PR grew one use case's argument surface 2^13 → 2^16. The finding copy:
+`use case spans 65536 (2^16.0) total branching over 2 node(s) / 1 file(s) (mass 83, depth 2) —
+worst cone node 65536 (2^16.0) exceeds 2^5 (Q4 boundary)`. The diff report (trimmed real output):
+
+```markdown
+## archbuddy diff — 2 error(s), 2 warning(s)
+
+**GATE: exit 1**
+
+| new | grown | shrunk | removed | net Δlog2 |
+|---|---|---|---|---|
+| 1 | 1 | 0 | 0 | +3.000 |
+
+| scope | kind | budget | net | verdict |
+|---|---|---|---|---|
+| app/**/* | paths | +0.000 | +3.000 | breach |
+
+**1 use case(s) to re-verify** (Σ 1 review reads)
+
+> note: 1 touched file(s) not reachable from any entrypoint: app/models/program/redeem/template.rb
+> 1 node(s) above the Q4 boundary (b_own > 2^5 = 32): Q4-touching PRs merged at median 69.8h vs 21.9h (Q1) and cost ×2.5 review-window hours per changed line (elapsed clock, not engineer-hours) — measured on a Rails/Grape service, n=433 merged PRs (239-PR dose-response corpus), 2025-10-22 → 2026-07-22, archbuddy engine 0.10.0 + client 0.12.0 — not measured on this repository
+> Q4-touching code carried ×3.19 the bugfix rate (directional: bugfix labels failed the study's validation bar) — …
+> 1 use case(s) carry ≥×32 variety that exists only because decisions are inline (worst: Api::V1::RedeemTemplates#PATCH[0] ×65536, V_now 2^16.0 vs V_floor 2^0.0) — …
+```
+
+What clean looks like (#2146, the contrast): two NEW endpoints, net +1.000, exit 0 —
+`re-verify 2 use case(s) to land this change`, both of them the PR's own new endpoints.
+
+### Honesty rules
+
+- **Quickstart:** a `.archbuddy.yml` with `version: 1` activates gating; with **no config file
+  every finding is advisory** (report, exit 0). See
+  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the full schema.
+- **Grandfathering** (`.archbuddy_todo.yml`) is per use case and **value-pinned**: the entry
+  excuses today's measured value, not the rule — regress past the pinned value and it fires.
+  `ComplexityRatchet` is NEVER grandfathered.
+- **Calibration copy is provenance-stamped.** Every line quoting a study number carries the full
+  provenance sentence ending `not measured on this repository`; the bugfix ratio always carries
+  its classifier caveat; `source: local` (with your own provenance) or `source: none` replaces or
+  suppresses the copy — the tool never lets a foreign number masquerade as yours. Re-deriving the
+  numbers: [`docs/RECALIBRATION.md`](docs/RECALIBRATION.md).
+- **The unreachable disclosure is mandatory:** nodes *not reachable from any entrypoint*
+  (measured 58–61% on the study corpus) are excluded from use-case metrics and said so out loud
+  in every report — still covered by the node-level rules and ratchet budgets.
+- **Cone metrics are floors** under dynamic dispatch: unresolved sends mean the true branching
+  can only be higher, never lower.
+
+The backtest behind the numbers — 19 machine-checked gates replaying the 433-PR study corpus
+through the shipped reader/rules/CLI, tiers 0–3 plus the adoption pitch — is documented in
+[`docs/BACKTEST.md`](docs/BACKTEST.md). CI wiring (vendor matrix, jq snippets):
+[`docs/CI_RECIPES.md`](docs/CI_RECIPES.md). Committing the cache:
+[`docs/COMMITTING_ARCHBUDDY.md`](docs/COMMITTING_ARCHBUDDY.md).
+
+```
+archbuddy diff [TARGET] [BASE_REF] [--base-cache DIR] [--config PATH] \
+  [--format terminal|markdown|json] [--fail-level none|info|warn|error] [--advisory] \
+  [--todo PATH] [--no-todo] [--trust-cache]
+
+archbuddy lint [TARGET] [--config PATH] \
+  [--format terminal|markdown|json] [--fail-level none|info|warn|error] [--advisory] \
+  [--todo PATH] [--no-todo] [--auto-gen-todo] [--stamp] [--trust-cache]
+```
+
+`diff` defaults BASE_REF to the first of origin/main, origin/master, main, master and diffs
+against `git merge-base BASE_REF HEAD` (triple-dot semantics); `--base-cache` feeds a
+pre-collected base vintage instead (air-gapped CI).
+
 ## Framework probes (capture extensions)
 
 The collector ships a **pluggable, static-DSL-aware probe seam** (v0.3.0) that recovers call edges the

@@ -152,6 +152,18 @@ For rationale/decision history (D1–D48, M1–M3) see [`docs/IMPLEMENTATION_PLA
 | **coverage tuple** (v0.10) | The committed `dynamic_dispatch` block: `{dynamic_sites, resolved_sites, total_call_sites, coverage_ratio = 1 − dynamic/total}` — the visible share of dispatch; null ratio on a zero denominator. |
 | **Business Impact** (v0.11) | The five business questions (+ ungraded `Branching` footer) rendered as a PEER section by BOTH formatters from the ONE shared `Report::BusinessImpact` presenter (L6/L17). Every figure is a verbatim engine number; capped means read as LOWER BOUNDS; unanswerable questions are OMITTED, never fabricated. |
 | **blast radius** (v0.11) | findings-1.6 `scores.blast_radius` (count of use cases that can reach a node; stats + de-anonymized worst list), folded verbatim into the SERIALIZER-v3 aggregate beside flat `forward_depth`/`reverse_depth`/`branching_factor`. |
+| **use case** (v0.13) | = an entrypoint node (Grape route, job perform, rake task, …). The reviewer's unit of pricing: every per-ep metric is a fold over the entrypoint's cone. |
+| **vintage** (v0.13) | One side of a review comparison (base or head): nodes + ep-fold metrics read from a committed cache via `FragmentWalk` (never the id-map). |
+| **delta** (v0.13) | The ep-matched base↔head comparison: NEW/GROWN/SHRUNK/REMOVED/MATCHED per use case, `net_log2`, review surface, unreachable-touched disclosure. |
+| **ratchet** (v0.13) | `ComplexityRatchet`: per-path budgets over net Δlog2. NEVER grandfathered; negative budgets force shrinkage. |
+| **grandfather (value-pinned)** (v0.13) | A `.archbuddy_todo.yml` entry excusing today's MEASURED value per use case (milli-log2 integers) — regress past the pin and the rule fires. Not a rule mute. |
+| **calibration** (v0.13) | Presenter-only study numbers (`builtin-study-v1` frozen exacts) rendered as provenance-stamped advisory lines; rules/exit paths never read them. `source: local`/`none` swap/suppress. |
+| **leaderboard** (v0.13) | `lint`'s worst-first use-case table (cone branching Σlog2, mass, reach, files, depth, dividend); repo-state inventory, not outcome calibration. |
+| **dividend** (v0.13) | Per use case: V_now/V_floor — the variety carried only because decisions are inline (2^branching vs the floor after extraction). `UseCaseDividend` prices it. |
+| **ReviewSurface** (v0.13) | The ∪ count of use cases a reviewer must re-verify to land a change (Σ = total review reads); `re-verify N use case(s)` is the rendered copy. |
+| **unreachable-from-entrypoints** (v0.13) | Nodes no entrypoint cone reaches — excluded from use-case metrics, disclosed MANDATORILY in every report (`not reachable from any entrypoint`), still covered by node-level rules + ratchet budgets. |
+| **RETIRED_RULES** (v0.13) | The six pre-conversion rule names; using one in config/todo is a validation error naming the successor. Allowed in docs ONLY inside CONFIGURATION.md's `## Retired rules` region + the CHANGELOG (spec-enforced). |
+| **backtest tiers** (v0.13) | `script/backtest/` tiers 0–3: rollup reproduction → flag-rate inventory → delta-rule replay on the 433-PR corpus → ratchet counterfactual; `--tier all` assembles `BACKTEST.md` behind 19 gates + the author-scan. |
 
 ## Task workflow (every task ends with this)
 
@@ -170,6 +182,9 @@ A task is complete only when implementation + tests pass **AND** docs are update
 □ Changed the Cache (layout/writer/reader/…)     → ARCHITECTURE.md (Concern 3) + docs/COMMITTING_ARCHBUDDY.md if the committed shape/gitignore changes
 □ Changed a CLI flag/command (collect/analyze/report/reset) → ARCHITECTURE.md (CLI section) + README.md
 □ Changed the metric set                         → report.rb constant + the engine's METRIC_KEYS (lockstep) + CONTRACT.md
+□ Changed a review rule/threshold                → README (reviewer section) + drift spec (spec/docs/literals_drift_spec.rb)
+□ Changed calibration values/copy                → review/calibration.rb + docs/RECALIBRATION.md + spec/docs/literals_drift_spec.rb
+□ Changed the JSON envelope (archbuddy-diff-report/1) → docs/CI_RECIPES.md jq snippets + the spec/docs fixture
 □ Introduced a new pattern/convention/invariant  → this file (AGENTS.md)
 ```
 
@@ -195,6 +210,18 @@ bundle exec exe/archbuddy collect .                   # --out-dir defaults to .a
 # Reporter: de-anonymize + rank the engine's findings → clutter report
 bundle exec exe/archbuddy report                      # FINDINGS/--id-map/--graph default to .archbuddy/
   # [FINDINGS_YML] [--id-map PATH] [--format terminal|yaml|json|dot|html] [--graph PATH] [--top N]
+
+# Reviewer (v0.13): PR-delta gate + whole-repo lint (committed caches only, no id-map)
+bundle exec exe/archbuddy diff . [BASE_REF]           # or --base-cache DIR (air-gapped CI)
+  # [--format terminal|markdown|json] [--fail-level none|info|warn|error] [--advisory]
+  # [--todo PATH] [--no-todo] [--trust-cache]
+bundle exec exe/archbuddy lint .
+  # same flags + [--auto-gen-todo] [--stamp]
+
+# Backtest (repo-local, env-gated; skips gracefully when the envs are unset)
+ARCHBUDDY_STUDY_CORPUS=/path/to/study-corpus \
+ARCHBUDDY_STUDY_REPOS="org/repo=/path/to/checkout[,org/other=/path[:subdir]]" \
+  bundle exec ruby script/backtest.rb --tier all       # [--tier 0|1|2|3|all] [--pairs base-merge|merge-parent] [--sample N] [--out DIR]
 ```
 
 **The shared `.archbuddy/` workspace** (relative to CWD) is the flag-free default for both commands:
