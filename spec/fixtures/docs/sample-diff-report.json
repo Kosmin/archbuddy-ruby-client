@@ -1,0 +1,75 @@
+{
+  "schema": "archbuddy-diff-report/1",
+  "run": {
+    "command": "diff",
+    "target": ".",
+    "base": { "ref": "origin/main", "sha": "0000000", "vintage": "committed-cache", "sources_count": 3 },
+    "head": { "sha": "1111111", "vintage": "working-tree-cache", "dirty": false, "sources_count": 3 },
+    "tool": { "client": "0.13.0", "engine": "0.10.0", "serializer": 5 }
+  },
+  "summary": {
+    "counts": { "error": 1, "warn": 1, "info": 1 },
+    "delta": { "nodes_new": 1, "nodes_grown": 1, "nodes_shrunk": 0, "nodes_removed": 0, "net_log2_b_own": 3.0 },
+    "disclosures": { "orphan_touched_files": [], "offsetting_zero_count": 0 },
+    "not_evaluable": [],
+    "excluded_files": []
+  },
+  "findings": [
+    {
+      "rule": "ExponentialNode",
+      "severity": "error",
+      "file": "app/api/things.rb",
+      "symbol": "Api::Things#update",
+      "line": null,
+      "values": { "base_branches": 8192, "head_branches": 65536 },
+      "value_raw": 65536,
+      "value_log2": 16.0,
+      "message": "own branching 65536 (2^16.0) exceeds 2^5 (Q4 boundary)",
+      "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "rule": "UseCaseComplexity",
+      "severity": "warn",
+      "file": "app/api/things.rb",
+      "symbol": "Api::Things#update",
+      "entrypoint_kind": "grape",
+      "components": {
+        "branching_log2": { "value": 16.0, "threshold": null, "breached": false },
+        "max_cone_node_log2": { "value": 16.0, "threshold": 5.0, "breached": true }
+      },
+      "contributors": [
+        { "file": "app/api/things.rb", "symbol": "Api::Things#update",
+          "value_raw": 65536, "value_log2": 16.0, "delta_log2": 3.0, "coupling_flip": false }
+      ],
+      "contributors_omitted": 0,
+      "values": null,
+      "message": "use case spans 65536 (2^16.0) total branching over 2 node(s) / 1 file(s) (mass 83, depth 2) — worst cone node 65536 (2^16.0) exceeds 2^5 (Q4 boundary)",
+      "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "rule": "ReviewSurface",
+      "severity": "info",
+      "file": null,
+      "symbol": null,
+      "scope": "pr",
+      "values": null,
+      "message": "3 use case(s) to re-verify exceeds max_use_cases 2",
+      "fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "ratchet": [
+    { "scope": "app/**/*", "kind": "paths", "budget_log2": 0.0,
+      "observed_log2": 3.0, "verdict": "breach", "severity": "error", "empty_scope": false }
+  ],
+  "review_surface": {
+    "union": 3, "sum": 3,
+    "eps": [
+      { "file": "app/api/things.rb", "ep_symbol": "Api::Things#update",
+        "branching_log2": 16.0, "classification": "MATCHED" }
+    ],
+    "unreachable_touched": { "count": 0, "nodes": [] }
+  },
+  "grandfathered": [],
+  "calibration": { "source": "none", "provenance": null, "lines": [] },
+  "exit_code": 1
+}

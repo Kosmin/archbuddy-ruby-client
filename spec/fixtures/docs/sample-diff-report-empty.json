@@ -1,0 +1,22 @@
+{
+  "schema": "archbuddy-diff-report/1",
+  "run": {
+    "command": "diff",
+    "target": ".",
+    "base": { "ref": "origin/main", "sha": "0000000", "vintage": "committed-cache", "sources_count": 3 },
+    "head": { "sha": "1111111", "vintage": "working-tree-cache", "dirty": false, "sources_count": 3 },
+    "tool": { "client": "0.13.0", "engine": "0.10.0", "serializer": 5 }
+  },
+  "summary": {
+    "counts": { "error": 0, "warn": 0, "info": 0 },
+    "delta": { "nodes_new": 0, "nodes_grown": 0, "nodes_shrunk": 0, "nodes_removed": 0, "net_log2_b_own": 0.0 },
+    "disclosures": { "orphan_touched_files": [], "offsetting_zero_count": 0 },
+    "not_evaluable": [],
+    "excluded_files": []
+  },
+  "findings": [],
+  "ratchet": [],
+  "grandfathered": [],
+  "calibration": { "source": "none", "provenance": null, "lines": [] },
+  "exit_code": 0
+}
