@@ -122,7 +122,9 @@ module Backtest
 
     def write_json(out_dir, rows:, gates:, ep_budget: nil)
       FileUtils.mkdir_p(out_dir)
-      table = +"| PR | merged_at | Δ scope Σlog2 | verdict@0 | verdict@−1 |\n"
+      # "budget 0"/"budget -1" spelled out — an "@0" column header reads as an
+      # @-handle to the A6 author-scan and (correctly) quarantines the report.
+      table = +"| PR | merged_at | Δ scope Σlog2 | verdict (budget 0) | verdict (budget -1) |\n"
       table << "|---|---|---|---|---|\n"
       rows.each do |row|
         table << "| #{row['pr']} | #{row['merged_at']} | #{row['delta_log2']} " \

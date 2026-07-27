@@ -49,6 +49,13 @@ module Backtest
 
       tiers = opts[:tier] == "all" ? %w[0 1 2 3] : [opts[:tier]]
       codes = tiers.map { |tier| run_tier(tier, corpus, opts) }
+
+      # `--tier all` also assembles the adoption document + machine twin
+      # (P3-T8) from the tier outputs just written.
+      if opts[:tier] == "all"
+        require_relative "report"
+        codes << Report.generate(out: opts[:out] || DEFAULT_OUT)
+      end
       codes.max || 0
     end
 

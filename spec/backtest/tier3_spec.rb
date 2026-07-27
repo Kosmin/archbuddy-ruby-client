@@ -5,6 +5,7 @@ require "json"
 require "stringio"
 require "fileutils"
 require_relative "../../script/backtest/tier3"
+require_relative "../../script/backtest/author_scan"
 
 # v0.15 P3-T6 (Tier 3): the ratchet counterfactual through the REAL rule —
 # the ep-budget breach with a `[0]`-bearing symbol ([S:F12] exact-string
@@ -87,6 +88,11 @@ RSpec.describe Backtest::Tier3 do
       expect(err).to include("0 PRs touch this scope")
       doc = JSON.parse(File.read(File.join(out, "tier3.json"), encoding: "UTF-8"))
       expect(doc["gates"]["t3_seven_prs"]).to be(false)
+      # header contract: "budget 0"/"budget -1" spelled out — "verdict@0" reads
+      # as an @-handle to the A6 author-scan and quarantines the report
+      expect(doc["trajectory_markdown"])
+        .to include("| verdict (budget 0) | verdict (budget -1) |")
+      expect(Backtest::AuthorScan.scan(doc["trajectory_markdown"])).to be_empty
     end
   end
 end

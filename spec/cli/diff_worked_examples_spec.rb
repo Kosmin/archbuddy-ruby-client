@@ -16,8 +16,8 @@ require "archbuddy/cli"
 # the twins keep the entire canon always-enforced.
 RSpec.describe "diff worked-example gates (Q5 canon)" do
   FIXTURES_WE = File.expand_path("../fixtures/review/vintages", __dir__)
-  REDEEM_FILE = "app/api/api/v1/redeem_templates.rb"
-  REDEEM_EP = "Api::V1::RedeemTemplates#PATCH[0]"
+  WE_REDEEM_FILE = "app/api/api/v1/redeem_templates.rb"
+  WE_REDEEM_EP = "Api::V1::RedeemTemplates#PATCH[0]"
 
   WE_GIT_ENV = {
     "GIT_AUTHOR_NAME" => "spec", "GIT_AUTHOR_EMAIL" => "spec@example.invalid",
@@ -172,7 +172,7 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
           rules:
             ComplexityRatchet:
               budgets:
-                - { paths: ["#{REDEEM_FILE}", "app/models/program/redeem/template.rb"], max_increase_log2: 0.0 }
+                - { paths: ["#{WE_REDEEM_FILE}", "app/models/program/redeem/template.rb"], max_increase_log2: 0.0 }
         YAML
 
         code, stdout, = run_diff(target: target, base_cache: base_snap,
@@ -181,14 +181,14 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
         doc = JSON.parse(stdout)
 
         mg = doc["findings"].find do |f|
-          f["rule"] == "MultiplicativeGrowth" && f["symbol"] == REDEEM_EP
+          f["rule"] == "MultiplicativeGrowth" && f["symbol"] == WE_REDEEM_EP
         end
         expect(mg).not_to be_nil
         expect(mg["values"]["base_branches"]).to eq(8192)
         expect(mg["values"]["head_branches"]).to eq(65_536)
         expect(mg["delta_log2"]).to eq(3.0)
         en = doc["findings"].find do |f|
-          f["rule"] == "ExponentialNode" && f["symbol"] == REDEEM_EP
+          f["rule"] == "ExponentialNode" && f["symbol"] == WE_REDEEM_EP
         end
         expect(en).not_to be_nil
 
@@ -208,7 +208,7 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
         entries = delta.ep_entries
         expect(entries.length).to eq(90) # the G7 ep churn trap (pr_base, merge)
 
-        redeem = entries.find { |e| e.file == REDEEM_FILE && e.ep_symbol == REDEEM_EP }
+        redeem = entries.find { |e| e.file == WE_REDEEM_FILE && e.ep_symbol == WE_REDEEM_EP }
         expect(redeem.classification).to eq(:matched)
         expect(redeem.base.branching_log2).to be_within(1e-6).of(13.0)
         expect(redeem.head.branching_log2).to be_within(1e-6).of(16.0)
@@ -278,7 +278,7 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
           entries = delta.ep_entries
           expect(entries.length).to eq(1) # the clean window: exactly the redeem ep
           redeem = entries.first
-          expect([redeem.file, redeem.ep_symbol]).to eq([REDEEM_FILE, REDEEM_EP])
+          expect([redeem.file, redeem.ep_symbol]).to eq([WE_REDEEM_FILE, WE_REDEEM_EP])
           expect(redeem.classification).to eq(:matched)
           expect(redeem.base.branching_log2).to be_within(1e-6).of(13.0)
           expect(redeem.head.branching_log2).to be_within(1e-6).of(16.0)

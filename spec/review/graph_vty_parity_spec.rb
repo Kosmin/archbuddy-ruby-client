@@ -12,7 +12,7 @@ require "archbuddy/review"
 RSpec.describe "Review::Graph variety-fold engine parity (corpus-gated)" do
   SNAP_2083_BASE = "68abf8310626a203ff3a1733d0bb96387904067f"
   SNAP_MONO = "0146ad98bc6d52dc6fb78f4573dd90f698150091"
-  REDEEM_EP = "Api::V1::RedeemTemplates#PATCH[0]"
+  VTY_REDEEM_EP = "Api::V1::RedeemTemplates#PATCH[0]"
 
   def median(values)
     sorted = values.sort
@@ -65,7 +65,7 @@ RSpec.describe "Review::Graph variety-fold engine parity (corpus-gated)" do
     expect(tainted.to_f / rows.size).to eq(0.0)
 
     # ---- the Q5 per-ep spot gates -------------------------------------------
-    redeem = metrics.find { |(_f, sym), _row| sym == REDEEM_EP }&.last
+    redeem = metrics.find { |(_f, sym), _row| sym == VTY_REDEEM_EP }&.last
     expect(redeem).not_to be_nil
     expect(redeem.published_variety.round(6)).to eq(8192.0)  # V_now
     expect(Math.exp(redeem.vty_floor_log).round(6)).to eq(1.0) # V_floor
@@ -75,7 +75,7 @@ RSpec.describe "Review::Graph variety-fold engine parity (corpus-gated)" do
     # ---- the "it kept growing" datum (R2 §4) --------------------------------
     mono = File.join(corpus, "snapshots", SNAP_MONO)
     mono_metrics = read_quietly(mono).graph.ep_metrics
-    mono_redeem = mono_metrics.find { |(_f, sym), _row| sym == REDEEM_EP }&.last
+    mono_redeem = mono_metrics.find { |(_f, sym), _row| sym == VTY_REDEEM_EP }&.last
     expect(mono_redeem.dividend.round(6)).to eq(131_072.0) # 2^17
 
     wall = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
