@@ -38,6 +38,24 @@ module Archbuddy
         def evaluate(ctx)
           raise NotImplementedError, "#{self.class}#evaluate(ctx)"
         end
+
+        # The ONE pinned rounding rule (2026-07-27 adversarial review; M2
+        # published-rounding doctrine, M14): every user-set threshold gates
+        # the value at PUBLISHED precision — the same round(6) the
+        # components/message channels render — never the raw IEEE float.
+        # Folded floats are composition-dependent at the boundary
+        # (exp(ln 64 − ln 2) = 31.999999999999986 for a mathematical ×32;
+        # Σ-ln folds carry 1-ulp noise around integer log2 boundaries).
+        # ComplexityRatchet already gates at ITS published precision
+        # (round(3), the %+.3f template) — the same rule on its own channel.
+        PUBLISHED_PRECISION = 6
+
+        private
+
+        # Gate-side view of a folded value at published precision.
+        def published(value)
+          value.round(PUBLISHED_PRECISION)
+        end
       end
     end
   end

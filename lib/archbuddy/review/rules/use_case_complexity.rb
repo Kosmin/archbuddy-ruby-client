@@ -113,8 +113,11 @@ module Archbuddy
           components = THRESHOLDS.to_h do |key, config_key|
             value = key == "max_cone_node_log2" ? metrics.max_cone_node[:log2] : metrics.public_send(key)
             threshold = rule_config[config_key]
+            # User thresholds gate at published precision (Base#published,
+            # M14): Σ-log2 folds carry 1-ulp noise — a mathematical 5.0 can
+            # measure 5.000000000000001 raw and spuriously breach strict >.
             [key, { value: value, threshold: threshold,
-                    breached: !threshold.nil? && value > threshold }]
+                    breached: !threshold.nil? && published(value) > threshold }]
           end
           own = metrics.own_branches
           components["own_branching_log2"] = {

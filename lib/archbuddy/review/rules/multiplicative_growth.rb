@@ -25,7 +25,9 @@ module Archbuddy
 
             rule_config = ctx.rule_config(entry.file)
             threshold = rule_config["max_increase_log2"]
-            next if threshold.nil? || entry.delta_log2 < threshold # GTE fires
+            # GTE fires; gate at published precision (M14) — delta_log2 is a
+            # folded float difference.
+            next if threshold.nil? || published(entry.delta_log2) < threshold
 
             head_branches = entry.head_branches
             ctx.add_finding(

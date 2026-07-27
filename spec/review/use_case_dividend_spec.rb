@@ -90,6 +90,38 @@ RSpec.describe Archbuddy::Review::Rules::UseCaseDividend do
     expect(ucd(evaluate(vintage_for(below)))).to be_empty
   end
 
+  # 2026-07-27 adversarial review (M14): the boundary verdict must not be
+  # composition-dependent. dividend_metrics builds 2.0**log2 (exact at the
+  # 32 boundary), but the pinned formula (graph.rb variety_members, the
+  # project_scorer.rb:664-672 mirror) does not round-trip: a V_now 64 /
+  # V_floor 2 ep — mathematically ×32 — computes exp(ln 64 − ln 2) =
+  # 31.999999999999986 (measured, ruby-3.4.2) and silently failed the raw
+  # GTE gate while every display channel rendered ×32.
+  it "fires at the COMPOSITION boundary: V_now 64 / V_floor 2 (raw exp() 1 ulp below ×32)" do
+    gap = Math.log(64) - Math.log(2)
+    raw = Math.exp(gap)
+    expect(raw).to be < 32.0 # the hazard is real on this platform (M14)
+    composed = ReviewStubs.stub_ep_metrics(
+      file: RED_FILE, symbol: RED_EP,
+      branching_log2: 6.0, own_branches: 64,
+      vty_log: Math.log(64), vty_floor_log: Math.log(2),
+      dividend: raw, dividend_log2: gap / Math.log(2),
+      entrypoint_kind: "api",
+      top_dividend_nodes: [{ file: RED_FILE, symbol: RED_EP,
+                             branches: 64, log2: 6.0 }],
+      cone_size: 1
+    )
+    findings = ucd(evaluate(vintage_for(composed)))
+    expect(findings.size).to eq(1)
+    expect(findings.first.components["dividend"][:value]).to eq(32.0)
+  end
+
+  it "stays quiet just below published rounding: raw dividend 31.999 (M14)" do
+    below = dividend_metrics(Math.log2(31.999))
+    expect(below.dividend.round(6)).to be < 32 # genuinely below, not fold noise
+    expect(ucd(evaluate(vintage_for(below)))).to be_empty
+  end
+
   it "never fires with min_dividend: null (gate disabled, leaderboard-only)" do
     config = build_config(<<~YAML)
       version: 1

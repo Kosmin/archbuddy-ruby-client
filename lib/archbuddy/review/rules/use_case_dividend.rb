@@ -95,7 +95,11 @@ module Archbuddy
           return if dividend.nil? # per-ep arity N/A — legal, never fabricated
 
           min = ctx.rule_config(file)["min_dividend"]
-          breach = !min.nil? && dividend >= min # GTE — pinned deviation (Q11 letter)
+          # Gate the PUBLISHED dividend (round(6) — the value the components
+          # block records), never the raw exp() float: the raw IEEE value is
+          # composition-dependent at the boundary (2026-07-27 adversarial
+          # review / M14; M2 doctrine).
+          breach = !min.nil? && published(dividend) >= min # GTE — pinned deviation (Q11 letter)
 
           ctx.ep_result(
             file: file, symbol: symbol,

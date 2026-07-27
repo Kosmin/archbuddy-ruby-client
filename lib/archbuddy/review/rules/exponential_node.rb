@@ -9,8 +9,10 @@ module Archbuddy
     module Rules
       # The study-calibrated per-node flag (A1): own branching STRICTLY above
       # 2^threshold_log2 (default 5 — the frozen Q4 boundary; 32 does NOT
-      # fire, 33 does; 2^k is exact in IEEE so no float hazard at the
-      # boundary). Lint universe = all filtered vintage nodes; diff universe
+      # fire, 33 does; 2^k is exact in IEEE so no float hazard at the DEFAULT
+      # boundary — but log2 of a non-power-of-2 vs a user-set threshold is
+      # not, so the gate reads published precision like every rule, M14).
+      # Lint universe = all filtered vintage nodes; diff universe
       # = NEW ∪ GROWN entries ONLY ([S:G4] — unchanged monsters in touched
       # files stay lint's + the todo's jurisdiction; SHRUNK-but-still-huge
       # never fires in diff, reduction is the desired direction). Universe
@@ -26,7 +28,7 @@ module Archbuddy
 
             threshold = ctx.rule_config(node.file)["threshold_log2"]
             log2 = Math.log2(node.branches)
-            breaching = log2 > threshold
+            breaching = published(log2) > threshold # published precision (M14)
             ctx.node_result(
               node: node, value_raw: node.branches, breaching: breaching,
               message: breaching ? message(node.branches, log2, threshold) : nil,

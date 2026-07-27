@@ -91,6 +91,33 @@ RSpec.describe Archbuddy::Review::Rules::UseCaseComplexity do
     expect(ucc(evaluate(vintage_for(just_past))).size).to eq(1)
   end
 
+  # 2026-07-27 adversarial review (M14): Σ-log2 folds carry 1-ulp noise (the
+  # probe measured 4.9999999999999991 for a mathematical 5.0), so user
+  # thresholds gate at published precision — raw fold noise around the
+  # boundary must never flip a strict-> verdict in either direction.
+  it "gates Σ-log2 at published rounding: 1-ulp fold noise never flips a user threshold (M14)" do
+    config = build_config(<<~YAML)
+      version: 1
+      rules:
+        UseCaseComplexity:
+          max_branching_log2: 5
+    YAML
+    quiet_node = { file: REDEEM_FILE, symbol: REDEEM_EP, branches: 32, log2: 5.0 }
+
+    # mathematical Σ-log2 of exactly 5.0, measured 1 ulp HIGH through the
+    # fold — pre-M14 this spuriously breached strict >
+    noisy = redeem_metrics(branching_log2: 5.0.next_float, own_branches: 32,
+                           max_cone_node: quiet_node)
+    expect(ucc(evaluate(vintage_for(noisy), config: config))).to be_empty
+
+    # one published-precision step above the threshold still fires
+    past = redeem_metrics(branching_log2: 5.000001, own_branches: 32,
+                          max_cone_node: quiet_node)
+    findings = ucc(evaluate(vintage_for(past), config: config))
+    expect(findings.size).to eq(1)
+    expect(findings.first.components["branching_log2"][:breached]).to be(true)
+  end
+
   it "aggregates multiple breaching components into ONE finding (L8)" do
     config = build_config(<<~YAML)
       version: 1
