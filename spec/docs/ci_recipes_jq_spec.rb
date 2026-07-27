@@ -10,9 +10,9 @@ require "open3"
 # root; null-line findings degrade to line 1; empty reports yield valid
 # empty documents.
 RSpec.describe "CI_RECIPES.md jq translations" do
-  DOC = File.expand_path("../../docs/CI_RECIPES.md", __dir__)
-  SAMPLE = File.expand_path("../fixtures/docs/sample-diff-report.json", __dir__)
-  EMPTY = File.expand_path("../fixtures/docs/sample-diff-report-empty.json", __dir__)
+  RECIPES_DOC = File.expand_path("../../docs/CI_RECIPES.md", __dir__)
+  SAMPLE_REPORT = File.expand_path("../fixtures/docs/sample-diff-report.json", __dir__)
+  EMPTY_REPORT = File.expand_path("../fixtures/docs/sample-diff-report-empty.json", __dir__)
 
   CODECLIMATE_KEYS = %w[check_name description fingerprint location severity].freeze
 
@@ -24,7 +24,7 @@ RSpec.describe "CI_RECIPES.md jq translations" do
   end
 
   def jq_blocks
-    doc = File.read(DOC, encoding: "UTF-8")
+    doc = File.read(RECIPES_DOC, encoding: "UTF-8")
     doc.scan(/```jq\n(.*?)```/m).map { |(block)| block }
   end
 
@@ -38,7 +38,9 @@ RSpec.describe "CI_RECIPES.md jq translations" do
 
   def run_jq(program, fixture)
     out, err, status = Open3.capture3("jq", program, fixture)
-    raise "jq failed: #{err}" unless status.success?
+    unless status.success?
+      raise "jq failed (#{status.inspect}; cwd=#{Dir.pwd}): #{err} / #{out}"
+    end
 
     JSON.parse(out.force_encoding("UTF-8"))
   end
@@ -53,7 +55,7 @@ RSpec.describe "CI_RECIPES.md jq translations" do
 
   describe "the CodeClimate translation" do
     it "maps findings with exactly the 5 required keys + honest degrades" do
-      rows = run_jq(codeclimate_program, SAMPLE)
+      rows = run_jq(codeclimate_program, SAMPLE_REPORT)
       expect(rows).to be_an(Array)
       expect(rows.size).to eq(3)
       rows.each do |row|
@@ -70,13 +72,13 @@ RSpec.describe "CI_RECIPES.md jq translations" do
     end
 
     it "emits [] for a findings-empty report" do
-      expect(run_jq(codeclimate_program, EMPTY)).to eq([])
+      expect(run_jq(codeclimate_program, EMPTY_REPORT)).to eq([])
     end
   end
 
   describe "the SARIF translation" do
     it "maps levels + null-file uri + startLine degrade" do
-      doc = run_jq(sarif_program, SAMPLE)
+      doc = run_jq(sarif_program, SAMPLE_REPORT)
       expect(doc["version"]).to eq("2.1.0")
       expect(doc["runs"][0]["tool"]["driver"]["name"]).to eq("archbuddy")
 
@@ -91,14 +93,14 @@ RSpec.describe "CI_RECIPES.md jq translations" do
     end
 
     it "emits zero results for a findings-empty report" do
-      doc = run_jq(sarif_program, EMPTY)
+      doc = run_jq(sarif_program, EMPTY_REPORT)
       expect(doc["runs"][0]["results"]).to eq([])
     end
   end
 
   describe "doc content pins" do
     it "carries the four vendor sections, both wiring modes, and the caution markers" do
-      doc = File.read(DOC, encoding: "UTF-8")
+      doc = File.read(RECIPES_DOC, encoding: "UTF-8")
       expect(doc).to include("## The contract (any CI)")
       expect(doc).to include("## GitHub Actions")
       expect(doc).to include("## GitLab CI")
