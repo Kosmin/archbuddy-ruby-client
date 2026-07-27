@@ -29,4 +29,20 @@ RSpec.describe "gem packaging" do
     path = Archbuddy::Report::Formatters::HtmlFormatter::CYTOSCAPE_PATH
     expect(File.file?(path)).to be(true)
   end
+
+  # v0.15 P3-T13: the reviewer docs an installed gem should carry.
+  it "includes the CI recipes doc in the packaged files" do
+    expect(spec.files).to include("docs/CI_RECIPES.md")
+  end
+
+  it "includes the recalibration doc in the packaged files" do
+    expect(spec.files).to include("docs/RECALIBRATION.md")
+  end
+
+  # Repo-only artifacts stay OUT of the gem: the backtest harness (env-gated
+  # scripts) and its generated adoption document.
+  it "excludes script/ and docs/BACKTEST.md from the packaged files" do
+    expect(spec.files.grep(%r{\Ascript/})).to be_empty
+    expect(spec.files).not_to include("docs/BACKTEST.md")
+  end
 end

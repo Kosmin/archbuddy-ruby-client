@@ -30,6 +30,11 @@ Gem::Specification.new do |spec|
     # (v0.8 R2-2) + the committing guide (R3-2).
     "templates/audited-repo.gitignore",
     "docs/COMMITTING_ARCHBUDDY.md",
+    # The v0.13 reviewer docs an installed gem should carry (CI wiring +
+    # re-deriving the calibration numbers). docs/BACKTEST.md and script/**
+    # stay deliberately UNPACKAGED — repo-only artifacts (a spec guards this).
+    "docs/CI_RECIPES.md",
+    "docs/RECALIBRATION.md",
     "exe/*",
     "README.md"
   ]

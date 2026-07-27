@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.13.0] — the business-metrics architecture reviewer
+
+The v0.14→v0.15 conversion shipped as ONE release: the reviewer prices USE CASES — what each
+entrypoint costs to change, verify, and carry — instead of flagging function style. Consolidated
+entry (P1/P2/P3 lanes; no other task edits this file).
+
+### Added
+
+- **`archbuddy diff` / `archbuddy lint`** — the CI reviewer commands: PR-delta gating against
+  `git merge-base` (or an air-gapped `--base-cache`), whole-repo use-case pricing with the
+  leaderboard. Exit map 0/1/2 with exit-2 stdout silence.
+- **`.archbuddy.yml` schema v1** with the SEVEN business rules: `UseCaseComplexity`,
+  `UseCaseDividend`, `FirewallBreaches`, `ReviewSurface`, `ComplexityRatchet` (path budgets,
+  incl. negative; never grandfathered), `ExponentialNode` (strict `> 2^5`, never at it),
+  `MultiplicativeGrowth`. Config presence activates gating; no file = advisory.
+- **The use-case leaderboard** (worst-first by cone branching) + the MANDATORY
+  unreachable-from-entrypoints disclosure in every report.
+- **Ep-granular value-pinned todo grandfathering** (`.archbuddy_todo.yml` v1): raw-integer
+  pins (native counts / milli-log2), entries excuse today's measured value per use case and
+  drop when violations heal; `lint --auto-gen-todo` regenerates.
+- **`archbuddy-diff-report/1` JSON envelope** incl. the `use_cases` / `review_surface` blocks;
+  `tool.client` derives from `Archbuddy::VERSION` (no literal to bump).
+- **builtin-study-v1 calibration** with the honesty laws: provenance-stamped measured-only
+  lines (the multiplier exponentiates ONLY net Δlog2; the bugfix caveat is mandatory;
+  FirewallBreaches carries no measured cost line); `source: local`/`none` swap/suppress.
+- **The backtest harness** (repo-local `script/backtest/`, env-gated, 19 machine-checked
+  gates + the author-scan) and the docs set: CONFIGURATION, CI_RECIPES, RECALIBRATION,
+  BACKTEST, COMMITTING update. CI_RECIPES + RECALIBRATION now ship in the gem;
+  BACKTEST.md and `script/**` stay repo-only.
+
+### Retired (with successors — the one allowed CHANGELOG appearance)
+
+| retired | successor |
+|---|---|
+| MaxBranching | `UseCaseComplexity` `max_branching_log2` |
+| MaxFunctionMass | `UseCaseComplexity` `max_mass` |
+| MaxDepth | `UseCaseComplexity` `max_depth` |
+| MaxOutDegree | dropped — reach/files components (`max_reach` / `max_files`) |
+| NoNewEscapes | `FirewallBreaches` diff mode |
+| NoNewTollBooths | dropped — toll-booth data remains a leaderboard/enrichment diagnostic only |
+
+Design note: nothing here was ever released — 0.13.0 is the first shipped reviewer; the
+retirement table exists for config authors coming from the plan docs.
+
 ## [0.12.0] — v0.13 Reusability Compass wave (V13-C)
 
 The client half of the v0.13 Reusability Compass (engine 0.10.0 / findings 1.8): the release's
