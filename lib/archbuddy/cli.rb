@@ -5,6 +5,7 @@ require_relative "../archbuddy"
 require_relative "cli/collect"
 require_relative "cli/analyze"
 require_relative "cli/report"
+require_relative "cli/diff"
 require_relative "cli/reset"
 
 module Archbuddy
@@ -22,6 +23,7 @@ module Archbuddy
     register "collect", Collect
     register "analyze", Analyze
     register "report", Report
+    register "diff", Diff
     register "reset", Reset
   end
 end
