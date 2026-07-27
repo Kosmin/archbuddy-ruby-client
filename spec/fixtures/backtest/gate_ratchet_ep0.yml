@@ -1,0 +1,5 @@
+version: 1
+rules:
+  ComplexityRatchet:
+    budgets:
+      - { entrypoints: ["Api::V1::RedeemTemplates#PATCH[0]"], max_increase_log2: 0.0 }

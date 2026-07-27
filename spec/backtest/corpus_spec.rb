@@ -118,11 +118,12 @@ RSpec.describe "Backtest corpus access" do
       expect(err).to match(/^error: /)
     end
 
-    it "exits 0 on the fixture corpus (unregistered tiers skip loudly)" do
-      # tiers 0/1 register at P3-T4; tier 2 stays unregistered until P3-T6
-      out, err, code = run_script({ "ARCHBUDDY_STUDY_CORPUS" => CORPUS }, "--tier", "2")
+    it "exits 0 on the fixture corpus (graceful tier-2 skip without repos env)" do
+      # tier 2 registered at P3-T6 — without ARCHBUDDY_STUDY_REPOS it skips loudly
+      out, err, code = run_script({ "ARCHBUDDY_STUDY_CORPUS" => CORPUS,
+                                    "ARCHBUDDY_STUDY_REPOS" => nil }, "--tier", "2")
       expect(code).to eq(0)
-      expect(err).to include("note: tier 2 not registered")
+      expect(err).to include("note: tier2 skipped: ARCHBUDDY_STUDY_REPOS not set")
       expect(out).to eq("")
     end
 

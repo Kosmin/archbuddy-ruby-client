@@ -11,9 +11,11 @@ module Backtest
 
     # Per-file allowlists (A6 whitelist + the one P3 extension: `merged_at`
     # for Tier-3 chronology — a timestamp is not author data).
+    # `merge_latency_hours` (M10): the FROZEN study prs.csv spells the
+    # latency column that way; same metric class as latency_hours.
     ALLOWLISTS = {
-      "prs.csv" => %w[repo pr_number latency_hours churn arm is_bugfix base_sha
-                      merge_commit_sha size_stratum merged_at].freeze,
+      "prs.csv" => %w[repo pr_number latency_hours merge_latency_hours churn arm
+                      is_bugfix base_sha merge_commit_sha size_stratum merged_at].freeze,
       "h2_pr_table.csv" => %w[repo pr_number t_quartile t_max_log2_b_own latency_hours
                               churn in_t2_corpus].freeze,
       "pr_predictors.csv" => %w[repo pr_number base_sha pr_max_log2_b_own arm].freeze,

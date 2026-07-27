@@ -1,0 +1,5 @@
+version: 1
+rules:
+  ComplexityRatchet:
+    budgets:
+      - { paths: ["app/api/api/v1/redeem_templates.rb"], max_increase_log2: -1.0 }
