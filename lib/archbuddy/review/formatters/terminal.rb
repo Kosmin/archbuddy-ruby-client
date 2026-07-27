@@ -181,6 +181,8 @@ module Archbuddy
 
         # ---- shared tail sections ---------------------------------------------------
 
+        # R35 canonical template (fed from Findings#grandfather_summary's
+        # member set).
         def grandfathered_lines
           skips = context.grandfathered || []
           return [] if skips.empty?
@@ -188,7 +190,7 @@ module Archbuddy
           nodes = skips.map { |s| [s.file, s.symbol] }.uniq.size
           rules = skips.map(&:rule).uniq.size
           healed = skips.count(&:healed)
-          ["grandfathered: #{nodes} node(s) across #{rules} rule(s) " \
+          ["grandfathered: #{skips.size} entries (#{nodes} nodes) across #{rules} rules " \
            "(#{healed} healed — regenerate the todo to shrink it)"]
         end
 

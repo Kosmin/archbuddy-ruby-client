@@ -64,13 +64,17 @@ module Archbuddy
                              cli: cli_overrides(opts))
         format = config.format
         validate_format!(format)
-        todo = config.todo_path && Config::Todo.load(config.todo_path)
 
         scratch = Dir.mktmpdir("archbuddy-lint-")
         begin
           vintage, head_label = Review::VintageSource.head(
             target: target, scratch: scratch, trust_cache: opts[:trust_cache]
           )
+          todo = if opts[:auto_gen_todo]
+                   generate_todo(target_arg, target, opts, config, vintage)
+                 else
+                   config.todo_path && Config::Todo.load(config.todo_path)
+                 end
           evaluation = Review::RuleEngine.evaluate(vintage: vintage, delta: nil,
                                                    config: config, todo: todo)
           emit_notes(vintage)
@@ -85,6 +89,54 @@ module Archbuddy
         ensure
           FileUtils.remove_entry(scratch) if scratch && File.directory?(scratch)
         end
+      end
+
+      # The P1-T8 gen branch: evaluate WITHOUT the old todo → Todo.generate
+      # (GRANDFATHERABLE findings; BREACHING components only — orphan-event
+      # FirewallBreaches findings carry components nil and are never
+      # generated, V15-F3) → atomic write (tmp+rename) → return the freshly
+      # loaded todo so the normal report + gate math run against it (a fresh
+      # todo grandfathers everything ⇒ exit 0 falls out).
+      def generate_todo(target_arg, target, opts, config, vintage)
+        baseline = Review::RuleEngine.evaluate(vintage: vintage, delta: nil,
+                                               config: config, todo: nil)
+        content = Config::Todo.generate(
+          findings: baseline.findings,
+          command_line: reconstruct_command_line(target_arg, opts),
+          tool_version: "archbuddy #{Archbuddy::VERSION}",
+          stamp: opts[:stamp]
+        )
+        path = config.todo_path || File.join(target, Config::DEFAULT_TODO_FILENAME)
+        atomic_write(path, content)
+
+        todo = Config::Todo.load(path)
+        entries = todo.entries_by_rule.values.flatten
+        warn "note: 0 violations to grandfather" if entries.empty?
+        nodes = entries.map { |e| e["node"] }.uniq.size
+        warn "note: wrote #{path}: #{entries.size} entries (#{nodes} nodes) " \
+             "across #{todo.entries_by_rule.size} rules"
+        todo
+      end
+
+      # Target as given + sorted flags (the embedded todo-header line).
+      def reconstruct_command_line(target_arg, opts)
+        flags = ["--auto-gen-todo"]
+        flags << "--stamp" if opts[:stamp]
+        flags << "--trust-cache" if opts[:trust_cache]
+        flags << "--advisory" if opts[:advisory]
+        flags << "--format #{opts[:format]}" if opts[:format]
+        flags << "--config #{opts[:config]}" if opts[:config]
+        flags << "--fail-level #{opts[:fail_level]}" if opts[:fail_level]
+        flags << "--todo #{opts[:todo]}" if opts[:todo]
+        (["archbuddy", "lint", target_arg] + flags.sort).join(" ")
+      end
+
+      # House writer style: tmp file in the same directory, then rename.
+      def atomic_write(path, content)
+        dir = File.dirname(path)
+        tmp = File.join(dir, ".#{File.basename(path)}.tmp#{Process.pid}")
+        File.write(tmp, content)
+        File.rename(tmp, path)
       end
 
       # 0-node precedence pinned: the empty-vintage warning WINS; the Q8
@@ -102,6 +154,10 @@ module Archbuddy
       def validate_flags!(opts)
         if opts[:todo] && opts[:no_todo]
           warn "error: --todo and --no-todo are mutually exclusive"
+          exit 2
+        end
+        if opts[:auto_gen_todo] && opts[:no_todo]
+          warn "error: --auto-gen-todo cannot be combined with --no-todo"
           exit 2
         end
         level = opts[:fail_level]
