@@ -67,13 +67,14 @@ module Backtest
 
     private
 
-    # Resume check (idempotent): a parseable serializer-5 aggregate short-
-    # circuits with ZERO git commands.
+    # Resume check (idempotent): a parseable CURRENT-serializer (v6, the
+    # v0.16 score wave) aggregate short-circuits with ZERO git commands; an
+    # older-vintage cached dir re-scores (stale committed shape).
     def cached?(cache_dir)
       aggregate = File.join(cache_dir, "archbuddy-findings.json")
       return false unless File.file?(aggregate)
 
-      JSON.parse(File.read(aggregate))["serializer_version"] == 5
+      JSON.parse(File.read(aggregate))["serializer_version"] == 6
     rescue JSON::ParserError, SystemCallError
       false
     end

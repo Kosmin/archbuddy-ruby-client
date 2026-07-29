@@ -151,7 +151,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir)
 
       frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/controllers/orders_controller.rb.json")))
-      expect(frag["serializer_version"]).to eq(5)
+      expect(frag["serializer_version"]).to eq(6)
       action = frag["nodes"].find { |n| n["symbol"] == "OrdersController#index" }
       expect(action["entrypoint"]).to be(true)
       expect(action["entrypoint_kind"]).to eq("controllers")
@@ -316,6 +316,11 @@ RSpec.describe Archbuddy::Cache::Writer do
   # --- v0.13 (serializer v5): fragment compass stamps + the carry mechanism --
 
   COMPASS_KEYS = %w[leverage collapse toll_booth quadrant].freeze
+  # v0.16 (serializer v6): the five score stamps — findings-1.9 per-node key
+  # names VERBATIM (G1/D-C7); absorb/absorb_raw = the advisory headroom pair.
+  SCORE_KEYS = %w[score score_band score_raw absorb absorb_raw].freeze
+  # The full deterministic v6 fragment stamp family (all nine ALWAYS present).
+  STAMP_KEYS = (COMPASS_KEYS + SCORE_KEYS).freeze
 
   # findings 1.8-shaped inputs for the sample fixture: the top-level per-node
   # `reusability` map (keyed by OPAQUE id) + the scores.reusability_compass
@@ -350,6 +355,46 @@ RSpec.describe Archbuddy::Cache::Writer do
     }
   end
 
+  # v0.16 (serializer v6): the findings-1.9 score_distribution stat block
+  # shape ({n_scored, n_null, zero_share, bands} — C-3 verbatim key names).
+  SCORE_DISTRIBUTION_19 = {
+    "n_scored" => 2, "n_null" => 1, "zero_share" => 0.0,
+    "bands" => {
+      "-5" => 0, "-4" => 1, "-3" => 0, "-2" => 0, "-1" => 0,
+      "0" => 0, "1" => 0, "2" => 0, "3" => 1, "4" => 0, "5" => 0
+    }
+  }.freeze
+
+  def cls_id_for(a, symbol)
+    id, = a.id_map["ids"].find { |cid, d| cid.start_with?("cls_") && d["symbol"] == symbol }
+    id
+  end
+
+  # findings 1.9-shaped inputs: compass_findings PLUS the v0.16 score surface —
+  # the per-node score triple (and the absorb advisory pair on the ELIGIBLE
+  # node only — the engine omits the keys elsewhere), the
+  # scores.reusability_compass.score_distribution stat block, and the
+  # TOP-LEVEL `reusability_by_class` map keyed by the OPAQUE cls_ id
+  # (findings-1.9 key names VERBATIM — G1/D-C7).
+  def score_findings(a)
+    total_id = opaque_id_for(a, "Billing::Invoice#total")
+    sub_id   = opaque_id_for(a, "Billing::Invoice#subtotal")
+    f = compass_findings(a)
+    f["scores"]["reusability_compass"]["score_distribution"] = SCORE_DISTRIBUTION_19
+    # negative-pole node: the score triple present; absorb pair ABSENT (ineligible)
+    f["reusability"][total_id].merge!("score" => -3.55, "score_band" => -4, "score_raw" => -10.499)
+    # booth node: positive pole + the advisory absorb pair (eligible)
+    f["reusability"][sub_id].merge!("score" => 3.17, "score_band" => 3, "score_raw" => 3.17,
+                                    "absorb" => 2.53, "absorb_raw" => 2.1)
+    f["reusability_by_class"] = {
+      cls_id_for(a, "Billing::Invoice") => {
+        "min" => -3.55, "max" => 3.17, "count" => 2,
+        "n_negative" => 1, "n_positive" => 1, "headline" => -3.55
+      }
+    }
+    f
+  end
+
   it "stamps compass keys on fragment nodes verbatim from the findings 1.8 reusability map (serializer v5)" do
     Dir.mktmpdir do |dir|
       a = anon
@@ -367,10 +412,10 @@ RSpec.describe Archbuddy::Cache::Writer do
       expect(subtotal["toll_booth"]).to be(true)
       expect(subtotal["quadrant"]).to eq("bypass_candidate")
 
-      # a node WITHOUT a reusability entry carries honest nulls (all four
-      # keys PRESENT — the deterministic v5 shape; null = never analyzed)
+      # a node WITHOUT a reusability entry carries honest nulls (all nine
+      # keys PRESENT — the deterministic v6 shape; null = never analyzed)
       other = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice.overdue" }
-      COMPASS_KEYS.each do |key|
+      STAMP_KEYS.each do |key|
         expect(other).to have_key(key)
         expect(other[key]).to be_nil
       end
@@ -382,7 +427,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir, findings: findings_with_vm(vm_17_block)) # a 1.7 doc: no reusability
       model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
       model["nodes"].each do |n|
-        COMPASS_KEYS.each { |key| expect(n[key]).to be_nil }
+        STAMP_KEYS.each { |key| expect(n[key]).to be_nil }
       end
     end
   end
@@ -392,7 +437,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir) # collect-only into a fresh tree
       model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
       model["nodes"].each do |n|
-        COMPASS_KEYS.each do |key|
+        STAMP_KEYS.each do |key|
           expect(n).to have_key(key)
           expect(n[key]).to be_nil
         end
@@ -404,7 +449,9 @@ RSpec.describe Archbuddy::Cache::Writer do
     Dir.mktmpdir do |dir|
       a = anon
       writer = Archbuddy::Cache::Writer.new(project_root: dir)
-      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      # v0.16 (v6): a 1.9 findings doc, so the byte-identical carry proof
+      # covers all NINE stamp keys (compass four + the score five).
+      writer.write(graph: a.graph, id_map: a.id_map, findings: score_findings(a))
       analyzed = read_fragments(dir)
       expect(analyzed).not_to be_empty
 
@@ -436,17 +483,17 @@ RSpec.describe Archbuddy::Cache::Writer do
       writer = Archbuddy::Cache::Writer.new(project_root: dir)
       writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
 
-      # simulate a v4 prior: strip the compass keys off the committed fragment
+      # simulate a v4 prior: strip every stamp key off the committed fragment
       frag_path = File.join(dir, ".archbuddy/app/models/invoice.rb.json")
       v4 = JSON.parse(File.read(frag_path))
       v4["serializer_version"] = 4
-      v4["nodes"].each { |n| COMPASS_KEYS.each { |key| n.delete(key) } }
+      v4["nodes"].each { |n| STAMP_KEYS.each { |key| n.delete(key) } }
       File.write(frag_path, JSON.generate(v4))
 
       writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
       model = JSON.parse(File.read(frag_path))
       model["nodes"].each do |n|
-        COMPASS_KEYS.each { |key| expect(n[key]).to be_nil }
+        STAMP_KEYS.each { |key| expect(n[key]).to be_nil }
       end
     end
   end
@@ -487,6 +534,74 @@ RSpec.describe Archbuddy::Cache::Writer do
     end
   end
 
+  # --- v0.16 (serializer v6): fragment score stamps ---------------------------
+
+  it "pins the v6 stamp family: spec key list == Writer::COMPASS_KEYS (drift guard)" do
+    expect(Archbuddy::Cache::Writer::COMPASS_KEYS).to eq(STAMP_KEYS)
+  end
+
+  it "stamps the score keys verbatim from the findings 1.9 reusability map (serializer v6)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: score_findings(a))
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+
+      total = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+      expect(total["score"]).to eq(-3.55)
+      expect(total["score_band"]).to eq(-4)
+      expect(total["score_raw"]).to eq(-10.499)
+      # absorb pair ABSENT on the source (ineligible node) → stamps null,
+      # keys PRESENT — the deterministic v6 shape, never a fabricated value
+      expect(total).to have_key("absorb")
+      expect(total["absorb"]).to be_nil
+      expect(total["absorb_raw"]).to be_nil
+
+      subtotal = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#subtotal" }
+      expect(subtotal["score"]).to eq(3.17)
+      expect(subtotal["score_band"]).to eq(3)
+      expect(subtotal["score_raw"]).to eq(3.17)
+      expect(subtotal["absorb"]).to eq(2.53)
+      expect(subtotal["absorb_raw"]).to eq(2.1)
+    end
+  end
+
+  it "writes null score stamps from a 1.8-shaped findings doc (present, null — never derived)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      model = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      total = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+      expect(total["leverage"]).to eq(4.0) # the 1.8 compass stamps still land
+      SCORE_KEYS.each do |key|
+        expect(total).to have_key(key)
+        expect(total[key]).to be_nil # 1.9-only keys: honest null, never derived
+      end
+    end
+  end
+
+  it "a v5-vintage prior fragment grafts only its four compass keys: score stamps stay null" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: a.graph, id_map: a.id_map, findings: score_findings(a))
+
+      # simulate a v5 prior: strip the five score keys off the committed fragment
+      frag_path = File.join(dir, ".archbuddy/app/models/invoice.rb.json")
+      v5 = JSON.parse(File.read(frag_path))
+      v5["serializer_version"] = 5
+      v5["nodes"].each { |n| SCORE_KEYS.each { |key| n.delete(key) } }
+      File.write(frag_path, JSON.generate(v5))
+
+      writer.write(graph: a.graph, id_map: a.id_map, findings: nil) # collect-only
+      model = JSON.parse(File.read(frag_path))
+      total = model["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+      expect(total["leverage"]).to eq(4.0) # compass carried from the v5 prior
+      SCORE_KEYS.each { |key| expect(total[key]).to be_nil } # nothing manufactured
+    end
+  end
+
   # --- v0.13 (serializer v5): the aggregate reusability fold ------------------
 
   it "folds the 1.8 reusability_compass block verbatim with de-anonymized worst-lists" do
@@ -524,12 +639,17 @@ RSpec.describe Archbuddy::Cache::Writer do
     Dir.mktmpdir do |dir|
       a = anon
       writer = Archbuddy::Cache::Writer.new(project_root: dir)
-      writer.write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      # v0.16 (v6): a 1.9 doc, so the carry proof covers the new sub-keys too
+      writer.write(graph: a.graph, id_map: a.id_map, findings: score_findings(a))
       rich = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
 
       writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
       after = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
       expect(after["reusability"]).to eq(rich["reusability"])
+      # v6: score_distribution + by_class are sub-keys of the block — they
+      # ride the existing whole-block carry free (the D-C6 pin)
+      expect(after["reusability"]["score_distribution"]).to eq(SCORE_DISTRIBUTION_19)
+      expect(after["reusability"]["by_class"]).to eq(rich["reusability"]["by_class"])
 
       # v4-vintage prior (no reusability key) → a collect manufactures nothing
       prior = after.reject { |k, _| k == "reusability" }.merge("serializer_version" => 4)
@@ -537,6 +657,70 @@ RSpec.describe Archbuddy::Cache::Writer do
       writer.write(graph: a.graph, id_map: a.id_map, findings: nil)
       regrafted = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
       expect(regrafted).not_to have_key("reusability")
+    end
+  end
+
+  # --- v0.16 (serializer v6): the aggregate score folds ------------------------
+
+  it "folds the 1.9 score_distribution + de-anonymized by_class (headline carried) into the reusability block" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: score_findings(a))
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      ru  = agg["reusability"]
+
+      # the stat block rides VERBATIM under the C-3 key name (never "score")
+      expect(ru["score_distribution"]).to eq(SCORE_DISTRIBUTION_19)
+      # by_class: opaque cls_ key de-anonymized to the REAL class symbol; the
+      # engine's six stats — `headline` INCLUDED (C-3) — copied verbatim; an
+      # ARRAY, so the engine-published row order is preserved
+      expect(ru["by_class"]).to eq([{
+        "class" => "Billing::Invoice", "min" => -3.55, "max" => 3.17, "count" => 2,
+        "n_negative" => 1, "n_positive" => 1, "headline" => -3.55
+      }])
+    end
+  end
+
+  it "writes NO score_distribution / by_class keys from a 1.8-shaped findings doc (absence, never fabricated)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: compass_findings(a))
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(agg["reusability"]).not_to have_key("score_distribution")
+      expect(agg["reusability"]).not_to have_key("by_class")
+    end
+  end
+
+  it "an empty reusability_by_class writes no by_class key (absence, never an empty table)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      f = score_findings(a)
+      f["reusability_by_class"] = {}
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: f)
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(agg["reusability"]).not_to have_key("by_class")
+      expect(agg["reusability"]).to have_key("score_distribution") # unaffected
+    end
+  end
+
+  it "an unmapped cls_ id degrades to the opaque id itself (graceful, never a crash)" do
+    Dir.mktmpdir do |dir|
+      a = anon
+      f = score_findings(a)
+      f["reusability_by_class"] = {
+        "cls_feedfacefeed" => { "min" => 0.0, "max" => 0.0, "count" => 1,
+                                "n_negative" => 0, "n_positive" => 0, "headline" => 0.0 }
+      }
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: a.graph, id_map: a.id_map, findings: f)
+      agg = JSON.parse(File.read(File.join(dir, "archbuddy-findings.json")))
+      expect(agg["reusability"]["by_class"]).to eq([{
+        "class" => "cls_feedfacefeed", "min" => 0.0, "max" => 0.0, "count" => 1,
+        "n_negative" => 0, "n_positive" => 0, "headline" => 0.0
+      }])
     end
   end
 

@@ -3,6 +3,7 @@
 require "tmpdir"
 require "fileutils"
 require "stringio"
+require "yaml"
 require "archbuddy/cli/collect"
 require "archbuddy/cache/checker"
 
@@ -85,6 +86,53 @@ RSpec.describe "collect --check CI staleness gate (R3-1)" do
       run_collect(dir)
       git(dir, "add", "-A")
       git(dir, "commit", "-qm", "seed cache")
+
+      code, msg = run_check(dir)
+      expect(code).to eq(Archbuddy::Cache::Checker::CLEAN)
+      expect(msg).to match(/up-to-date|no drift/i)
+    end
+  end
+
+  # v0.16 (serializer v6): `--check` regenerates via a COLLECT-ONLY pass —
+  # the carry (fragment stamps via carry_prior_compass!, aggregate blocks via
+  # preserve_existing_scores) must reproduce an analyze-stamped cache
+  # byte-identically, or every analyzed repo would read permanently stale.
+  it "exits 0 (clean) after an analyze stamps v6 scores — the carry keeps the rewrite byte-identical" do
+    Dir.mktmpdir do |dir|
+      init_repo(dir)
+      seed(dir)
+      run_collect(dir)
+
+      # simulate `archbuddy analyze`: re-write the committed cache WITH a
+      # findings-1.9 doc (score stamps + distribution + by_class folds).
+      graph  = YAML.safe_load(File.read(File.join(dir, ".archbuddy/graph.yml")))
+      id_map = YAML.safe_load(File.read(File.join(dir, ".archbuddy/id-map.yml")))
+      node_id, = id_map["ids"].find { |_id, d| d["file"] == "app/x.rb" }
+      bands = { "-5" => 0, "-4" => 0, "-3" => 0, "-2" => 0, "-1" => 0,
+                "0" => 0, "1" => 1, "2" => 0, "3" => 0, "4" => 0, "5" => 0 }
+      findings = {
+        "scores" => {
+          "reusability_compass" => {
+            "reuse_index" => nil, "unshared_fraction" => nil,
+            "toll_booths" => [], "extraction" => [], "leverage" => nil,
+            "score_distribution" => { "n_scored" => 1, "n_null" => 0,
+                                      "zero_share" => 0.0, "bands" => bands }
+          }
+        },
+        "reusability" => {
+          node_id => { "leverage" => 1.0, "collapse" => 1.0, "toll_booth" => false,
+                       "quadrant" => "glue", "score" => 1.02, "score_band" => 1,
+                       "score_raw" => 0.585, "absorb" => 1.09, "absorb_raw" => 1.2 }
+        },
+        "reusability_by_class" => {
+          "cls_feedfacefeed" => { "min" => 1.02, "max" => 1.02, "count" => 1,
+                                  "n_negative" => 0, "n_positive" => 1, "headline" => 1.02 }
+        }
+      }
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: graph, id_map: id_map, findings: findings)
+      git(dir, "add", "-A")
+      git(dir, "commit", "-qm", "analyze stamps")
 
       code, msg = run_check(dir)
       expect(code).to eq(Archbuddy::Cache::Checker::CLEAN)

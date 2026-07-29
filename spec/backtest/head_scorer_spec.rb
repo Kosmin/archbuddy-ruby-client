@@ -54,7 +54,7 @@ RSpec.describe Backtest::HeadScorer do
         # cache shape: aggregate + pointed fragments, none of the SECRETs
         expect(File).to exist(File.join(result.dir, "archbuddy-findings.json"))
         aggregate = JSON.parse(File.read(File.join(result.dir, "archbuddy-findings.json")))
-        expect(aggregate["serializer_version"]).to eq(5)
+        expect(aggregate["serializer_version"]).to eq(6)
         all_files = Dir.glob(File.join(result.dir, "**", "*"), File::FNM_DOTMATCH)
                        .select { |p| File.file?(p) }
         expect(all_files.grep(%r{id-map|graph\.yml|findings\.yml|/\.cache/})).to eq([])
@@ -137,7 +137,7 @@ RSpec.describe Backtest::HeadScorer do
 
         expect(result.ok?).to be(true)
         aggregate = JSON.parse(File.read(File.join(result.dir, "archbuddy-findings.json")))
-        expect(aggregate["serializer_version"]).to eq(5)
+        expect(aggregate["serializer_version"]).to eq(6)
         expect(wall).to be <= 15.0
 
         porcelain, _e, _s = Open3.capture3("git", "-C", entry.path, "worktree", "list", "--porcelain")

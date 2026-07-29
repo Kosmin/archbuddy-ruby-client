@@ -98,7 +98,25 @@ module Archbuddy
       # extraction worst-lists de-anonymized to real symbols — the
       # deanon_proxies pattern), and `reusability` joins the collect-only
       # carry list.
-      SERIALIZER_VERSION = 5
+      #
+      # v6 (v0.16 score wave — THE one serializer bump of the release, sole
+      # owner): fragment nodes additionally carry the five per-node
+      # REUSABILITY SCORE stamps ({score, score_band, score_raw, absorb,
+      # absorb_raw} — the COMPASS_KEYS family extension, findings-1.9
+      # per-node key names VERBATIM), copied from findings 1.9's top-level
+      # `reusability` map at analyze/reset; a 1.8 doc carries none of the
+      # keys, so the stamps write null (honest absence, never derived), and
+      # the absorb pair is engine-ABSENT on ineligible nodes — it stamps
+      # null the same way. carry_prior_compass! iterates COMPASS_KEYS, so
+      # the collect-only carry extends with ZERO method changes. The
+      # aggregate `reusability` block additionally carries the findings-1.9
+      # `score_distribution` stat block VERBATIM (present-iff-source) and a
+      # de-anonymized `by_class` fold of the TOP-LEVEL findings-1.9
+      # `reusability_by_class` map (rows {class, min, max, count,
+      # n_negative, n_positive, headline}, engine-published order); both are
+      # sub-keys of `reusability`, so they ride the existing whole-block
+      # collect-only carry free.
+      SERIALIZER_VERSION = 6
 
       # v0.13 (v5): the per-node compass stamp keys on committed fragment
       # nodes. All four ALWAYS present on a v5 fragment (deterministic shape,
@@ -108,7 +126,21 @@ module Archbuddy
       # rides the stamp because the report side panel's ONLY per-node data
       # route on the default committed path is the fragment (findings.yml is
       # not readable there).
-      COMPASS_KEYS = %w[leverage collapse toll_booth quadrant].freeze
+      #
+      # v0.16 (v6): the five score stamps join the family — `score` (real,
+      # 2 dp), `score_band` (integer −5..+5), `score_raw` (signed real, 3 dp,
+      # pre-clamp) plus the absorption-headroom ADVISORY pair `absorb` /
+      # `absorb_raw` — findings-1.9 per-node key names VERBATIM. All nine
+      # keys ALWAYS present on a v6 fragment (the same deterministic shape):
+      # null = never analyzed / pre-1.9 engine / N-A ladder, and for the
+      # absorb pair also "not eligible" (the engine omits the keys on
+      # ineligible nodes — an omitted advisory stamps null, never a
+      # fabricated value). carry_prior_compass! grafts via this constant, so
+      # extending it extends the collect-only carry with zero method edits.
+      COMPASS_KEYS = %w[
+        leverage collapse toll_booth quadrant
+        score score_band score_raw absorb absorb_raw
+      ].freeze
 
       # @param project_root [String] the audited repo root (CWD by default).
       def initialize(project_root: Dir.pwd)
@@ -207,7 +239,23 @@ module Archbuddy
             "leverage"        => compass && compass["leverage"],
             "collapse"        => compass && compass["collapse"],
             "toll_booth"      => compass && compass["toll_booth"],
-            "quadrant"        => compass && compass["quadrant"]
+            "quadrant"        => compass && compass["quadrant"],
+            # v0.16 (v6): the per-node REUSABILITY SCORE stamps, copied
+            # VERBATIM from findings 1.9's per-node `reusability` entry —
+            # findings key names 1:1 (score 2 dp / score_band integer /
+            # score_raw signed 3 dp; absorb/absorb_raw = the advisory
+            # headroom pair, ABSENT on the source when the node is not
+            # eligible — an absent key stamps null, exactly like a pre-1.9
+            # engine or a never-analyzed node; never fabricated, never
+            # derived). The reals are engine-PUBLISHED-rounded before they
+            # get here; CanonicalJson's round(6) passes them through
+            # idempotently. Numbers only — NOT a line, NOT an id: the C1
+            # line-free invariant is untouched.
+            "score"           => compass && compass["score"],
+            "score_band"      => compass && compass["score_band"],
+            "score_raw"       => compass && compass["score_raw"],
+            "absorb"          => compass && compass["absorb"],
+            "absorb_raw"      => compass && compass["absorb_raw"]
             # NO line — display-only, resolved at RENDER from the id-map.
           }
         end
@@ -422,6 +470,17 @@ module Archbuddy
             # (a 1.7 doc writes no key). The ONLY computation is the
             # toll-booth / extraction worst-list de-anonymization.
             doc["reusability"] = reusability_block(scores, resolver) if scores.key?("reusability_compass")
+            # v0.16 (serializer v6): the findings-1.9 TOP-LEVEL
+            # `reusability_by_class` map (a SIBLING of `scores`, keyed by
+            # opaque `cls_` ids), de-anonymized at write and nested under the
+            # `reusability` block so it rides the existing whole-block
+            # collect-only carry. Present-iff-source AND non-empty ({} or an
+            # absent key writes NO `by_class` — absence, never a fabricated
+            # empty table). A 1.9 doc always carries `reusability_compass`
+            # beside it, so the parent block exists whenever the key does.
+            if doc["reusability"] && (by_class = findings["reusability_by_class"]) && !by_class.empty?
+              doc["reusability"]["by_class"] = by_class_rows(by_class, resolver)
+            end
             # v0.11: light up the (1.5-live, until-now-unread) egress cost
             # keys — per-exit-point averages once E1 splits the sinks.
             merge_egress_cost!(doc["egress"], scores)
@@ -453,6 +512,9 @@ module Archbuddy
       # manufacture v3 blocks. v0.12 (v4): `variety_mass` joins the carry
       # list under the same rule — a v3 prior (no v4 key) grafts nothing.
       # v0.13 (v5): `reusability` joins too — a v4 prior grafts nothing.
+      # v0.16 (v6): `score_distribution` and `by_class` are SUB-KEYS of the
+      # `reusability` block — they ride the existing whole-block carry free
+      # (no list change; spec-pinned).
       def preserve_existing_scores(rel, doc)
         prior = read_prior_aggregate(rel)
         return if prior.nil?
@@ -782,7 +844,7 @@ module Archbuddy
       # the report layer, the fold carries only figures.
       def reusability_block(scores, resolver)
         rc = scores["reusability_compass"]
-        {
+        block = {
           "reuse_index"       => reuse_index_copy(rc["reuse_index"]),
           "unshared_fraction" => rc["unshared_fraction"],
           "toll_booths"       => (rc["toll_booths"] || []).map do |tb|
@@ -803,6 +865,13 @@ module Archbuddy
           # (component_stat carries the exact shape; nil on a non-hash source).
           "leverage"          => component_stat(rc["leverage"])
         }
+        # v0.16 (serializer v6): the findings-1.9 score-distribution stat
+        # block ({n_scored, n_null, zero_share, bands}), copied VERBATIM
+        # (D17) — block-present-iff-source-present (a 1.8 doc writes no key;
+        # the engine honest blank {zero_share: null} passes through as-is,
+        # never a fabricated 0.0).
+        block["score_distribution"] = rc["score_distribution"] if rc.key?("score_distribution")
+        block
       end
 
       # {mean, median} verbatim; non-hash source → nil (absence, never
@@ -811,6 +880,31 @@ module Archbuddy
         return nil unless reuse_index.is_a?(Hash)
 
         { "mean" => reuse_index["mean"], "median" => reuse_index["median"] }
+      end
+
+      # v0.16 (v6): one committed row per findings-1.9 `reusability_by_class`
+      # entry — the engine's signed-extremes stats {min, max, count,
+      # n_negative, n_positive, headline} copied VERBATIM (D17; `headline`
+      # is the ENGINE-computed negative-first dominance verdict — published
+      # precisely so no consumer re-implements the rule, never re-derived
+      # here), with the opaque `cls_` key de-anonymized to the real class
+      # symbol (the class_symbol pattern; an unmapped id degrades to the
+      # opaque id itself — graceful, never a crash; opaque ids carry no app
+      # semantics). Emitted as an ARRAY so the ENGINE-published row order is
+      # preserved (D17 — CanonicalJson sorts object keys but never reorders
+      # arrays).
+      def by_class_rows(by_class, resolver)
+        by_class.map do |cls_id, row|
+          {
+            "class"      => resolver.class_symbol(cls_id) || cls_id,
+            "min"        => row["min"],
+            "max"        => row["max"],
+            "count"      => row["count"],
+            "n_negative" => row["n_negative"],
+            "n_positive" => row["n_positive"],
+            "headline"   => row["headline"]
+          }
+        end
       end
 
       # --- filesystem + helpers ------------------------------------------------

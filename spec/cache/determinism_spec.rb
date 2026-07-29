@@ -36,6 +36,34 @@ RSpec.describe "committed cache determinism (C3)" do
     end
   end
 
+  # v0.16 (serializer v6): the analyze path (findings-1.9 score stamps +
+  # aggregate folds) is deterministic too — same inputs, byte-identical bytes
+  # (the score reals are engine-published-rounded; CanonicalJson's fixed
+  # precision passes them through idempotently).
+  it "produces byte-identical output across two analyze-path runs (v6 score stamps)" do
+    Dir.mktmpdir do |dir|
+      FileUtils.cp_r(Dir.glob("#{fixture_root}/*"), dir)
+      adapter = Archbuddy::Collect::Registry.for("ruby").new(dir, config)
+      anon = Archbuddy::Collect::Anonymizer.new(
+        adapter.collect(mode: :full), tool: "archbuddy test", adapter: "ruby"
+      ).call
+      node_id, = anon.id_map["ids"].find { |_id, d| d["kind"] == "function" }
+      findings = {
+        "scores" => {},
+        "reusability" => {
+          node_id => { "leverage" => 2.0, "collapse" => 2.0, "toll_booth" => false,
+                       "quadrant" => "load_bearing", "score" => 0.0, "score_band" => 0,
+                       "score_raw" => 0.0 }
+        }
+      }
+      writer = Archbuddy::Cache::Writer.new(project_root: dir)
+      writer.write(graph: anon.graph, id_map: anon.id_map, findings: findings)
+      first = committed_snapshot(dir)
+      writer.write(graph: anon.graph, id_map: anon.id_map, findings: findings)
+      expect(committed_snapshot(dir)).to eq(first)
+    end
+  end
+
   it "leaves a clean `git status` on the second run (lockfile freshness idiom)" do
     Dir.mktmpdir do |dir|
       FileUtils.cp_r(Dir.glob("#{fixture_root}/*"), dir)
