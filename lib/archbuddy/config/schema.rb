@@ -2,17 +2,18 @@
 
 module Archbuddy
   class Config
-    # The declarative heart of `.archbuddy.yml` schema v1 (v0.15 — the SEVEN
-    # Q11 business-taxonomy rules): known-key registry, per-rule param specs
-    # with defaults/types/enums, starter severities, severity ranking, kind
-    # partitions, the retired-name table, and the todo metric registry.
-    # Validator, engine, docs, and specs all read THIS one source of truth.
+    # The declarative heart of `.archbuddy.yml` schema v1 (v0.16 — the EIGHT
+    # business-taxonomy rules: Q11 + ReusabilityScore): known-key registry,
+    # per-rule param specs with defaults/types/enums, starter severities,
+    # severity ranking, kind partitions, the retired-name table, and the todo
+    # metric registry. Validator, engine, docs, and specs all read THIS one
+    # source of truth.
     module Schema
       # Common per-rule keys valid on every rule (params below are per-rule).
       COMMON_RULE_KEYS = %w[enabled severity exclude].freeze
 
-      # The SEVEN rule classes, names EXACT (Q11). kind ∈
-      # {:node, :use_case, :delta, :pr} (I-P7').
+      # The EIGHT rule classes, names EXACT (Q11 + the v0.16
+      # ReusabilityScore). kind ∈ {:node, :use_case, :delta, :pr} (I-P7').
       RULES = {
         "ComplexityRatchet" => {
           kind: :delta, default_enabled: true, default_severity: :error,
@@ -41,6 +42,22 @@ module Archbuddy
           metric_unit: :log2_units,
           params: {
             "max_increase_log2" => { type: :number, default: 2, min: 0, nullable: false }
+          }
+        },
+        "ReusabilityScore" => {
+          kind: :node, default_enabled: true, default_severity: :info,
+          metric_unit: :score_debt_milli,
+          params: {
+            # Engine-served −5..+5 reusability score (v0.16, findings 1.9):
+            # fires at score ≤ min_score (engine-published 2 dp values —
+            # the gate channel IS the published channel). min: -5 is a
+            # NEGATIVE bound, accepted by Config::Validator#check_numeric
+            # as written.
+            "min_score" => { type: :number, default: -4, min: -5, nullable: true },
+            # The absorption-headroom disclosure gate: reads the engine's
+            # `absorb` advisory key; a presenter disclosure line, never a
+            # finding.
+            "absorb_min_score" => { type: :number, default: 5, min: 0, nullable: true }
           }
         },
         "ReviewSurface" => {
@@ -79,7 +96,7 @@ module Archbuddy
       }.freeze
 
       # Kind partitions (R48).
-      NODE_RULES = %w[ExponentialNode].freeze
+      NODE_RULES = %w[ExponentialNode ReusabilityScore].freeze
       USE_CASE_RULES = %w[FirewallBreaches UseCaseComplexity UseCaseDividend].freeze
       DELTA_RULES = %w[ComplexityRatchet MultiplicativeGrowth].freeze
       PR_RULES = %w[ReviewSurface].freeze

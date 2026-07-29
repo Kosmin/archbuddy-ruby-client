@@ -9,7 +9,12 @@ module Archbuddy
     # `.archbuddy_todo.yml` v1 (Q7 — value-pinned grandfathering at node AND
     # (file, ep-symbol) granularity):
     #
-    #   * node-kind entries (ExponentialNode): `value:` RAW integer (branches)
+    #   * node-kind entries, two `value:` flavors (both RAW integers):
+    #       - ExponentialNode: raw branches
+    #       - ReusabilityScore (v0.16): reusability debt milli —
+    #         `(-score_raw × 1000).round`, a positive integer that GROWS as
+    #         the node worsens, so the engine's `value_raw <= recorded` skip
+    #         predicate works verbatim
     #   * use-case entries (UseCaseComplexity/UseCaseDividend/FirewallBreaches):
     #     per-metric `values:` map of RAW INTEGERS — milli-log2
     #     `(metric_log2 × 1000).round` for `*_millilog2` keys, native counts
@@ -18,7 +23,7 @@ module Archbuddy
     #
     # The loader is STRICT: never-grandfatherable rule keys (R45 template),
     # retired names (RETIRED_RULES error), unknown rules (did-you-mean over
-    # the 4 GRANDFATHERABLE), shape confusion, non-integers, malformed node
+    # the 5 GRANDFATHERABLE), shape confusion, non-integers, malformed node
     # strings, and stale header counts are all ValidationErrors.
     class Todo
       # Component-key → [todo metric key, encoding] (Q7). millilog2 encodes
@@ -42,11 +47,13 @@ module Archbuddy
 
       NEVER_GRANDFATHERED = %w[ComplexityRatchet MultiplicativeGrowth ReviewSurface].freeze
       REJECT_TEMPLATE = "'%s' is never grandfathered (L5) — grandfatherable: " \
-                        "ExponentialNode, FirewallBreaches, UseCaseComplexity, UseCaseDividend"
+                        "ExponentialNode, FirewallBreaches, ReusabilityScore, " \
+                        "UseCaseComplexity, UseCaseDividend"
 
       UNIT_NOTE = [
         "# values are raw integers: native counts (mass, depth, reach, files, escapes, branches)",
-        "# or milli-log2 ((log2 x 1000).round) for *_millilog2 keys; display renders log2 to 1dp"
+        "# or milli-log2 ((log2 x 1000).round) for *_millilog2 keys; display renders log2 to 1dp",
+        "# ReusabilityScore value: is debt milli ((-score_raw x 1000).round); grows as the node worsens"
       ].freeze
 
       class << self

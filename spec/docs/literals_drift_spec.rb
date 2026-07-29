@@ -49,7 +49,7 @@ RSpec.describe "doc-contract freeze (literals drift)" do
       end
     end
 
-    it "names all seven rules (derived from Config::Schema::RULES)" do
+    it "names all eight rules (derived from Config::Schema::RULES)" do
       Archbuddy::Config::Schema::RULES.each_key do |rule|
         expect(readme).to include(rule), "rule #{rule} missing from README.md"
       end

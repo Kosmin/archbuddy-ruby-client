@@ -384,7 +384,7 @@ use cases (worst 5 by cone branching):
   5. Api::V1::AppLandingPageThemes::NavigationTabs#PUT[0] — branching 2^40.6, mass 202, reach 27, files 2, depth 9, dividend ×4
 ```
 
-### The seven rules (the business taxonomy)
+### The eight rules (the business taxonomy)
 
 | rule | what it prices |
 |---|---|
@@ -395,6 +395,7 @@ use cases (worst 5 by cone branching):
 | `ComplexityRatchet` | **the team budget** — net Δlog2 against per-path budgets (never grandfathered) |
 | `ExponentialNode` | study-calibrated flag: a single node whose own branching fires strictly above 2^5 = 32 |
 | `MultiplicativeGrowth` | study-calibrated flag: one change multiplying a node's branching (exponential growth events) |
+| `ReusabilityScore` | **false reusability** (v0.16) — the engine's −5..+5 per-function score; fires at score ≤ −4 (extreme multiplexing: break it down before growing it), advisory `:info` by default |
 
 The two calibrated flags keep the study's strict comparator: they fire strictly above 2^5 = 32
 (`b_own > 2^5 = 32`), never at it.

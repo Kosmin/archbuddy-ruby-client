@@ -2,47 +2,47 @@
 
 require "archbuddy/config/schema"
 
-# v0.15 P1-T1: the Schema tables — 7-rule registry (Q11), kind partitions
-# (R48), retired names, todo metric registry. Drift in any default is a red
-# spec.
+# v0.15 P1-T1 (+v0.16 C-1): the Schema tables — 8-rule registry (Q11 +
+# ReusabilityScore), kind partitions (R48), retired names, todo metric
+# registry. Drift in any default is a red spec.
 RSpec.describe Archbuddy::Config::Schema do
-  it "registers EXACTLY the seven Q11 rule names" do
+  it "registers EXACTLY the eight rule names (Q11 + v0.16 ReusabilityScore)" do
     expect(described_class::RULES.keys.sort).to eq(
       %w[ComplexityRatchet ExponentialNode FirewallBreaches MultiplicativeGrowth
-         ReviewSurface UseCaseComplexity UseCaseDividend]
+         ReusabilityScore ReviewSurface UseCaseComplexity UseCaseDividend]
     )
   end
 
-  it "enables all seven by default" do
+  it "enables all eight by default" do
     expect(described_class::RULES.values.map { |r| r[:default_enabled] }).to all(be(true))
   end
 
-  it "pins the default severities (UCC/UCD/RS warn, FB info, CR/EN/MG error)" do
+  it "pins the default severities (UCC/UCD/RS warn, FB/RScore info, CR/EN/MG error)" do
     severities = described_class::RULES.transform_values { |r| r[:default_severity] }
     expect(severities).to eq(
       "UseCaseComplexity" => :warn, "UseCaseDividend" => :warn,
       "FirewallBreaches" => :info, "ReviewSurface" => :warn,
       "ComplexityRatchet" => :error, "ExponentialNode" => :error,
-      "MultiplicativeGrowth" => :error
+      "MultiplicativeGrowth" => :error, "ReusabilityScore" => :info
     )
   end
 
   it "pins the four kind partitions (R48)" do
-    expect(described_class::NODE_RULES).to eq(%w[ExponentialNode])
+    expect(described_class::NODE_RULES).to eq(%w[ExponentialNode ReusabilityScore])
     expect(described_class::USE_CASE_RULES).to eq(%w[FirewallBreaches UseCaseComplexity UseCaseDividend])
     expect(described_class::DELTA_RULES).to eq(%w[ComplexityRatchet MultiplicativeGrowth])
     expect(described_class::PR_RULES).to eq(%w[ReviewSurface])
     expect(described_class::RULES.transform_values { |r| r[:kind] }).to eq(
       "ComplexityRatchet" => :delta, "ExponentialNode" => :node,
       "FirewallBreaches" => :use_case, "MultiplicativeGrowth" => :delta,
-      "ReviewSurface" => :pr, "UseCaseComplexity" => :use_case,
-      "UseCaseDividend" => :use_case
+      "ReusabilityScore" => :node, "ReviewSurface" => :pr,
+      "UseCaseComplexity" => :use_case, "UseCaseDividend" => :use_case
     )
   end
 
   it "pins GRANDFATHERABLE = NODE_RULES ∪ USE_CASE_RULES, sorted (Q7)" do
     expect(described_class::GRANDFATHERABLE).to eq(
-      %w[ExponentialNode FirewallBreaches UseCaseComplexity UseCaseDividend]
+      %w[ExponentialNode FirewallBreaches ReusabilityScore UseCaseComplexity UseCaseDividend]
     )
   end
 
@@ -76,6 +76,18 @@ RSpec.describe Archbuddy::Config::Schema do
       expect(param("ExponentialNode", "threshold_log2")[:default]).to eq(5)
       expect(param("MultiplicativeGrowth", "max_increase_log2")[:default]).to eq(2)
       expect(param("ComplexityRatchet", "budgets")[:default]).to eq([])
+    end
+
+    it "ReusabilityScore min_score defaults to -4 with the NEGATIVE min bound -5 (v0.16/X-4)" do
+      expect(param("ReusabilityScore", "min_score")[:default]).to eq(-4)
+      expect(param("ReusabilityScore", "min_score")[:min]).to eq(-5)
+      expect(param("ReusabilityScore", "min_score")[:nullable]).to be(true)
+    end
+
+    it "ReusabilityScore absorb_min_score defaults to +5, min 0, nullable (v0.16)" do
+      expect(param("ReusabilityScore", "absorb_min_score")[:default]).to eq(5)
+      expect(param("ReusabilityScore", "absorb_min_score")[:min]).to eq(0)
+      expect(param("ReusabilityScore", "absorb_min_score")[:nullable]).to be(true)
     end
 
     it "never defines an own_branching threshold key anywhere (Q10)" do

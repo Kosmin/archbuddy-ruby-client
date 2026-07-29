@@ -23,7 +23,7 @@ module Archbuddy
     # CLEAN-STDOUT (P5): stdout receives EXACTLY ONE write — the rendered
     # document; chatter goes to stderr with error:/warning:/note: prefixes.
     class Lint < Dry::CLI::Command
-      desc "Review the current architecture vintage against the 7-rule family " \
+      desc "Review the current architecture vintage against the 8-rule family " \
            "(advisory unless a config file or --fail-level gates)"
 
       argument :target, required: false, default: ".",

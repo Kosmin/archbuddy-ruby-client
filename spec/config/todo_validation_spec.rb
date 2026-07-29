@@ -38,7 +38,8 @@ RSpec.describe "Archbuddy::Config::Todo validation" do
       YAML
       expect(errors).to include(
         "'ReviewSurface' is never grandfathered (L5) — grandfatherable: " \
-        "ExponentialNode, FirewallBreaches, UseCaseComplexity, UseCaseDividend"
+        "ExponentialNode, FirewallBreaches, ReusabilityScore, " \
+        "UseCaseComplexity, UseCaseDividend"
       )
     end
 
@@ -62,13 +63,51 @@ RSpec.describe "Archbuddy::Config::Todo validation" do
     )
   end
 
-  it "unknown rules get did-you-mean over the 4 GRANDFATHERABLE" do
+  it "unknown rules get did-you-mean over the 5 GRANDFATHERABLE" do
     errors = errors_for(doc(<<~YAML))
       UseCaseComplexit:
         - node: "a.rb: A#x"
           values: { reach: 1 }
     YAML
     expect(errors).to include("unknown rule 'UseCaseComplexit' at todo rules — did you mean 'UseCaseComplexity'?")
+  end
+
+  it "did-you-mean reaches the v0.16 ReusabilityScore" do
+    errors = errors_for(doc(<<~YAML))
+      ReusabilityScor:
+        - node: "a.rb: A#x"
+          value: 4000
+    YAML
+    expect(errors).to include("unknown rule 'ReusabilityScor' at todo rules — did you mean 'ReusabilityScore'?")
+  end
+
+  describe "ReusabilityScore entries (v0.16 — node kind, debt-milli value)" do
+    it "accepts a node-shaped entry with an integer debt-milli value" do
+      errors = errors_for(doc(<<~YAML))
+        ReusabilityScore:
+          - node: "a.rb: A#x"
+            value: 11250
+      YAML
+      expect(errors).to eq([])
+    end
+
+    it "rejects the values: shape (kind node)" do
+      errors = errors_for(doc(<<~YAML))
+        ReusabilityScore:
+          - node: "a.rb: A#x"
+            values: { escapes: 1 }
+      YAML
+      expect(errors).to include("'ReusabilityScore' entries use value: (kind node)")
+    end
+
+    it "rejects non-integer values" do
+      errors = errors_for(doc(<<~YAML))
+        ReusabilityScore:
+          - node: "a.rb: A#x"
+            value: 11.25
+      YAML
+      expect(errors.join).to include("ReusabilityScore entry value must be a raw integer")
+    end
   end
 
   describe "values-map validation" do

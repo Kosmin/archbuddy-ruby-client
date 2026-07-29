@@ -26,7 +26,11 @@ RSpec.describe Archbuddy::Config::Todo do
                         components: { "dividend_log2" => breaching(Math.log2(8192)) }),
       TodoFindingDouble.new(rule: "FirewallBreaches", file: "app/api/api/v1/redeem_templates.rb",
                         symbol: "Api::V1::RedeemTemplates#PATCH[0]",
-                        components: { "escapes" => breaching(3) })
+                        components: { "escapes" => breaching(3) }),
+      # v0.16 debt-milli node entry (D-C5): (-score_raw × 1000).round for a
+      # score_raw of -11.250 — a positive integer that grows as the node worsens.
+      TodoFindingDouble.new(rule: "ReusabilityScore", file: "app/api/api/v1/points_products.rb",
+                        symbol: "Api::V1::PointsProducts#POST[1]", value_raw: 11_250)
     ]
   end
 
@@ -38,11 +42,13 @@ RSpec.describe Archbuddy::Config::Todo do
     )
   end
 
-  it "generates both entry shapes with the R50 unit note" do
+  it "generates both entry shapes with the R50 unit note (+ the v0.16 debt-milli line)" do
     text = generate(findings)
     expect(text).to include("# values are raw integers: native counts (mass, depth, reach, files, escapes, branches)")
     expect(text).to include("# or milli-log2 ((log2 x 1000).round) for *_millilog2 keys; display renders log2 to 1dp")
+    expect(text).to include("# ReusabilityScore value: is debt milli ((-score_raw x 1000).round); grows as the node worsens")
     expect(text).to include("value: 81")
+    expect(text).to include("value: 11250")
     expect(text).to include("values: { max_cone_node_millilog2: 13000, reach: 142 }")
     expect(text).to include("values: { escapes: 3 }")
   end
@@ -68,8 +74,8 @@ RSpec.describe Archbuddy::Config::Todo do
 
   it "computes header counts (distinct nodes across rules)" do
     text = generate(findings)
-    expect(text).to include("rule_count: 4")
-    expect(text).to include("node_count: 2") # user.rb node + the redeem ep
+    expect(text).to include("rule_count: 5")
+    expect(text).to include("node_count: 3") # user.rb node + the redeem ep + the points_products node
   end
 
   it "emits YAML integers, never floats" do
@@ -97,6 +103,7 @@ RSpec.describe Archbuddy::Config::Todo do
       # using archbuddy 0.12.0. Do not edit by hand; entries drop when violations heal.
       # values are raw integers: native counts (mass, depth, reach, files, escapes, branches)
       # or milli-log2 ((log2 x 1000).round) for *_millilog2 keys; display renders log2 to 1dp
+      # ReusabilityScore value: is debt milli ((-score_raw x 1000).round); grows as the node worsens
       version: 1
       tool: "archbuddy 0.12.0"
       rule_count: 0
@@ -114,6 +121,9 @@ RSpec.describe Archbuddy::Config::Todo do
 
         expect(todo.entry_for("ExponentialNode", "app/models/user.rb", "User#recalculate!"))
           .to eq(value: 81)
+        expect(todo.entry_for("ReusabilityScore", "app/api/api/v1/points_products.rb",
+                              "Api::V1::PointsProducts#POST[1]"))
+          .to eq(value: 11_250)
         expect(todo.entry_for("UseCaseComplexity", "app/api/api/v1/redeem_templates.rb",
                               "Api::V1::RedeemTemplates#PATCH[0]"))
           .to eq(values: { "max_cone_node_millilog2" => 13000, "reach" => 142 })

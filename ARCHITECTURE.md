@@ -271,7 +271,7 @@ budgets. Everything reads the COMMITTED real-name cache; the reviewer never open
 
 ```
 base cache ──▶ Vintage ─┐
-                        ├──▶ Delta (ep-matched pairs) ──▶ RuleEngine (7 rules) ──▶ Findings
+                        ├──▶ Delta (ep-matched pairs) ──▶ RuleEngine (8 rules) ──▶ Findings
 head cache ──▶ Vintage ─┘                                        │
               Config (.archbuddy.yml v1) + Todo (value-pinned) ──┘
                                    Calibration (presenter-only) ──▶ formatters (terminal/markdown/json)
@@ -283,7 +283,7 @@ head cache ──▶ Vintage ─┘                                        │
 | `review/vintage.rb` / `review/vintage_source.rb` | One side of a comparison (base or head): nodes, ep-fold metrics, provenance. `VintageSource` resolves working-tree vs `--base-cache` vs git-ref sources. |
 | `review/graph.rb` | **The ep fold owns per-use-case metrics**: cone branching (Σlog2), mass, reach, files, depth, variety (V_now/V_floor → dividend) folded per entrypoint. Contributors are named **(file, symbol) from this client-side fold** — engine findings ids are anonymized and unusable for naming (the id-map stays out of reach). |
 | `review/delta.rb` | Ep-matched base↔head pairs: NEW / GROWN / SHRUNK / REMOVED / MATCHED classification, `net_log2`, review-surface (∪ of touched use cases), unreachable-touched disclosure. |
-| `review/rule_engine.rb` + `review/rules/` | The 7-rule business family: `UseCaseComplexity`, `UseCaseDividend`, `FirewallBreaches`, `ReviewSurface`, `ComplexityRatchet` (path budgets, never grandfathered), `ExponentialNode` (strictly above 2^5 = 32), `MultiplicativeGrowth`. One finding per ep per rule. |
+| `review/rule_engine.rb` + `review/rules/` | The 8-rule business family: `UseCaseComplexity`, `UseCaseDividend`, `FirewallBreaches`, `ReviewSurface`, `ComplexityRatchet` (path budgets, never grandfathered), `ExponentialNode` (strictly above 2^5 = 32), `MultiplicativeGrowth`, `ReusabilityScore` (v0.16: the engine-served −5..+5 score, fires at ≤ −4, advisory `:info`). One finding per ep per rule. |
 | `config.rb` + `config/` | `.archbuddy.yml` schema v1: presence activates gating, absence = advisory (exit 0). Validation errors name retired rules' successors. |
 | `review/calibration.rb` + `calibration/lines.rb` | **Presenter-only** study numbers (`builtin-study-v1` frozen exacts) + the honest-copy line renderer (provenance suffix exactly on lines quoting study values; bugfix caveat mandatory; `source: local`/`none` swap/suppress). Rules and exit paths never read calibration (grep-gated). |
 | `review/formatters/` | terminal / markdown / json renderers of the one ReviewContext; json emits the `archbuddy-diff-report/1` envelope. |

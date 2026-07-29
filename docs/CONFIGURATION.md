@@ -18,7 +18,8 @@ version: 1
 That bare file IS the starter policy: contains-Q4-node (warn) +
 dividend ≥ 32 (warn) + FirewallBreaches escape counts (info) + ReviewSurface
 disclosure + ExponentialNode / MultiplicativeGrowth (error) + ComplexityRatchet
-(error, no budgets configured) — gating at `fail_level: error`.
+(error, no budgets configured) + ReusabilityScore ≤ −4 (info, v0.16) — gating
+at `fail_level: error`.
 
 ## Full example
 
@@ -47,6 +48,9 @@ rules:
     max_escapes: 0          # strict >; severity info in BOTH modes
   ReviewSurface:
     max_use_cases: null     # disclosure-only by default
+  ReusabilityScore:
+    min_score: -4           # v0.16 engine score gate: fires at score <= -4 (info)
+    absorb_min_score: 5     # absorption disclosure line at absorb >= +5 (never a finding)
   MultiplicativeGrowth:
     max_increase_log2: 2
   ComplexityRatchet:
@@ -66,7 +70,7 @@ Globs are **target-relative** (the directory you lint, not your cwd) and use
 
 ## The rule family (business taxonomy)
 
-Seven rules, four kinds. `kind` decides the universe, the mode dispatch, and
+Eight rules, four kinds. `kind` decides the universe, the mode dispatch, and
 whether the todo applies (grandfatherable = node + use_case kinds only).
 
 | rule | kind | default | severity | parameters |
@@ -76,6 +80,7 @@ whether the todo applies (grandfatherable = node + use_case kinds only).
 | FirewallBreaches | use_case | enabled | info | `max_escapes` (0, strict >), `exclude_entrypoints` |
 | ReviewSurface | pr | enabled | warn | `max_use_cases` (null = disclosure only) |
 | ExponentialNode | node | enabled | error | `threshold_log2` (5, strict > 2^5 branches) |
+| ReusabilityScore | node | enabled | info | `min_score` (−4, fires at score ≤ min_score; min bound −5), `absorb_min_score` (5, gates the absorption disclosure line — never a finding) |
 | MultiplicativeGrowth | delta | enabled | error | `max_increase_log2` (2) |
 | ComplexityRatchet | delta | enabled | error | `budgets` ([]; each budget: `paths:` XOR `entrypoints:` + `max_increase_log2` + optional `severity`) |
 
@@ -87,6 +92,25 @@ entrypoints only).
 
 `own_branching_log2` is **reported, never thresholded** — no config key
 exists for it (ExponentialNode owns that tail; no double-fire).
+
+### ReusabilityScore (v0.16)
+
+The one rule whose value the client never computes: the −5..+5 per-function
+reusability score is **engine-served** (findings 1.9, engine ≥ 0.11.0) and
+stamped into the committed cache at analyze time. Negative = false
+reusability / extreme multiplexing — break it down before growing it;
+0 = equilibrium; positive = a routing point where callers converge and
+absorption is free at zero variety cost (the copy never claims callers have
+similar logic — that is not statically computable). The rule fires when a
+node's stamped `score` ≤ `min_score` (default −4, engine-published 2 dp
+values; `min_score` accepts down to −5) and the stamp is node-fresh; stale
+stamps degrade to a disclosure, never a finding and never a fabricated
+number. `absorb_min_score` (default +5) gates the separate
+absorption-headroom **disclosure line** — it reads the engine's advisory
+`absorb` key and never produces a finding. Default severity `:info` =
+advisory under the default fail level; opt into gating with
+`severity: error` + `fail_level: error`. Score model, formula constants,
+and worked examples: [`docs/REUSABILITY_SCORE.md`](REUSABILITY_SCORE.md).
 
 ### `exclude_entrypoints` (emission-only, anti-gaming)
 
@@ -242,21 +266,27 @@ timestamp). Two entry shapes:
 ```yaml
 version: 1
 tool: "archbuddy 0.13.0"
-rule_count: 2
+rule_count: 3
 node_count: 1
 rules:
   ExponentialNode:
     - node: "app/api/things.rb: Api::Things#update"
       value: 64                      # node kind: ONE raw integer (branches)
+  ReusabilityScore:
+    - node: "app/api/things.rb: Api::Things#update"
+      value: 11250                   # node kind: debt milli ((-score_raw × 1000).round)
   UseCaseComplexity:
     - node: "app/api/things.rb: Api::Things#update"
       values: { max_cone_node_millilog2: 6000 }   # use-case kind: per-metric map
 ```
 
 Values are raw integers: native counts (mass, depth, reach, files, escapes,
-branches) or **milli-log2** (`(log2 × 1000).round`) for `*_millilog2` keys —
-integer comparison only, no float ever enters the skip predicate. Generation
-records BREACHING components only, at their current values.
+branches), **milli-log2** (`(log2 × 1000).round`) for `*_millilog2` keys, or
+— for `ReusabilityScore` — **debt milli** (`(−score_raw × 1000).round`, a
+positive integer that grows as the node worsens, so regressing past the
+pinned value re-fires) — integer comparison only, no float ever enters the
+skip predicate. Generation records BREACHING components only, at their
+current values.
 
 Per-metric lifecycle (each set-threshold component independently): not
 breaching → counts toward healed; breaching + not recorded → fires;
@@ -264,9 +294,9 @@ breaching + current ≤ recorded → skip; breaching + current > recorded →
 re-fire (`worst cone node grew past grandfathered baseline 64 (2^6.0) → 128
 (2^7.0)`). One finding per (rule, entrypoint) aggregates the clauses.
 
-Grandfatherable: ExponentialNode, FirewallBreaches, UseCaseComplexity,
-UseCaseDividend. ComplexityRatchet / MultiplicativeGrowth / ReviewSurface are
-never grandfathered.
+Grandfatherable: ExponentialNode, FirewallBreaches, ReusabilityScore,
+UseCaseComplexity, UseCaseDividend. ComplexityRatchet / MultiplicativeGrowth /
+ReviewSurface are never grandfathered.
 
 Entrypoint renames: an ep rename is remove+add (measured metric-neutral —
 net Δ +0.000000 on a real rename PR); the todo entry heals and the new symbol

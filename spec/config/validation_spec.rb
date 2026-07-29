@@ -90,7 +90,8 @@ RSpec.describe Archbuddy::Config::Validator do
   end
 
   describe "exclude_entrypoints scoping (Q11)" do
-    %w[ExponentialNode ReviewSurface ComplexityRatchet MultiplicativeGrowth].each do |name|
+    %w[ExponentialNode ReusabilityScore ReviewSurface ComplexityRatchet
+       MultiplicativeGrowth].each do |name|
       it "rejects exclude_entrypoints on #{name}" do
         errors = errors_for("version: 1\nrules:\n  #{name}: { exclude_entrypoints: [\"X#y\"] }\n")
         expect(errors).to include(
@@ -203,6 +204,30 @@ RSpec.describe Archbuddy::Config::Validator do
                 max_increase_log2: -1.0
       YAML
       expect(errors_for(yaml)).to eq([])
+    end
+  end
+
+  describe "ReusabilityScore param typing (new v0.16 rows — the NEGATIVE min bound, X-4)" do
+    it "min_score: -5 (the exact bound) is accepted" do
+      expect(errors_for("version: 1\nrules:\n  ReusabilityScore: { min_score: -5 }\n")).to eq([])
+    end
+
+    it "min_score: -3 validates" do
+      expect(errors_for("version: 1\nrules:\n  ReusabilityScore: { min_score: -3 }\n")).to eq([])
+    end
+
+    it "min_score: null is valid (nullable)" do
+      expect(errors_for("version: 1\nrules:\n  ReusabilityScore: { min_score: null }\n")).to eq([])
+    end
+
+    it "min_score below the -5 bound is rejected with the >= -5 message" do
+      errors = errors_for("version: 1\nrules:\n  ReusabilityScore: { min_score: -5.5 }\n")
+      expect(errors.join).to include("rules.ReusabilityScore.min_score must be a number >= -5")
+    end
+
+    it "absorb_min_score negative is rejected (>= 0)" do
+      errors = errors_for("version: 1\nrules:\n  ReusabilityScore: { absorb_min_score: -1 }\n")
+      expect(errors.join).to include("rules.ReusabilityScore.absorb_min_score must be a number >= 0")
     end
   end
 

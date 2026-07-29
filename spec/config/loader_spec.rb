@@ -8,7 +8,8 @@ require "archbuddy/config"
 #
 # The "full example" below is the v0.15 re-base of the substrate R2-Q3
 # example (its v0.14 taxonomy and pre-R4 calibration sketch are superseded):
-# same structure, every schema surface exercised, the seven Q11 rules.
+# same structure, every schema surface exercised, the eight rules (Q11 + the
+# v0.16 ReusabilityScore).
 RSpec.describe Archbuddy::Config do
   FULL_EXAMPLE = <<~YAML
     version: 1
@@ -51,6 +52,11 @@ RSpec.describe Archbuddy::Config do
         severity: error
         threshold_log2: 5
         exclude: []
+      ReusabilityScore:
+        enabled: true
+        severity: info
+        min_score: -4
+        absorb_min_score: 5
       MultiplicativeGrowth:
         enabled: true
         severity: error
@@ -193,11 +199,32 @@ RSpec.describe Archbuddy::Config do
         config = described_class.load(target_root: dir)
         expect(config.gating?).to be(true)
         expect(config.effective_fail_level).to eq(:error)
-        # The Q11 starter: all seven default-enabled, Q4-trigger + dividend>=32 + FB-info live.
-        expect(config.enabled_rules(mode: :diff).size).to eq(7)
+        # The starter: all eight default-enabled, Q4-trigger + dividend>=32 + FB-info
+        # + score<=-4-info live.
+        expect(config.enabled_rules(mode: :diff).size).to eq(8)
         expect(config.rule_for("UseCaseComplexity", file: nil).max_cone_node_log2).to eq(5.0)
         expect(config.rule_for("UseCaseDividend", file: nil).min_dividend).to eq(32)
         expect(config.rule_for("FirewallBreaches", file: nil).severity).to eq(:info)
+        expect(config.rule_for("ReusabilityScore", file: nil).min_score).to eq(-4)
+        expect(config.rule_for("ReusabilityScore", file: nil).severity).to eq(:info)
+      end
+    end
+
+    it "a config enabling/disabling ReusabilityScore round-trips the loader (v0.16)" do
+      yaml = <<~YAML
+        version: 1
+        rules:
+          ReusabilityScore:
+            enabled: false
+            min_score: -3
+      YAML
+      with_config(yaml) do |dir|
+        config = described_class.load(target_root: dir)
+        rule = config.rule_for("ReusabilityScore", file: nil)
+        expect(rule.enabled).to be(false)
+        expect(rule.min_score).to eq(-3)
+        expect(rule.absorb_min_score).to eq(5) # untouched param keeps its default
+        expect(config.enabled_rules(mode: :diff)).not_to include("ReusabilityScore")
       end
     end
 

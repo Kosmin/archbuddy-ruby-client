@@ -7,7 +7,8 @@ require_relative "config/path_matcher"
 require_relative "config/validator"
 
 module Archbuddy
-  # `.archbuddy.yml` schema v1 (v0.15 — the seven Q11 rules): loader,
+  # `.archbuddy.yml` schema v1 (v0.16 — the eight rules: Q11 +
+  # ReusabilityScore): loader,
   # precedence (CLI > file > defaults, L4/L3), and per-file effective rule
   # resolution (last-match-wins overrides).
   #

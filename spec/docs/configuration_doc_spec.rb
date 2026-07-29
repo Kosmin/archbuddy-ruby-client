@@ -12,7 +12,7 @@ RSpec.describe "docs/CONFIGURATION.md drift guard" do
     @doc ||= File.read(CONFIGURATION_DOC, encoding: "UTF-8")
   end
 
-  it "names all SEVEN rules" do
+  it "names all EIGHT rules" do
     Archbuddy::Config::Schema::RULES.each_key do |rule|
       expect(doc).to include(rule), "rule #{rule} missing from CONFIGURATION.md"
     end
