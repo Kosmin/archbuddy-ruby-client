@@ -186,6 +186,9 @@ module Archbuddy
           quadrant: raw["quadrant"],
           leverage: raw["leverage"],
           collapse: raw["collapse"],
+          score: raw["score"],
+          score_band: raw["score_band"],
+          score_raw: raw["score_raw"],
           serializer_version: serializer_version,
           keys_present: raw.keys.sort.freeze
         )

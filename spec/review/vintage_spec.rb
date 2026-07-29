@@ -7,13 +7,15 @@ require "archbuddy/review"
 # empty-vintage degenerate.
 RSpec.describe Archbuddy::Review::Vintage do
   def node(file:, symbol:, branches: 1, entrypoint: false, toll_booth: nil,
-           escapes: false, outcome_arity: 1, keys: nil)
+           escapes: false, outcome_arity: 1, keys: nil,
+           score: nil, score_band: nil, score_raw: nil)
     described_class::Node.new(
       file: file, symbol: symbol, kind: "function", klass: nil,
       branches: branches, decisions: 0, entrypoint: entrypoint,
       entrypoint_kind: entrypoint ? "grape" : nil, escapes: escapes,
       outcome_arity: outcome_arity, toll_booth: toll_booth, quadrant: nil,
-      leverage: nil, collapse: nil, serializer_version: 5,
+      leverage: nil, collapse: nil, score: score, score_band: score_band,
+      score_raw: score_raw, serializer_version: 5,
       keys_present: keys || %w[branches symbol]
     )
   end
@@ -84,6 +86,32 @@ RSpec.describe Archbuddy::Review::Vintage do
         nodes: [node(file: "a.rb", symbol: "A#x")], edges: []
       )
       expect(collect_only.analyzed?).to be(false)
+    end
+  end
+
+  describe "score members (v0.16 T5)" do
+    it "carries the engine-published triple verbatim; nil when unstamped" do
+      scored = node(file: "a.rb", symbol: "A#m", score: -4.52, score_band: -5,
+                    score_raw: -18.75,
+                    keys: %w[branches symbol score score_band score_raw])
+      expect(scored.score).to eq(-4.52)
+      expect(scored.score_band).to eq(-5)
+      expect(scored.score_raw).to eq(-18.75)
+
+      bare = node(file: "a.rb", symbol: "A#n")
+      expect(bare.score).to be_nil
+      expect(bare.score_band).to be_nil
+      expect(bare.score_raw).to be_nil
+      expect(bare.keys_present).not_to include("score", "score_band", "score_raw")
+    end
+
+    it "does not widen analyzed? — the R31 gate stays toll_booth-driven" do
+      score_only = described_class.new(
+        nodes: [node(file: "a.rb", symbol: "A#m", score: -1.0, score_band: -1,
+                     score_raw: -1.5)],
+        edges: []
+      )
+      expect(score_only.analyzed?).to be(false)
     end
   end
 

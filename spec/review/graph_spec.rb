@@ -20,7 +20,8 @@ RSpec.describe Archbuddy::Review::Graph do
       branches: branches, decisions: 0, entrypoint: entrypoint,
       entrypoint_kind: entrypoint_kind, escapes: escapes,
       outcome_arity: outcome_arity, toll_booth: nil, quadrant: nil,
-      leverage: nil, collapse: nil, serializer_version: 5,
+      leverage: nil, collapse: nil, score: nil, score_band: nil,
+      score_raw: nil, serializer_version: 5,
       keys_present: %w[branches symbol]
     )
   end

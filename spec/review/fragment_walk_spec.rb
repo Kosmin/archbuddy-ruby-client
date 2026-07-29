@@ -48,6 +48,14 @@ RSpec.describe Archbuddy::Review::FragmentWalk do
       expect(vintage.meta[:serializer_versions]).to eq([5])
     end
 
+    it "leaves score members nil AND absent from keys_present (pre-v6 fragments, v0.16 T5)" do
+      node = vintage["app/api/widgets.rb", "Api::Widgets#GET[0]"]
+      expect(node.score).to be_nil
+      expect(node.score_band).to be_nil
+      expect(node.score_raw).to be_nil
+      expect(node.keys_present).not_to include("score", "score_band", "score_raw")
+    end
+
     it "attributes shard-dir nodes to the SHARDED FILE's path (the reassemble drop)" do
       %w[Api::WidgetHelper#lookup Api::WidgetOther#noop].each do |sym|
         expect(vintage["app/models/widget_helper.rb", sym]).not_to be_nil
@@ -81,6 +89,102 @@ RSpec.describe Archbuddy::Review::FragmentWalk do
       expect(node.escapes).to be_nil
       expect(node.outcome_arity).to be_nil
       expect(vintage.edges?).to be(false)
+    end
+  end
+
+  describe "v6 score stamps (v0.16 T5 — findings-1.9 names verbatim, G1)" do
+    # One cache mixing a v6 fragment (score triple stamped) with a v5 fragment
+    # (incremental collects can leave mixed-generation fragments in one cache;
+    # evaluability stays per-node key-presence, never serializer-inferred).
+    def write_mixed_cache(dir)
+      File.write(File.join(dir, "archbuddy-findings.json"), JSON.generate(
+                                                              "serializer_version" => 6,
+                                                              "sources" => {
+                                                                "app/api/redeems.rb" => { "path" => ".archbuddy/app/api/redeems.rb.json", "shard_mode" => "single" },
+                                                                "lib/legacy_mixed.rb" => { "path" => ".archbuddy/lib/legacy_mixed.rb.json", "shard_mode" => "single" }
+                                                              }
+                                                            ))
+      FileUtils.mkdir_p(File.join(dir, ".archbuddy/app/api"))
+      FileUtils.mkdir_p(File.join(dir, ".archbuddy/lib"))
+      File.write(File.join(dir, ".archbuddy/app/api/redeems.rb.json"), JSON.generate(
+                                                                         "serializer_version" => 6, "file" => "app/api/redeems.rb",
+                                                                         "nodes" => [
+                                                                           { "symbol" => "Api::Redeems#PATCH[0]", "kind" => "endpoint", "class" => "Api::Redeems",
+                                                                             "branches" => 65_536, "decisions" => 16, "entrypoint" => true, "entrypoint_kind" => "grape",
+                                                                             "escapes" => false, "outcome_arity" => 1, "toll_booth" => false, "quadrant" => "underused",
+                                                                             "leverage" => 16.0, "collapse" => 65_536.0,
+                                                                             "score" => -4.52, "score_band" => -5, "score_raw" => -18.75 },
+                                                                           { "symbol" => "Api::Redeems#collection", "kind" => "function", "class" => "Api::Redeems",
+                                                                             "branches" => 1, "decisions" => 0, "entrypoint" => false, "entrypoint_kind" => nil,
+                                                                             "escapes" => false, "outcome_arity" => 1, "toll_booth" => true, "quadrant" => "bypass_candidate",
+                                                                             "leverage" => 0.0, "collapse" => 1.0,
+                                                                             "score" => 4.07, "score_band" => 4, "score_raw" => 5.044 },
+                                                                           { "symbol" => "Api::Redeems#unscored", "kind" => "function", "class" => "Api::Redeems",
+                                                                             "branches" => 2, "decisions" => 1, "entrypoint" => false, "entrypoint_kind" => nil,
+                                                                             "escapes" => false, "outcome_arity" => 1, "toll_booth" => nil, "quadrant" => nil,
+                                                                             "leverage" => nil, "collapse" => nil,
+                                                                             "score" => nil, "score_band" => nil, "score_raw" => nil }
+                                                                         ],
+                                                                         "edges" => []
+                                                                       ))
+      File.write(File.join(dir, ".archbuddy/lib/legacy_mixed.rb.json"), JSON.generate(
+                                                                          "serializer_version" => 5, "file" => "lib/legacy_mixed.rb",
+                                                                          "nodes" => [
+                                                                            { "symbol" => "Legacy#run", "kind" => "function", "class" => "Legacy",
+                                                                              "branches" => 2, "decisions" => 1, "entrypoint" => false, "entrypoint_kind" => nil,
+                                                                              "escapes" => false, "outcome_arity" => 1, "toll_booth" => nil, "quadrant" => nil,
+                                                                              "leverage" => nil, "collapse" => nil }
+                                                                          ],
+                                                                          "edges" => []
+                                                                        ))
+    end
+
+    it "populates score members verbatim from v6 stamps (both poles, 16-key evaluability)" do
+      Dir.mktmpdir do |dir|
+        write_mixed_cache(dir)
+        vintage, = read_capturing_stderr(dir)
+
+        monster = vintage["app/api/redeems.rb", "Api::Redeems#PATCH[0]"]
+        expect(monster.score).to eq(-4.52)
+        expect(monster.score_band).to eq(-5)
+        expect(monster.score_raw).to eq(-18.75)
+        expect(monster.keys_present).to include("score", "score_band", "score_raw")
+        expect(monster.keys_present.size).to eq(16)
+        expect(monster.serializer_version).to eq(6)
+
+        booth = vintage["app/api/redeems.rb", "Api::Redeems#collection"]
+        expect(booth.score).to eq(4.07)
+        expect(booth.score_band).to eq(4)
+        expect(booth.score_raw).to eq(5.044)
+      end
+    end
+
+    it "keeps null-valued v6 score keys PRESENT with nil members (analyzed, node unscored — L6)" do
+      Dir.mktmpdir do |dir|
+        write_mixed_cache(dir)
+        vintage, = read_capturing_stderr(dir)
+
+        unscored = vintage["app/api/redeems.rb", "Api::Redeems#unscored"]
+        expect(unscored.score).to be_nil
+        expect(unscored.score_band).to be_nil
+        expect(unscored.score_raw).to be_nil
+        expect(unscored.keys_present).to include("score", "score_band", "score_raw")
+      end
+    end
+
+    it "reads mixed-generation caches per node: the v5 fragment's node lacks the keys" do
+      Dir.mktmpdir do |dir|
+        write_mixed_cache(dir)
+        vintage, = read_capturing_stderr(dir)
+
+        legacy = vintage["lib/legacy_mixed.rb", "Legacy#run"]
+        expect(legacy.score).to be_nil
+        expect(legacy.score_band).to be_nil
+        expect(legacy.score_raw).to be_nil
+        expect(legacy.keys_present).not_to include("score", "score_band", "score_raw")
+        expect(legacy.serializer_version).to eq(5)
+        expect(vintage.meta[:serializer_versions]).to eq([5, 6])
+      end
     end
   end
 
