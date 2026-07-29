@@ -368,8 +368,24 @@ module Archbuddy
       #   extraction        — top-k extraction candidates (collapse DESC),
       #                       each {symbol, collapse, leverage}.
       #   leverage          — the leverage distribution {mean, median, count}.
+      #
+      # v0.16 (v6/1.9): two ADDITIVE score members (both nil on every
+      # pre-1.9/v5 doc — absence, never a zero-struct):
+      #   score_distribution — the engine's published-score summary
+      #                        {n_scored, n_null, zero_share, bands} copied
+      #                        VERBATIM (D17). The engine honest-blank form
+      #                        (n_scored 0, zero_share null, all-zero bands)
+      #                        parses to a PRESENT struct carrying its nils
+      #                        verbatim — renderers drop clauses (T3/T4),
+      #                        the parser never fabricates "0 scored".
+      #   by_class           — per-class signed-extremes rows (Q4), engine-
+      #                        published order preserved, each carrying the
+      #                        ENGINE-computed negative-first dominance
+      #                        `headline` (C-3 — published precisely so no
+      #                        consumer re-implements the rule).
       Reusability = Struct.new(
         :reuse_index, :unshared_fraction, :toll_booths, :extraction, :leverage,
+        :score_distribution, :by_class,
         keyword_init: true
       )
 
@@ -384,6 +400,26 @@ module Archbuddy
 
       # {mean, median, count} — the leverage distribution stat summary.
       Reusability::LeverageStats = Struct.new(:mean, :median, :count, keyword_init: true)
+
+      # v0.16 (v6/1.9): {n_scored, n_null, zero_share, bands} — the findings
+      # 1.9 published-score distribution, VERBATIM (D17). `bands` stays the
+      # raw 11-key "-5".."5" histogram Hash (the DepthStats by_category
+      # posture — committed data product; not reshaped client-side).
+      Reusability::ScoreDistribution = Struct.new(
+        :n_scored, :n_null, :zero_share, :bands,
+        keyword_init: true
+      )
+
+      # v0.16 (v6/1.9): one per-class signed-extremes row. The six stat keys
+      # {min, max, count, n_negative, n_positive, headline} are VERBATIM
+      # engine values (D17); `headline` is the ENGINE's negative-first
+      # dominance verdict (min if ≤ −1, else max if ≥ +1, else 0.0) — copied,
+      # NEVER re-derived client-side (C-3/D-P1.5). `count` always carried
+      # (the Q4 small-class caveat).
+      Reusability::ClassRow = Struct.new(
+        :symbol, :min, :max, :count, :n_negative, :n_positive, :headline,
+        keyword_init: true
+      )
 
       module_function
 
@@ -609,23 +645,31 @@ module Archbuddy
 
       # v0.13: committed aggregate TOP-LEVEL `reusability` (v5) — NIL on
       # absent/empty (v1..v4 docs). Worst-list entries carry `symbol`
-      # (de-anonymized at WRITE — no resolver needed).
+      # (de-anonymized at WRITE — no resolver needed). v0.16 (v6): the
+      # `by_class` rows are ALSO already real-name (Cache::Writer resolved
+      # each cls_ key at write time — `class` key per row).
       def reusability_from_aggregate(doc)
         block = (doc || {})["reusability"]
         return nil if block.nil? || block.empty?
 
-        build_reusability(block) { |entry| entry["symbol"] }
+        build_reusability(block, by_class: by_class_from_aggregate(block["by_class"])) do |entry|
+          entry["symbol"]
+        end
       end
 
       # Legacy variant — `scores.reusability_compass` off an opaque
-      # findings-1.8 doc, worst-list `node` ids resolved via the SAME id-map
-      # join (the blast_radius_from_findings pattern; a missing id degrades to
-      # the opaque id, never raises). NIL on pre-1.8 docs.
+      # findings-1.8/1.9 doc, worst-list `node` ids resolved via the SAME
+      # id-map join (the blast_radius_from_findings pattern; a missing id
+      # degrades to the opaque id, never raises). NIL on pre-1.8 docs.
+      # v0.16 (1.9): the per-class block lives at the DOC TOP LEVEL
+      # (`reusability_by_class`, a SIBLING of `scores`, keyed by cls_ ids) —
+      # parsed here so both producers yield identical structs.
       def reusability_from_findings(findings_doc, resolver = nil)
         block = ((findings_doc || {})["scores"] || {})["reusability_compass"]
         return nil if block.nil? || block.empty?
 
-        build_reusability(block) do |entry|
+        by_class = by_class_from_findings((findings_doc || {})["reusability_by_class"], resolver)
+        build_reusability(block, by_class: by_class) do |entry|
           id  = entry["node"]
           loc = resolver ? resolver.resolve(id) : nil
           loc&.symbol || id
@@ -636,7 +680,12 @@ module Archbuddy
       # committed and findings spellings mirror 1:1 apart from the worst-list
       # symbol/node key, supplied by the yielded block). Everything VERBATIM
       # (D17); honest blanks parse to nil members, never fabricated zeros.
-      def build_reusability(block)
+      # v0.16: `score_distribution` rides BOTH producer shapes under the SAME
+      # spelling (C-3 verbatim law — the v6 writer folds the findings-1.9
+      # block 1:1); `by_class` is producer-specific (committed rows are
+      # real-name, findings rows are top-level cls_-keyed) so each producer
+      # builds its rows and passes them in.
+      def build_reusability(block, by_class: nil)
         ri = block["reuse_index"]
         lv = block["leverage"]
         Reusability.new(
@@ -654,7 +703,65 @@ module Archbuddy
             )
           end,
           leverage:
-            lv.is_a?(Hash) ? Reusability::LeverageStats.new(mean: lv["mean"], median: lv["median"], count: lv["count"]) : nil
+            lv.is_a?(Hash) ? Reusability::LeverageStats.new(mean: lv["mean"], median: lv["median"], count: lv["count"]) : nil,
+          score_distribution: score_distribution_from(block["score_distribution"]),
+          by_class: by_class
+        )
+      end
+
+      # v0.16: {n_scored, n_null, zero_share, bands} → ScoreDistribution;
+      # nil on an absent/non-hash/empty block (pre-1.9 findings / v5
+      # aggregate — absence, never a zero-struct). The engine honest-blank
+      # form (empty scored population ⇒ zero_share null) parses to a PRESENT
+      # struct carrying its nils verbatim — never a fabricated 0.0 (L6).
+      def score_distribution_from(sd)
+        return nil unless sd.is_a?(Hash) && !sd.empty?
+
+        Reusability::ScoreDistribution.new(
+          n_scored:   sd["n_scored"],
+          n_null:     sd["n_null"],
+          zero_share: sd["zero_share"],
+          bands:      sd["bands"]
+        )
+      end
+
+      # v0.16: COMMITTED v6 `reusability.by_class` rows (already real-name at
+      # WRITE — each row carries `class`) → [ClassRow]; nil on absent/[]
+      # (absence, never an empty-list member — the T2 degenerate rule).
+      def by_class_from_aggregate(rows)
+        return nil if rows.nil? || rows.empty?
+
+        rows.map { |row| class_row(row["class"], row) }
+      end
+
+      # v0.16: FINDINGS-1.9 TOP-LEVEL `reusability_by_class` map
+      # ({cls_id => stats}, engine-published order): cls_ ids resolve through
+      # the SAME id-map join (class_rollup descriptors, IdMapResolver#resolve);
+      # an UNMAPPED id degrades to the bare opaque cls_ id — the writer's
+      # `class_symbol` degradation EXACTLY, so both producers stay
+      # struct-identical even when degraded (never raises, and never an
+      # `<external …>` placeholder: cls_ ids carry no app semantics to hint at).
+      def by_class_from_findings(by_class, resolver)
+        return nil if by_class.nil? || by_class.empty?
+
+        by_class.map do |cls_id, row|
+          loc = resolver ? resolver.resolve(cls_id) : nil
+          class_row(loc&.resolved? ? loc.symbol : cls_id, row)
+        end
+      end
+
+      # One per-class signed-extremes row — all six stat keys VERBATIM (D17;
+      # `headline` is the engine's negative-first dominance verdict, copied,
+      # never re-derived — C-3).
+      def class_row(symbol, row)
+        Reusability::ClassRow.new(
+          symbol:     symbol,
+          min:        row["min"],
+          max:        row["max"],
+          count:      row["count"],
+          n_negative: row["n_negative"],
+          n_positive: row["n_positive"],
+          headline:   row["headline"]
         )
       end
 

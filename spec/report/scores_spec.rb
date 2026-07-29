@@ -778,3 +778,193 @@ RSpec.describe "v0.13 Reusability struct + parsers (V13-C)" do
     expect(ru.toll_booths.first.mass_savings).to be_nil
   end
 end
+
+RSpec.describe "v0.16 Reusability score members (T2/C-3)" do
+  S = Archbuddy::Report::Scores unless defined?(S)
+
+  # The findings-1.9 `reusability_compass.score_distribution` stat block
+  # (D-P1.6 shape — 11 fixed band counters, never sparse). Copied VERBATIM
+  # by the v6 writer under the SAME key (C-3), so ONE fixture serves both
+  # producer shapes.
+  def score_distribution_block
+    {
+      "n_scored"   => 42,
+      "n_null"     => 3,
+      "zero_share" => 0.7857,
+      "bands"      => {
+        "-5" => 1, "-4" => 0, "-3" => 1, "-2" => 2, "-1" => 1,
+        "0" => 33, "1" => 1, "2" => 1, "3" => 1, "4" => 0, "5" => 1
+      }
+    }
+  end
+
+  # The findings-1.9 TOP-LEVEL `reusability_by_class` map (cls_-keyed,
+  # engine-published order). Values echo the P3 worked examples: a monster
+  # class whose headline == min (Q4 negative-first dominance) and a booth
+  # class whose headline == max.
+  def by_class_map
+    {
+      "cls_aaaaaaaaaaaa" => {
+        "min" => -4.52, "max" => 0.0, "count" => 12,
+        "n_negative" => 3, "n_positive" => 0, "headline" => -4.52
+      },
+      "cls_bbbbbbbbbbbb" => {
+        "min" => 0.0, "max" => 4.07, "count" => 5,
+        "n_negative" => 0, "n_positive" => 2, "headline" => 4.07
+      }
+    }
+  end
+
+  # The shared compass scalars, node-keyed (findings) — the v5 block plus
+  # the 1.9 distribution.
+  def findings_19_doc
+    {
+      "scores" => {
+        "reusability_compass" => {
+          "reuse_index"        => { "mean" => 2.4, "median" => 1.0 },
+          "unshared_fraction"  => 0.5,
+          "toll_booths"        => [{ "node" => "n_1", "blast" => 4, "mass_savings" => 4 }],
+          "extraction"         => [{ "node" => "n_2", "collapse" => 16.0, "leverage" => 32.0 }],
+          "leverage"           => { "mean" => 3.1, "median" => 2.0, "count" => 107 },
+          "score_distribution" => score_distribution_block
+        }
+      },
+      "reusability_by_class" => by_class_map
+    }
+  end
+
+  # The v6 committed-aggregate twin: exactly what Cache::Writer's
+  # reusability_block + by_class_rows folds emit from findings_19_doc under
+  # the resolver below (real-name symbols, `class` key, ARRAY rows in
+  # engine-published order, distribution VERBATIM).
+  def aggregate_v6_doc
+    {
+      "reusability" => {
+        "reuse_index"        => { "mean" => 2.4, "median" => 1.0 },
+        "unshared_fraction"  => 0.5,
+        "toll_booths"        => [{ "symbol" => "Foo#booth", "blast" => 4, "mass_savings" => 4 }],
+        "extraction"         => [{ "symbol" => "Foo#extract_me", "collapse" => 16.0, "leverage" => 32.0 }],
+        "leverage"           => { "mean" => 3.1, "median" => 2.0, "count" => 107 },
+        "score_distribution" => score_distribution_block,
+        "by_class"           => [
+          { "class" => "Api::V1::RedeemTemplates", "min" => -4.52, "max" => 0.0, "count" => 12,
+            "n_negative" => 3, "n_positive" => 0, "headline" => -4.52 },
+          { "class" => "Api::V1::Locations", "min" => 0.0, "max" => 4.07, "count" => 5,
+            "n_negative" => 0, "n_positive" => 2, "headline" => 4.07 }
+        ]
+      }
+    }
+  end
+
+  def resolver
+    Archbuddy::Report::Reconnect::IdMapResolver.new(
+      "ids" => {
+        "n_1" => { "symbol" => "Foo#booth", "file" => "a.rb", "line" => 1 },
+        "n_2" => { "symbol" => "Foo#extract_me", "file" => "a.rb", "line" => 9 },
+        "cls_aaaaaaaaaaaa" => { "symbol" => "Api::V1::RedeemTemplates", "kind" => "class_rollup" },
+        "cls_bbbbbbbbbbbb" => { "symbol" => "Api::V1::Locations", "kind" => "class_rollup" }
+      }
+    )
+  end
+
+  it "parses BOTH producers to IDENTICAL structs (v6 committed fold ≡ findings-1.9 + id-map)" do
+    from_agg  = S.reusability_from_aggregate(aggregate_v6_doc)
+    from_find = S.reusability_from_findings(findings_19_doc, resolver)
+    expect(from_find).to eq(from_agg)
+    expect(from_agg.score_distribution).to be_a(S::Reusability::ScoreDistribution)
+    expect(from_agg.by_class.first).to be_a(S::Reusability::ClassRow)
+  end
+
+  it "parses the distribution VERBATIM (D17 — every scalar + the 11-key bands histogram untouched)" do
+    sd = S.reusability_from_findings(findings_19_doc, resolver).score_distribution
+    expect(sd.n_scored).to eq(42)
+    expect(sd.n_null).to eq(3)
+    expect(sd.zero_share).to eq(0.7857)
+    expect(sd.bands).to eq(score_distribution_block["bands"])
+    expect(sd.bands.keys.length).to eq(11) # fixed shape, never sparse
+  end
+
+  it "by_class rows carry all six stat keys + the ENGINE headline verbatim, engine order preserved" do
+    rows = S.reusability_from_aggregate(aggregate_v6_doc).by_class
+    expect(rows.map(&:symbol)).to eq(%w[Api::V1::RedeemTemplates Api::V1::Locations])
+    monster = rows.first
+    expect(monster.min).to eq(-4.52)
+    expect(monster.max).to eq(0.0)
+    expect(monster.count).to eq(12)
+    expect(monster.n_negative).to eq(3)
+    expect(monster.n_positive).to eq(0)
+    expect(monster.headline).to eq(-4.52) # negative-first dominance == min (Q4)
+    expect(rows.last.headline).to eq(4.07)
+  end
+
+  it "headline is COPIED, never re-derived — a row whose headline is neither min nor max survives intact" do
+    # Engine equilibrium form: |extremes| < 1 ⇒ headline 0.0 (min would read
+    # −0.5 under any client-side min-first re-derivation — C-3 guards this).
+    doc = aggregate_v6_doc
+    doc["reusability"]["by_class"] = [
+      { "class" => "Api::V1::Quiet", "min" => -0.5, "max" => 0.5, "count" => 4,
+        "n_negative" => 0, "n_positive" => 0, "headline" => 0.0 }
+    ]
+    row = S.reusability_from_aggregate(doc).by_class.first
+    expect(row.headline).to eq(0.0)
+    expect(row.min).to eq(-0.5)
+  end
+
+  it "pre-1.9 / v5 docs ⇒ nil score members on BOTH producers (back-compat, absence never zero-structs)" do
+    v5_block = {
+      "reuse_index"       => { "mean" => 2.4, "median" => 1.0 },
+      "unshared_fraction" => 0.5,
+      "toll_booths"       => [],
+      "extraction"        => [],
+      "leverage"          => { "mean" => 3.1, "median" => 2.0, "count" => 107 }
+    }
+    agg = S.reusability_from_aggregate("reusability" => v5_block)
+    expect(agg.score_distribution).to be_nil
+    expect(agg.by_class).to be_nil
+    find = S.reusability_from_findings({ "scores" => { "reusability_compass" => v5_block } }, nil)
+    expect(find.score_distribution).to be_nil
+    expect(find.by_class).to be_nil
+    expect(find).to eq(agg) # producer parity holds on the nil form too
+  end
+
+  it "by_class = [] / {} ⇒ nil member (not an empty struct/list — the T2 degenerate rule)" do
+    doc = aggregate_v6_doc
+    doc["reusability"]["by_class"] = []
+    expect(S.reusability_from_aggregate(doc).by_class).to be_nil
+
+    find_doc = findings_19_doc
+    find_doc["reusability_by_class"] = {}
+    expect(S.reusability_from_findings(find_doc, resolver).by_class).to be_nil
+  end
+
+  it "the engine honest-blank distribution parses PRESENT with nils verbatim (never dropped, never 0.0)" do
+    blank = {
+      "n_scored"   => 0,
+      "n_null"     => 7,
+      "zero_share" => nil,
+      "bands"      => score_distribution_block["bands"].transform_values { 0 }
+    }
+    doc = findings_19_doc
+    doc["scores"]["reusability_compass"]["score_distribution"] = blank
+    sd = S.reusability_from_findings(doc, resolver).score_distribution
+    expect(sd).not_to be_nil
+    expect(sd.n_scored).to eq(0)
+    expect(sd.zero_share).to be_nil # honest blank, never a fabricated 0.0
+    expect(sd.bands.values.sum).to eq(0)
+  end
+
+  it "an unmapped cls_ id degrades to the BARE opaque id (writer class_symbol parity; never raises)" do
+    doc = findings_19_doc
+    doc["reusability_by_class"] = {
+      "cls_gone000gone" => { "min" => -2.0, "max" => 0.0, "count" => 2,
+                             "n_negative" => 1, "n_positive" => 0, "headline" => -2.0 }
+    }
+    with_empty_map = S.reusability_from_findings(
+      doc, Archbuddy::Report::Reconnect::IdMapResolver.new("ids" => {})
+    )
+    expect(with_empty_map.by_class.first.symbol).to eq("cls_gone000gone")
+    without = S.reusability_from_findings(doc, nil)
+    expect(without.by_class.first.symbol).to eq("cls_gone000gone")
+    expect(without.by_class.first.headline).to eq(-2.0)
+  end
+end
