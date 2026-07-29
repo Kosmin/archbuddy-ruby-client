@@ -161,6 +161,30 @@ module Archbuddy
         end
       end
 
+      # Cone app nodes of one entrypoint SYMBOL: winning payloads over the
+      # reflexive forward reach, sorted (file, symbol) asc — EXACTLY the set
+      # `ep_metrics_row` folds (v0.16 extraction seam, byte-neutral,
+      # parity-spec-gated). Public for the score rollup (D-C1): consumers
+      # SELECT engine-published score stamps over this set; the graph never
+      # computes or carries a score. Unknown/absent symbol ⇒ [] (no seed ⇒
+      # no cone — never a fabricated one). Memoized per symbol.
+      # @return [Array<Vintage::Node>] frozen
+      def cone_nodes(ep_symbol)
+        @cone_nodes ||= {}
+        @cone_nodes[ep_symbol] ||= begin
+          build!
+          if @comp_of.key?(ep_symbol)
+            reachable_comps(@comp_of[ep_symbol])
+              .flat_map { |c| @components[c].select { |s| @node_by_symbol.key?(s) } }
+              .map { |s| @node_by_symbol[s] }
+              .sort_by { |n| [n.file.to_s, n.symbol.to_s] }
+              .freeze
+          else
+            EMPTY
+          end
+        end
+      end
+
       # {nodes:, share:, files:} of in-tree nodes outside every ep cone —
       # nil when the graph has zero eps (Q8: the fold NEVER interprets an
       # empty seed set as "everything is unreachable").
@@ -471,10 +495,7 @@ module Archbuddy
       # ---- the per-ep row ----------------------------------------------------
 
       def ep_metrics_row(ep)
-        comps = reachable_comps(@comp_of[ep.symbol])
-        cone = comps.flat_map { |c| @components[c].select { |s| @node_by_symbol.key?(s) } }
-                    .map { |s| @node_by_symbol[s] }
-                    .sort_by { |n| [n.file.to_s, n.symbol.to_s] }
+        cone = cone_nodes(ep.symbol)
 
         ranked = cone.select { |n| valid_branches?(n) }
                      .sort_by { |n| [-Math.log2(n.branches), n.file.to_s, n.symbol.to_s] }

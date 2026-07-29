@@ -18,6 +18,7 @@ end
 require_relative "review/vintage"
 require_relative "review/fragment_walk"
 require_relative "review/graph"
+require_relative "review/score_rollup"
 require_relative "review/git"
 require_relative "review/collector"
 require_relative "review/delta"

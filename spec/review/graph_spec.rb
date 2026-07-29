@@ -153,6 +153,43 @@ RSpec.describe Archbuddy::Review::Graph do
     end
   end
 
+  describe "cone_nodes (v0.16 public extraction seam — byte-neutral, D-C1)" do
+    let(:vintage) { Archbuddy::Review::FragmentWalk.read(File.join(FIXTURES, "v5_small")) }
+    let(:graph) { vintage.graph }
+
+    it "returns EXACTLY the nodes ep_metrics_row consumed, order pinned (file, symbol) asc" do
+      cone = graph.cone_nodes("Api::Widgets#GET[0]")
+      expect(cone.map { |n| [n.file, n.symbol] }).to eq(
+        [["app/api/widgets.rb", "Api::Widgets#GET[0]"],
+         ["app/models/widget_helper.rb", "Api::WidgetHelper#lookup"]]
+      )
+
+      row = graph.ep_metrics[["app/api/widgets.rb", "Api::Widgets#GET[0]"]]
+      expect(cone.size).to eq(row.reach)
+      expect(cone.size).to eq(row.cone_size)
+      expect(cone.map(&:file).uniq.size).to eq(row.files)
+      expect(cone.select { |n| n.escapes == true }
+                 .map { |n| { file: n.file, symbol: n.symbol } })
+        .to eq(row.escapes_in_cone)
+    end
+
+    it "is reused by ep_metrics (one cone construction per ep — the Q9 posture)" do
+      # v5_small has exactly two eps: Api::Widgets#GET[0] and SyncJob#perform.
+      expect(graph).to receive(:cone_nodes).twice.and_call_original
+      expect(graph.ep_metrics.size).to eq(2)
+    end
+
+    it "memoizes per symbol (same frozen object on every call)" do
+      cone = graph.cone_nodes("Api::Widgets#GET[0]")
+      expect(graph.cone_nodes("Api::Widgets#GET[0]")).to equal(cone)
+      expect(cone).to be_frozen
+    end
+
+    it "returns [] for an unknown/absent symbol (no seed => no cone, never fabricated)" do
+      expect(graph.cone_nodes("No::Such#symbol")).to eq([])
+    end
+  end
+
   describe "one-computation (Q9): the subtree fold runs EXACTLY once" do
     it "shares the memo between #subtree_log2_by_ep and #ep_metrics" do
       vintage = Archbuddy::Review::FragmentWalk.read(File.join(FIXTURES, "v5_small"))
