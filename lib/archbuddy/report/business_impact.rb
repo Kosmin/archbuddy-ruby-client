@@ -17,6 +17,8 @@ module Archbuddy
     #                                  UNGRADED, median-first (L15)
     #   rc  reuse footer             — NEW Reusability Compass line (1.8),
     #                                  UNGRADED, ADVISORY wording (v0.13)
+    #   rs  reusability-score footer — NEW score-distribution line (1.9/v6),
+    #                                  UNGRADED, Q8 copy law (v0.14)
     #
     # Every number is a VERBATIM engine figure (D17) — the only client
     # arithmetic is display formatting (ratio x 100, rounding). Conventions:
@@ -46,6 +48,7 @@ module Archbuddy
       Q5_TEXT = "Fixing a bug: how deep is the trace from a use case down to the code?"
       BF_TEXT = "Branching"
       RC_TEXT = "Reuse"
+      RS_TEXT = "Reusability score"
 
       # The share of capped routes at/above which the median itself sits at
       # the publish cap — rendering the capped number would be false precision.
@@ -54,12 +57,12 @@ module Archbuddy
       module_function
 
       # @param context [Formatter::RenderContext]
-      # @return [Array<Question>] the answerable questions, in q1..bf order —
+      # @return [Array<Question>] the answerable questions, in q1..rs order —
       #   [] when nothing is answerable (both formatters omit the section).
       def questions(context)
         [
           q1(context), q2(context), q3(context),
-          q4(context), q5(context), bf(context), rc(context)
+          q4(context), q5(context), bf(context), rc(context), rs(context)
         ].compact
       end
 
@@ -224,6 +227,116 @@ module Archbuddy
         clause = "top extraction candidate #{top.symbol}"
         clause += " (collapse ×#{format('%.1f', top.collapse)})" unless top.collapse.nil?
         clause
+      end
+
+      # -- rs: the ungraded reusability-score footer (v0.16 / v6+1.9) ----------
+
+      # "1824 scored nodes (72.0% at equilibrium); 6 at ≤ −3 (worst class
+      # Api::V1::RedeemTemplates at −4.52 — break it down); 51 absorb
+      # candidates at ≥ +3" — every figure VERBATIM from the engine's
+      # published `score_distribution` block (n_scored / zero_share / bands
+      # counts; the only client arithmetic is the display SUM of published
+      # band counts — the rc mass_savings-SUM class — and ratio × 100
+      # display formatting), plus the worst class SELECTED by the
+      # engine-published negative-first `headline` (copied, never
+      # re-derived — C-3). Q8 copy law: this clause NEVER renders
+      # "reuse more" (rule 5 — the negative pole reads "break it down");
+      # the positive pole claims absorb/bypass capacity ("callers converge
+      # here"), never "similar logic" (Q3). Clauses degrade independently;
+      # the question is OMITTED entirely when the distribution block is
+      # absent (pre-1.9/v5 — byte-identical back-compat) or carries no
+      # scored population (n_scored nil/0: the never-analyzed or vty-gated
+      # honest blank — never "0 scored nodes" off an unmeasured doc, the
+      # rc I2 precedent).
+      def rs(context)
+        sd = context.reusability&.score_distribution
+        return nil if sd.nil? || sd.n_scored.nil? || sd.n_scored.zero?
+
+        Question.new(
+          id: "rs", text: RS_TEXT, grade: nil,
+          answer: [
+            scored_clause(sd),
+            breakdown_clause(sd, context.reusability.by_class),
+            absorb_clause(sd)
+          ].compact.join("; "),
+          detail_lines: []
+        )
+      end
+
+      # "1824 scored nodes (72.0% at equilibrium)" — n_scored verbatim; the
+      # equilibrium share is the published `zero_share` (the exact-0.0
+      # share — the STRICT equilibrium reading, never the band-0 mode
+      # share) and drops when the engine did not publish it (nil — never a
+      # fabricated 0%).
+      def scored_clause(sd)
+        clause = "#{plain(sd.n_scored)} scored node#{sd.n_scored == 1 ? '' : 's'}"
+        clause += " (#{format('%.1f', sd.zero_share * 100)}% at equilibrium)" unless sd.zero_share.nil?
+        clause
+      end
+
+      # "6 at ≤ −3 (worst class Api::V1::RedeemTemplates at −4.52 — break
+      # it down)" — the count is the display SUM of the published band
+      # counts −5..−3 (a real verdict even at 0: scored, none that bad);
+      # the break-it-down imperative and the worst-class parenthetical
+      # render only when the count is positive. The worst class is SELECTED
+      # by the engine-published negative-first dominance `headline` (the
+      # minimum row — pure selection of a published verdict, D-C1/C-3);
+      # the parenthetical drops when no class headline sits at ≤ −1
+      # (nothing breakdown-dominant to name). The whole clause drops when
+      # the engine published no bands histogram.
+      def breakdown_clause(sd, by_class)
+        count = band_count(sd.bands, %w[-5 -4 -3])
+        return nil if count.nil?
+
+        clause = "#{count} at ≤ −3"
+        return clause unless count.positive?
+
+        worst = worst_class(by_class)
+        if worst
+          clause + " (worst class #{worst.symbol} at #{score_display(worst.headline)}" \
+                   " — break it down)"
+        else
+          clause + " — break it down"
+        end
+      end
+
+      # "51 absorb candidates at ≥ +3" — the positive pole claims proven
+      # absorb/bypass capacity (callers CONVERGE here — Q3's law), never
+      # "similar logic" and never "reuse more"; the count is the display
+      # SUM of the published band counts +3..+5 (a real verdict even at 0).
+      def absorb_clause(sd)
+        count = band_count(sd.bands, %w[3 4 5])
+        return nil if count.nil?
+
+        "#{count} absorb candidate#{count == 1 ? '' : 's'} at ≥ +3"
+      end
+
+      # SUM of published per-band counts (the sanctioned display-SUM class,
+      # the rc `savings.sum` precedent); nil when the engine published no
+      # histogram or none of the named bands carry a count — the clause
+      # drops rather than fabricate a 0 off missing data.
+      def band_count(bands, keys)
+        return nil unless bands.is_a?(Hash)
+
+        counts = bands.values_at(*keys).compact
+        counts.empty? ? nil : counts.sum
+      end
+
+      # The worst class row by the ENGINE's negative-first dominance
+      # `headline` — selection of a published verdict only (never
+      # re-derived from min/max); nil when by_class is absent or no row's
+      # headline sits at ≤ −1 (the Q4 dominance threshold).
+      def worst_class(by_class)
+        (by_class || [])
+          .select { |row| row.headline && row.headline <= -1 }
+          .min_by(&:headline)
+      end
+
+      # Published 2-dp reals render with the typographic minus ("−4.52")
+      # so the clause reads in the score doc's −5..+5 vocabulary —
+      # formatting only, the value stays VERBATIM (D17).
+      def score_display(value)
+        format("%.2f", value).sub(/\A-/, "−")
       end
 
       # -- shared formatting helpers -------------------------------------------

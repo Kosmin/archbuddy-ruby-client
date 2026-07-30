@@ -60,6 +60,7 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
       expect(BI::Q5_TEXT).to eq("Fixing a bug: how deep is the trace from a use case down to the code?")
       expect(BI::BF_TEXT).to eq("Branching")
       expect(BI::RC_TEXT).to eq("Reuse")
+      expect(BI::RS_TEXT).to eq("Reusability score")
     end
   end
 
@@ -125,6 +126,133 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
         unshared_fraction: nil, toll_booths: [], extraction: [], leverage: nil
       )
       expect(rc_answer(blank)).to be_nil
+    end
+  end
+
+  # --- v0.16: the Reusability-score line (copy table, byte-pinned; worked
+  # numbers = the measured head vintage f61b758c — p3-calibration.json d8
+  # bands/n + the docs/REUSABILITY_SCORE.md per-class examples; zero_share is
+  # doc-shaped: the exact-0.0 share is STRICTER than the 79.39% band-0 mode
+  # share (V16-F21) and was not archived per-vintage) --------------------------
+  describe "the pinned Reusability-score copy table (v0.16, Q8 law)" do
+    def head_bands
+      { "-5" => 1, "-4" => 1, "-3" => 4, "-2" => 34, "-1" => 213,
+        "0" => 1448, "1" => 23, "2" => 49, "3" => 44, "4" => 7, "5" => 0 }
+    end
+
+    def distribution(n_scored: 1824, n_null: 162, zero_share: 0.72, bands: :head)
+      RS::Reusability::ScoreDistribution.new(
+        n_scored: n_scored, n_null: n_null, zero_share: zero_share,
+        bands: bands == :head ? head_bands : bands
+      )
+    end
+
+    # Engine-published rows (the REUSABILITY_SCORE.md worked examples): the
+    # monster class headlines its min (negative-first dominance, one class
+    # two poles); Feedbacks (bottom-3, −3.04) deliberately listed FIRST to
+    # prove selection rides the HEADLINE, never row order.
+    def class_rows
+      [
+        RS::Reusability::ClassRow.new(
+          symbol: "Api::V1::Feedbacks", min: -3.04, max: 0.0, count: 4,
+          n_negative: 1, n_positive: 0, headline: -3.04
+        ),
+        RS::Reusability::ClassRow.new(
+          symbol: "Api::V1::RedeemTemplates", min: -4.52, max: 3.42, count: 9,
+          n_negative: 1, n_positive: 1, headline: -4.52
+        )
+      ]
+    end
+
+    # A Reusability whose COMPASS half is the honest blank (rc omitted) so
+    # every assertion below isolates the rs line.
+    def scored(distribution: nil, by_class: nil)
+      RS::Reusability.new(
+        reuse_index: nil, unshared_fraction: nil,
+        toll_booths: [], extraction: [], leverage: nil,
+        score_distribution: distribution, by_class: by_class
+      )
+    end
+
+    def rs_answer(reusability)
+      BI.questions(context_with(reusability: reusability))
+        .find { |q| q.id == "rs" }&.answer
+    end
+
+    it "full form → the plan-pinned three-clause line (and NEVER 'reuse more' — Q8 rule 5)" do
+      answer = rs_answer(scored(distribution: distribution, by_class: class_rows))
+      expect(answer).to eq(
+        "1824 scored nodes (72.0% at equilibrium); " \
+        "6 at ≤ −3 (worst class Api::V1::RedeemTemplates at −4.52 — break it down); " \
+        "51 absorb candidates at ≥ +3"
+      )
+      expect(answer).not_to match(/reuse more/i)
+    end
+
+    it "worst class = the ENGINE's negative-first dominance headline (minimum row), never row order" do
+      answer = rs_answer(scored(distribution: distribution, by_class: class_rows))
+      expect(answer).to include("worst class Api::V1::RedeemTemplates at −4.52")
+      expect(answer).not_to include("Feedbacks")
+    end
+
+    it "no breakdown-dominant class (by_class absent, or no headline ≤ −1) → imperative WITHOUT the parenthetical" do
+      expect(rs_answer(scored(distribution: distribution)))
+        .to include("6 at ≤ −3 — break it down")
+      booth_only = [RS::Reusability::ClassRow.new(
+        symbol: "Api::V1::Locations", min: 0.0, max: 4.07, count: 5,
+        n_negative: 0, n_positive: 2, headline: 4.07
+      )]
+      expect(rs_answer(scored(distribution: distribution, by_class: booth_only)))
+        .to include("6 at ≤ −3 — break it down")
+    end
+
+    it "zero breakdown population → a real 0 verdict, NO imperative and NO class name (scored, none that bad)" do
+      clean = head_bands.merge("-5" => 0, "-4" => 0, "-3" => 0)
+      answer = rs_answer(scored(distribution: distribution(bands: clean), by_class: class_rows))
+      expect(answer).to include("; 0 at ≤ −3; ")
+      expect(answer).not_to include("break it down")
+      expect(answer).not_to include("worst class")
+    end
+
+    it "zero_share unpublished (nil) → the equilibrium parenthetical drops (never a fabricated 0%)" do
+      answer = rs_answer(scored(distribution: distribution(zero_share: nil)))
+      expect(answer).to start_with("1824 scored nodes; ")
+      expect(answer).not_to include("equilibrium")
+    end
+
+    it "bands unpublished (nil) → only the scored clause renders (both pole clauses drop, never a fabricated 0)" do
+      expect(rs_answer(scored(distribution: distribution(bands: nil))))
+        .to eq("1824 scored nodes (72.0% at equilibrium)")
+    end
+
+    it "honest blank (n_scored 0 or nil — never-analyzed / vty-gated) → NO question (never '0 scored nodes')" do
+      blank = distribution(n_scored: 0, n_null: 57, zero_share: nil,
+                           bands: head_bands.transform_values { 0 })
+      expect(rs_answer(scored(distribution: blank, by_class: class_rows))).to be_nil
+      expect(rs_answer(scored(distribution: distribution(n_scored: nil)))).to be_nil
+    end
+
+    it "distribution absent (pre-1.9/v5) → NO question, even when by_class rows exist" do
+      expect(rs_answer(scored(by_class: class_rows))).to be_nil
+      expect(rs_answer(nil)).to be_nil
+    end
+
+    it "singular forms: 1 scored node / 1 absorb candidate" do
+      one = distribution(n_scored: 1, zero_share: nil,
+                         bands: head_bands.transform_values { 0 }.merge("4" => 1))
+      expect(rs_answer(scored(distribution: one)))
+        .to eq("1 scored node; 0 at ≤ −3; 1 absorb candidate at ≥ +3")
+    end
+
+    it "Q8 rule 5 holds over every rendered degradation form: never 'reuse more'" do
+      [
+        scored(distribution: distribution, by_class: class_rows),
+        scored(distribution: distribution(zero_share: nil)),
+        scored(distribution: distribution(bands: head_bands.merge("-5" => 0, "-4" => 0, "-3" => 0))),
+        scored(distribution: distribution(bands: nil))
+      ].each do |ru|
+        expect(rs_answer(ru)).not_to match(/reuse more/i)
+      end
     end
   end
 
@@ -602,6 +730,98 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
         "the average node serves 2.4 use cases (median 1); 1 toll booth (bypassing saves ~4 mass); " \
         "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
       )
+    end
+
+    # --- v0.16 (serializer v6 / findings 1.9) rows 14–16 ----------------------
+    # The findings-1.9 tolerance coverage: a 1.9 doc renders through the REAL
+    # extended parser set with zero raises; rows 1–13 above prove the pre-1.9
+    # vintages stay byte-stable through the same set (rs simply absent — row
+    # 11's v5 question count stays correct as pinned; do not flip it).
+
+    let(:v6_score_distribution_block) do
+      # Measured head vintage f61b758c (p3-calibration.json d8): n_scored
+      # 1824, bands verbatim; n_null = 1986 findings nodes − 1824 scored;
+      # zero_share doc-shaped (the exact-0.0 share — stricter than the
+      # band-0 mode share, V16-F21 — was not archived per-vintage).
+      { "n_scored" => 1824, "n_null" => 162, "zero_share" => 0.72,
+        "bands" => { "-5" => 1, "-4" => 1, "-3" => 4, "-2" => 34, "-1" => 213,
+                     "0" => 1448, "1" => 23, "2" => 49, "3" => 44, "4" => 7, "5" => 0 } }
+    end
+    let(:v6_by_class_rows) do
+      # The REUSABILITY_SCORE.md one-class-two-poles worked example (v6
+      # committed rows are real-name at WRITE — `class` key per row).
+      [{ "class" => "Api::V1::RedeemTemplates", "min" => -4.52, "max" => 3.42,
+         "count" => 9, "n_negative" => 1, "n_positive" => 1, "headline" => -4.52 }]
+    end
+    let(:pinned_rs_line) do
+      "1824 scored nodes (72.0% at equilibrium); " \
+        "6 at ≤ −3 (worst class Api::V1::RedeemTemplates at −4.52 — break it down); " \
+        "51 absorb candidates at ≥ +3"
+    end
+
+    it "row 14 — v6 aggregate over engine-1.9: all EIGHT render, rs carries the pinned score line" do
+      doc = row5_doc.merge(
+        "serializer_version" => 6,
+        "reusability" => v5_reusability_block.merge(
+          "score_distribution" => v6_score_distribution_block,
+          "by_class" => v6_by_class_rows
+        )
+      )
+      qs = BI.questions(context_from_aggregate(doc))
+
+      expect(qs.map(&:id)).to eq(%w[q1 q2 q3 q4 q5 bf rc rs])
+      expect(qs.find { |q| q.id == "rs" }.answer).to eq(pinned_rs_line)
+      # rc renders UNTOUCHED beside the new question (byte-equal to row 11)
+      expect(qs.find { |q| q.id == "rc" }.answer).to eq(
+        "the average node serves 2.4 use cases (median 1); 1 toll booth (bypassing saves ~4 mass); " \
+        "top extraction candidate Api::V1::LandingPageThemesController#build_style (collapse ×16.0)"
+      )
+    end
+
+    it "row 15 — v6 aggregate whose distribution is the honest blank: rs OMITTED, output byte-equal to the v5 row-11 doc" do
+      v5_qs = BI.questions(context_from_aggregate(
+                             row5_doc.merge("serializer_version" => 5,
+                                            "reusability" => v5_reusability_block)
+                           ))
+      blank = { "n_scored" => 0, "n_null" => 57, "zero_share" => nil,
+                "bands" => v6_score_distribution_block["bands"].transform_values { 0 } }
+      doc = row5_doc.merge(
+        "serializer_version" => 6,
+        "reusability" => v5_reusability_block.merge("score_distribution" => blank)
+      )
+      qs = BI.questions(context_from_aggregate(doc))
+
+      expect(qs.map(&:id)).to eq(%w[q1 q2 q3 q4 q5 bf rc]) # never "0 scored nodes"
+      expect(qs.map(&:answer)).to eq(v5_qs.map(&:answer))
+      expect(qs.map(&:detail_lines)).to eq(v5_qs.map(&:detail_lines))
+    end
+
+    it "row 16 — legacy opaque findings-1.9 + id-map: rs renders identically, cls_ worst class RESOLVED" do
+      findings = {
+        "findings_schema_version" => "1.9",
+        "scores" => {
+          "forward_discoverability" => { "grade" => "F", "score" => 30_992.17, "median" => 2.0 },
+          "reusability_compass" => {
+            "reuse_index"        => { "mean" => 2.4, "median" => 1.0 },
+            "unshared_fraction"  => 0.5,
+            "toll_booths"        => [], "extraction" => [],
+            "leverage"           => { "mean" => 3.1, "median" => 2.0, "count" => 107 },
+            "score_distribution" => v6_score_distribution_block
+          }
+        },
+        "reusability_by_class" => {
+          "cls_aaaaaaaaaaaa" => { "min" => -4.52, "max" => 3.42, "count" => 9,
+                                  "n_negative" => 1, "n_positive" => 1, "headline" => -4.52 }
+        }
+      }
+      resolver = Archbuddy::Report::Reconnect::IdMapResolver.new(
+        "ids" => {
+          "cls_aaaaaaaaaaaa" => { "symbol" => "Api::V1::RedeemTemplates", "kind" => "class_rollup" }
+        }
+      )
+      rs = BI.questions(context_from_findings(findings, resolver)).find { |q| q.id == "rs" }
+
+      expect(rs.answer).to eq(pinned_rs_line)
     end
   end
 
