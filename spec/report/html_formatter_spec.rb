@@ -790,4 +790,318 @@ RSpec.describe Archbuddy::Report::Formatters::HtmlFormatter do
       expect(html).to include("&lt;script&gt;alert(1)&lt;/script&gt;#pwn")
     end
   end
+
+  # --- v0.16 (T4): score surfaces + the Q8 product-copy law --------------------
+  #
+  # The v6 stamp family (score/score_band/score_raw/absorb/absorb_raw —
+  # findings-1.9 names VERBATIM) rides the same fragment-stamp → DetailTree →
+  # whitelist → side-panel route as the v0.13 compass keys. The SCORE is the
+  # HEADLINE surface; the quadrant stays diagnostic (Q8 rule 1). The five copy
+  # rules (calibration canon §5.3) are spec-gated here, rule 5 as THE
+  # cross-surface property machine-checked over the whole rendered document.
+  describe "v0.16 (T4): score surfaces + Q8 copy law" do
+    let(:scores_mod) { Archbuddy::Report::Scores }
+
+    let(:by_class_rows) do
+      [
+        scores_mod::Reusability::ClassRow.new(
+          symbol: "Api::V1::RedeemTemplates", min: -4.52, max: 3.42, count: 9,
+          n_negative: 1, n_positive: 1, headline: -4.52
+        ),
+        scores_mod::Reusability::ClassRow.new(
+          symbol: "Api::V1::Feedbacks", min: -3.04, max: 0.0, count: 2,
+          n_negative: 1, n_positive: 0, headline: -3.04
+        )
+      ]
+    end
+
+    let(:score_compass) do
+      scores_mod::Reusability.new(
+        reuse_index: scores_mod::Reusability::ReuseIndex.new(mean: 2.4, median: 1.0),
+        unshared_fraction: 0.5,
+        toll_booths: [scores_mod::Reusability::TollBooth.new(
+          symbol: "Gateway#relay", blast: 8, mass_savings: 32
+        )],
+        extraction: [scores_mod::Reusability::Extraction.new(
+          symbol: "Billing#split", collapse: 16.0, leverage: 32.0
+        )],
+        leverage: scores_mod::Reusability::LeverageStats.new(mean: 3.1, median: 2.0, count: 107),
+        by_class: by_class_rows
+      )
+    end
+
+    # The MIXED fixture: a v6-shaped committed graph covering every Q8 rule
+    # plus the null back-compat path. Contains the probe's misread class — a
+    # negative-score node the compass labels "underused" (01-probe §4b).
+    # Symbols deliberately avoid the banned copy tokens so the property
+    # spec's block-matching is unambiguous.
+    let(:scored_graph) do
+      {
+        "nodes" => [
+          # quadrant says underused; score says monster (rule 2 relabel)
+          { "id" => "Billing#split", "symbol" => "Billing#split", "kind" => "function",
+            "quadrant" => "underused", "escapes" => false,
+            "score" => -4.52, "score_band" => -5, "score_raw" => -18.75,
+            "absorb" => nil, "absorb_raw" => nil },
+          # score-consistent positive underused entry (rule 2 keeps the copy)
+          { "id" => "Templates#fetch", "symbol" => "Templates#fetch", "kind" => "function",
+            "quadrant" => "underused", "escapes" => false,
+            "score" => 0.75, "score_band" => 1, "score_raw" => 0.8,
+            "absorb" => nil, "absorb_raw" => nil },
+          # null stamps (pre-v6 carry / never analyzed) — copy untouched
+          { "id" => "Legacy#helper", "symbol" => "Legacy#helper", "kind" => "function",
+            "quadrant" => "underused", "escapes" => false,
+            "score" => nil, "score_band" => nil, "score_raw" => nil,
+            "absorb" => nil, "absorb_raw" => nil },
+          # bypass_candidate + positive score → one diagnosis, two remedies (rule 3)
+          { "id" => "Gateway#relay", "symbol" => "Gateway#relay", "kind" => "function",
+            "quadrant" => "bypass_candidate", "toll_booth" => true, "escapes" => false,
+            "score" => 4.07, "score_band" => 4, "score_raw" => 5.044,
+            "absorb" => 2.31, "absorb_raw" => 2.5 },
+          # bypass_candidate + null score → the v0.13 advisory copy untouched
+          { "id" => "Booth#idle", "symbol" => "Booth#idle", "kind" => "function",
+            "quadrant" => "bypass_candidate", "toll_booth" => true, "escapes" => false,
+            "score" => nil, "score_band" => nil, "score_raw" => nil },
+          # load_bearing + negative + escape-flagged → rule 4 + the O2 caveat
+          { "id" => "Core#dispatch", "symbol" => "Core#dispatch", "kind" => "function",
+            "quadrant" => "load_bearing", "escapes" => true,
+            "score" => -2.3, "score_band" => -2, "score_raw" => -4.939 },
+          # glue at equilibrium (score 0 — no relabel, annotation only)
+          { "id" => "Glue#misc", "symbol" => "Glue#misc", "kind" => "function",
+            "quadrant" => "glue", "escapes" => false,
+            "score" => 0.0, "score_band" => 0, "score_raw" => 0.0 }
+        ],
+        "edges" => []
+      }
+    end
+
+    let(:fixture_scores) { scored_graph["nodes"].to_h { |gn| [gn["symbol"], gn["score"]] } }
+
+    subject(:html) { render(findings: v10_yml, graph: scored_graph, reusability: score_compass) }
+
+    def section(doc = html)
+      doc[%r{<section id="reusability-compass">.*?</section>}m]
+    end
+
+    def q_divs(doc = html)
+      section(doc).scan(%r{<div class="q">.*?</div>}m)
+    end
+
+    # ---- THE Q8 CROSS-SURFACE PROPERTY (rule 5, machine-checked) ------------
+    it "never renders 'reuse more'/'underused' copy against a negative score, anywhere in the document" do
+      visible = html.gsub(%r{<script\b[^>]*>.*?</script>}m, "")
+      blocks  = visible.scan(%r{<div class="q">.*?</div>}m) +
+                visible.scan(%r{<tr[^>]*>.*?</tr>}m) +
+                visible.scan(%r{<h3>.*?</h3>}m)
+      negative = fixture_scores.select { |_sym, s| s && s.negative? }.keys
+      expect(negative).not_to be_empty # the fixture MUST exercise the property
+
+      negative.each do |sym|
+        owning = blocks.select { |b| b.include?(sym) }
+        expect(owning).not_to be_empty # every negative node IS rendered
+        owning.each do |block|
+          expect(block).not_to match(/reuse\s+more/i),
+                               "Q8 rule 5 violated for #{sym} in: #{block}"
+          expect(block).not_to match(/underused/i),
+                               "Q8 rule 5 violated for #{sym} in: #{block}"
+        end
+      end
+    end
+
+    # ---- rule 2: "underused / reuse more" ONLY when score ≥ 0 ---------------
+    it "keeps reuse-more copy for score ≥ 0 / null entries and relabels negative entries to breakdown copy" do
+      reuse_div = q_divs.find { |d| d.include?("Underused abstractions (reuse more)") }
+      expect(reuse_div).not_to be_nil
+      expect(reuse_div).to include("Templates#fetch (score 0.75)")
+      expect(reuse_div).to include("Legacy#helper")          # null score — bare entry
+      expect(reuse_div).not_to include("Legacy#helper (score")
+      expect(reuse_div).not_to include("Billing#split")      # relabeled out
+
+      breakdown_div = q_divs.find { |d| d.include?("false reusability: break it down") }
+      expect(breakdown_div).not_to be_nil
+      expect(breakdown_div).to include("Billing#split (score -4.52)")
+    end
+
+    # ---- rule 3: bypass_candidate + positive score = one diagnosis, two remedies
+    it "renders one-diagnosis-two-remedies copy for a positive-score bypass candidate" do
+      two_remedies = q_divs.find { |d| d.include?("absorb shared logic here, or bypass it") }
+      expect(two_remedies).not_to be_nil
+      expect(two_remedies).to include("Gateway#relay (score 4.07)")
+
+      default_booth = q_divs.find { |d| d.include?("Bypass candidates (toll booths — advisory)") }
+      expect(default_booth).to include("Booth#idle")
+      expect(default_booth).not_to include("Gateway#relay")
+    end
+
+    # ---- rule 4 + the (d) escape caveat --------------------------------------
+    it "renders protect-the-boundary copy + the O2 escape caveat for a negative load-bearing escape node" do
+      lb = q_divs.find { |d| d.include?("protect the boundary, break down the inline surface") }
+      expect(lb).not_to be_nil
+      expect(lb).to include("Core#dispatch (score -2.30)")
+      expect(lb).to include("[escape: inline surface above contract — NOT statically extraction-recoverable]")
+    end
+
+    it "annotates a no-relabel quadrant entry with its published score (glue at equilibrium)" do
+      glue = q_divs.find { |d| d.include?("<strong>Glue</strong>") }
+      expect(glue).to include("Glue#misc (score 0.00)")
+    end
+
+    # ---- the per-class signed-extremes table (C-3: headline column) ---------
+    it "renders the per-class table with all seven columns INCLUDING the engine headline (C-3)" do
+      expect(section).to include("<h3>Reusability score by class</h3>")
+      expect(section).to include("<th>Class</th><th>min</th><th>max</th><th>count</th>" \
+                                 "<th>n ≤ −1</th><th>n ≥ +1</th><th>headline</th>")
+      row = section[%r{<tr><td>Api::V1::RedeemTemplates</td>.*?</tr>}m]
+      expect(row).to eq(
+        "<tr><td>Api::V1::RedeemTemplates</td>" \
+        '<td class="num">-4.52</td><td class="num">3.42</td><td class="num">9</td>' \
+        '<td class="num">1</td><td class="num">1</td><td class="num">-4.52</td></tr>'
+      )
+      # count ALWAYS shown (Q4 small-class caveat) — the 2-node class row too
+      expect(section).to include("<td>Api::V1::Feedbacks</td>")
+        .and include('<td class="num">2</td>')
+    end
+
+    it "renders the table present-IFF-by_class (nil member ⇒ no table, no fabrication)" do
+      expect(html).to include("Reusability score by class")
+
+      no_by_class = scores_mod::Reusability.new(
+        reuse_index: score_compass.reuse_index, unshared_fraction: 0.5,
+        toll_booths: score_compass.toll_booths, extraction: score_compass.extraction,
+        leverage: score_compass.leverage
+      )
+      html2 = render(findings: v10_yml, graph: scored_graph, reusability: no_by_class)
+      expect(html2).not_to include("Reusability score by class")
+      expect(html2).not_to include("<th>headline</th>")
+    end
+
+    it "escapes a hostile class symbol in the per-class table (trust-boundary text)" do
+      hostile = scores_mod::Reusability.new(
+        by_class: [scores_mod::Reusability::ClassRow.new(
+          symbol: "<script>alert(1)</script>::Pwn", min: -1.0, max: 0.0, count: 1,
+          n_negative: 1, n_positive: 0, headline: -1.0
+        )]
+      )
+      rendered = render(findings: v10_yml, reusability: hostile)
+      expect(rendered).not_to include("<script>alert(1)</script>::Pwn")
+      expect(rendered).to include("&lt;script&gt;alert(1)&lt;/script&gt;::Pwn")
+    end
+
+    # ---- data blob: the stamp family rides the whitelist ---------------------
+    it "whitelists the five score stamps + escapes into the data blob (honest nulls unstamped)" do
+      nodes = graph_data(html)["nodes"]
+
+      relay = nodes.find { |n| n["id"] == "Gateway#relay" }
+      expect(relay["score"]).to eq(4.07)
+      expect(relay["score_band"]).to eq(4)
+      expect(relay["score_raw"]).to eq(5.044)
+      expect(relay["absorb"]).to eq(2.31)
+      expect(relay["absorb_raw"]).to eq(2.5)
+
+      idle = nodes.find { |n| n["id"] == "Booth#idle" }
+      %w[score score_band score_raw absorb absorb_raw].each do |key|
+        expect(idle).to have_key(key)
+        expect(idle[key]).to be_nil
+      end
+
+      dispatch = nodes.find { |n| n["id"] == "Core#dispatch" }
+      expect(dispatch["escapes"]).to be(true)
+      expect(dispatch["score_raw"]).to eq(-4.939)
+    end
+
+    # ---- side panel (JS source pins — the Q8 guards are load-bearing) --------
+    describe "side-panel script (Q8 headline + gates)" do
+      it "emits the score row FIRST (rule 1 — score is the headline)" do
+        expect(html).to include("'<dt>score</dt><dd>'")
+        expect(html.index("'<dt>score</dt><dd>'")).to be < html.index("'<dt>leverage</dt><dd>'")
+      end
+
+      it "never shows the 'underused' quadrant label against a negative score (rule 2/5)" do
+        expect(html).to include(
+          "if (quad === 'underused' && hasScore && n.score < 0) " \
+          "quad = 'diagnostic overridden by negative score — break it down';"
+        )
+      end
+
+      it "appends the O2 escape caveat only on escape-flagged negative nodes (rule set d)" do
+        expect(html).to include("if (n.escapes === true && hasScore && n.score < 0)")
+        expect(html).to include("inline surface above contract — NOT statically extraction-recoverable")
+      end
+
+      it "gates absorb copy on score >= 0 (L9-A extension of the Q8 law)" do
+        expect(html).to include("hasScore && n.score >= 0) compass += '<dt>absorb</dt><dd>'")
+      end
+    end
+
+    # ---- pre-v6 back-compat: the v5 rendering path is byte-identical ---------
+
+    # The v0.13 section bytes for THIS fixture — a SNAPSHOT, not authored:
+    # captured 2026-07-30 by rendering the exact `absent`/`v5_compass` inputs
+    # below under the db8449c formatter ("[v0.15 REVIEW-FIX] gate user
+    # thresholds at published rounding (M14)" — the v0.16 fork point) in a
+    # detached scratch worktree. The two EMPTY lines are v0.13's own shape
+    # (trailing heredoc newlines of the two tables); note there is NO
+    # whitespace-only line anywhere — the T4 review caught the added
+    # `#{score_by_class_table_html(ru)}` heredoc line leaving a "  " line on
+    # every by_class-less (= every pre-v6/v5) document. Comparing against
+    # pinned prior bytes is the ONLY spec form that can catch such drift —
+    # null-stamped vs stamp-less both render under the NEW code and stay
+    # equal even when both drift together.
+    let(:v013_section_snapshot) do
+      <<~V13.chomp
+        <section id="reusability-compass">
+          <h2>Reusability Compass</h2>
+          <div class="compass-summary">Reuse index: mean 2.4 / median 1.0 · unshared fraction 50.0% · leverage mean 3.1 / median 2.0</div>
+          <div class="quadrants">
+        <div class="q"><strong>Bypass candidates (toll booths — advisory)</strong> (2): Gateway#relay, Booth#idle</div>
+        <div class="q"><strong>Load-bearing (protect the contract)</strong> (1): Core#dispatch</div>
+        <div class="q"><strong>Underused abstractions (reuse more)</strong> (3): Billing#split, Templates#fetch, Legacy#helper</div>
+        <div class="q"><strong>Glue</strong> (1): Glue#misc</div>
+        </div>
+          <h3>Toll booths — bypass candidates (advisory)</h3>
+        <div class="q">Bypassing a toll booth (callers call its sole callee directly) saves the listed mass at zero variety cost — but thin proxies can carry invisible value (memoization, naming, test seams). Candidates, never mandates.</div>
+        <table><thead><tr><th>Symbol</th><th>blast</th><th>mass savings</th></tr></thead>
+        <tbody><tr><td>Gateway#relay</td><td class="num">8</td><td class="num">32</td></tr></tbody></table>
+
+          <h3>Extraction candidates (collapse potential)</h3>
+        <table><thead><tr><th>Symbol</th><th>collapse</th><th>leverage</th></tr></thead>
+        <tbody><tr><td>Billing#split</td><td class="num">16.0000</td><td class="num">32.0000</td></tr></tbody></table>
+
+        </section>
+      V13
+    end
+
+    it "renders a null-stamped tree byte-identical to a stamp-less (v5) tree — no score column, no table, no relabel" do
+      strip = %w[score score_band score_raw absorb absorb_raw]
+      absent = scored_graph["nodes"].map { |gn| gn.reject { |k, _| strip.include?(k) } }
+      nulled = scored_graph["nodes"].map { |gn| gn.merge(strip.to_h { |k| [k, nil] }) }
+      v5_compass = scores_mod::Reusability.new(
+        reuse_index: score_compass.reuse_index, unshared_fraction: 0.5,
+        toll_booths: score_compass.toll_booths, extraction: score_compass.extraction,
+        leverage: score_compass.leverage
+      )
+
+      sec_absent = section(render(findings: v10_yml, graph: { "nodes" => absent, "edges" => [] },
+                                  reusability: v5_compass))
+      sec_nulled = section(render(findings: v10_yml, graph: { "nodes" => nulled, "edges" => [] },
+                                  reusability: v5_compass))
+
+      expect(sec_absent).to eq(sec_nulled)                       # byte-identical
+      # THE back-compat gate: byte-identical to the PINNED v0.13 output —
+      # not merely internally consistent under the new code.
+      expect(sec_absent).to eq(v013_section_snapshot)
+      # no whitespace-only line may appear (the exact defect class the
+      # snapshot exists to catch — an empty part interpolated on its own
+      # heredoc line); v0.13's empty lines ("") are NOT whitespace-only.
+      expect(sec_absent.lines.grep(/\A[ \t]+\Z/)).to be_empty
+      expect(sec_absent).not_to include("(score ")               # no score values
+      expect(sec_absent).not_to include("Reusability score by class")
+      expect(sec_absent).not_to include("false reusability: break it down") # no Q8 relabeling
+      # the exact v0.13 entry byte-shape survives (bare symbols, quadrant order)
+      expect(sec_absent).to include(
+        '<div class="q"><strong>Underused abstractions (reuse more)</strong> (3): ' \
+        "Billing#split, Templates#fetch, Legacy#helper</div>"
+      )
+    end
+  end
 end

@@ -366,20 +366,60 @@ module Archbuddy
         # Cap per quadrant list — the compass is a localization aid, not a dump.
         QUADRANT_LIST_CAP = 10
 
+        # v0.16 (T4): the Q8 product-copy law over the quadrant lists — the
+        # SCORE is the headline, the quadrant stays diagnostic. A node whose
+        # published score contradicts its quadrant label is RELABELED out of
+        # the quadrant's default copy into the score-truth group below
+        # (the Q8 copy-law canon, rules 2-4):
+        #   * "underused / reuse more" copy renders ONLY when score ≥ 0 —
+        #     a negative-score node in that quadrant renders breakdown copy
+        #     instead (rule 2; the probe's misread-class finding),
+        #   * bypass_candidate + POSITIVE score = one diagnosis, two remedies
+        #     (rule 3 — absorb here, or bypass; L9-A: absorb copy renders
+        #     only when score ≥ 0, which `score.positive?` guarantees),
+        #   * load_bearing + NEGATIVE score = protect the boundary, break
+        #     down the inline surface (rule 4).
+        # Null score ⇒ NO relabeling (pre-v6 / never-analyzed back-compat —
+        # the v5 rendering path stays byte-identical).
+        QUADRANT_RELABEL_RULES = {
+          "underused"        => ->(score) { score.negative? },
+          "bypass_candidate" => ->(score) { score.positive? },
+          "load_bearing"     => ->(score) { score.negative? }
+        }.freeze
+
+        # The relabel-group headings. The negative-score groups MUST NOT
+        # contain "underused" or "reuse more" (Q8 rule 5 — the T4 property
+        # spec machine-checks the rendered document).
+        QUADRANT_RELABEL_LABELS = {
+          "underused"        => "Negative score overrides the quadrant — false reusability: break it down",
+          "bypass_candidate" => "Under-utilized pass-through (positive score): absorb shared logic here, or bypass it — saves the published mass_savings",
+          "load_bearing"     => "Load-bearing, negative score — protect the boundary, break down the inline surface"
+        }.freeze
+
         # v0.13 (C2c): the Reusability Compass section — the localized
         # "extract more reusability here, or duplicate the call and bypass?"
-        # surface. Three nil-tolerant parts, each dropped when its source is
+        # surface. Four nil-tolerant parts, each dropped when its source is
         # absent (pre-v5/pre-1.8 docs render NO section — byte-identical):
         #   * a summary line from the committed `reusability` block (VERBATIM
         #     engine figures — reuse index / unshared fraction / leverage),
         #   * the QUADRANT LISTS grouped from the per-node fragment stamps the
         #     reassembled graph carries (grouping is display-only — the
-        #     quadrant verdicts themselves are engine-published),
-        #   * the toll-booth / extraction worst-lists (engine order VERBATIM).
+        #     quadrant verdicts themselves are engine-published), Q8-relabeled
+        #     against the v6 score stamps (v0.16 T4 — see QUADRANT_RELABEL_RULES),
+        #   * the toll-booth / extraction worst-lists (engine order VERBATIM),
+        #   * the per-class signed-extremes score table (v0.16 T4/C-3 —
+        #     present iff the doc carried `by_class`).
         def reusability_compass_html
           ru = context.reusability
           quadrants = quadrant_groups
           return "" if ru.nil? && quadrants.empty?
+
+          # v0.16 (T4): the per-class table line joins the heredoc ONLY when
+          # the table renders — a bare `#{...}` line evaluating to "" would
+          # leave a whitespace-only line inside the section on EVERY pre-v6/v5
+          # document (no `by_class`), breaking the v0.13 byte-identity gate.
+          by_class_table = score_by_class_table_html(ru)
+          by_class_part  = by_class_table.empty? ? "" : "\n  #{by_class_table}"
 
           <<~HTML
             <section id="reusability-compass">
@@ -387,7 +427,7 @@ module Archbuddy
               #{compass_summary_html(ru)}
               #{quadrant_lists_html(quadrants)}
               #{toll_booth_table_html(ru)}
-              #{extraction_table_html(ru)}
+              #{extraction_table_html(ru)}#{by_class_part}
             </section>
           HTML
         end
@@ -422,21 +462,55 @@ module Archbuddy
             .group_by { |gn| gn["quadrant"] }
         end
 
+        # v0.16 (T4): each quadrant group is partitioned by the Q8 relabel
+        # rule for its key (see QUADRANT_RELABEL_RULES) — score-consistent
+        # (and null-score) nodes keep the v0.13 quadrant copy VERBATIM, the
+        # score-contradicted nodes render under the score-truth label in a
+        # sibling div. On a pre-v6 tree every score is null, both partitions
+        # collapse to the default group, and the output is byte-identical to
+        # v0.13 (the back-compat gate).
         def quadrant_lists_html(quadrants)
           return "" if quadrants.empty?
 
-          items = QUADRANT_ORDER.filter_map do |key, label|
+          items = QUADRANT_ORDER.flat_map do |key, label|
             nodes = quadrants[key]
-            next if nodes.nil? || nodes.empty?
+            next [] if nodes.nil? || nodes.empty?
 
-            shown = nodes.first(QUADRANT_LIST_CAP).map { |gn| escape(gn["symbol"] || gn["id"]) }
-            more  = nodes.length - shown.length
-            list  = shown.join(", ") + (more.positive? ? ", +#{more} more" : "")
-            %(<div class="q"><strong>#{escape(label)}</strong> (#{nodes.length}): #{list}</div>)
+            rule = QUADRANT_RELABEL_RULES[key]
+            relabeled, regular = nodes.partition { |gn| rule && !gn["score"].nil? && rule.call(gn["score"]) }
+            divs = []
+            divs << quadrant_div(label, regular) unless regular.empty?
+            divs << quadrant_div(QUADRANT_RELABEL_LABELS[key], relabeled) unless relabeled.empty?
+            divs
           end
           return "" if items.empty?
 
           %(<div class="quadrants">\n#{items.join("\n")}\n</div>)
+        end
+
+        def quadrant_div(label, nodes)
+          shown = nodes.first(QUADRANT_LIST_CAP).map { |gn| quadrant_entry(gn) }
+          more  = nodes.length - shown.length
+          list  = shown.join(", ") + (more.positive? ? ", +#{more} more" : "")
+          %(<div class="q"><strong>#{escape(label)}</strong> (#{nodes.length}): #{list}</div>)
+        end
+
+        # One quadrant-list entry: the symbol, plus (v0.16) the node's
+        # PUBLISHED score when stamped (null ⇒ the bare v0.13 entry —
+        # byte-identical back-compat, never a fabricated value), plus the O2
+        # escape caveat on escape-flagged NEGATIVE nodes (Q8 rule set (d);
+        # X-5 copy content verbatim — extraction cannot statically recover
+        # an escape's inline surface).
+        def quadrant_entry(gn)
+          entry = escape(gn["symbol"] || gn["id"])
+          score = gn["score"]
+          return entry if score.nil?
+
+          entry += " (score #{format('%.2f', score)})"
+          if gn["escapes"] && score.negative?
+            entry += " [escape: inline surface above contract — NOT statically extraction-recoverable]"
+          end
+          entry
         end
 
         # The toll-booth worst-list (engine order VERBATIM — blast DESC).
@@ -482,10 +556,46 @@ module Archbuddy
           HTML
         end
 
+        # v0.16 (T4/C-3): the per-class signed-extremes table — every value
+        # VERBATIM from the engine's `by_class` block (D17), INCLUDING the
+        # engine-computed negative-first dominance `headline` (published
+        # precisely so no consumer re-implements the rule, D-P1.5/C-3).
+        # Present iff the doc carried `by_class` (nil member ⇒ NO table —
+        # absence, never an empty fabrication, L6). `count` is ALWAYS shown
+        # (the Q4 small-class caveat). Class symbols are trust-boundary text.
+        def score_by_class_table_html(ru)
+          return "" if ru.nil?
+
+          class_rows = ru.by_class
+          return "" if class_rows.nil? || class_rows.empty?
+
+          rows = class_rows.map do |row|
+            <<~HTML.chomp
+              <tr><td>#{escape(row.symbol)}</td><td class="num">#{score_num(row.min)}</td><td class="num">#{score_num(row.max)}</td><td class="num">#{score_num(row.count)}</td><td class="num">#{score_num(row.n_negative)}</td><td class="num">#{score_num(row.n_positive)}</td><td class="num">#{score_num(row.headline)}</td></tr>
+            HTML
+          end.join("\n")
+          <<~HTML
+            <h3>Reusability score by class</h3>
+            <div class="q">Signed extremes over engine-published scores (worst-of, never a mean); headline is the engine's negative-first dominance verdict. count is always shown — read 1-2-node classes accordingly.</div>
+            <table><thead><tr><th>Class</th><th>min</th><th>max</th><th>count</th><th>n ≤ −1</th><th>n ≥ +1</th><th>headline</th></tr></thead>
+            <tbody>#{rows}</tbody></table>
+          HTML
+        end
+
         # A verbatim compass number cell — "N/A" on nil (unknown blast /
         # arity-absent leverage — honest, never fabricated).
         def compass_num(value)
           value.nil? ? "N/A" : escape(format_num(value))
+        end
+
+        # A published-score cell: engine reals are ALREADY 2 dp published
+        # values — render them at exactly that precision (display formatting
+        # only, D17); integers verbatim; "N/A" on nil (honest absence).
+        def score_num(value)
+          return "N/A" if value.nil?
+          return format("%.2f", value) if value.is_a?(Float)
+
+          escape(value.to_s)
         end
 
         # The metric columns shown in the bottleneck table. `clutter_score` is the
@@ -678,7 +788,20 @@ module Archbuddy
               "leverage"      => gn["leverage"],
               "collapse"      => gn["collapse"],
               "toll_booth"    => gn["toll_booth"],
-              "quadrant"      => gn["quadrant"]
+              "quadrant"      => gn["quadrant"],
+              # v0.16 (v6): the REUSABILITY SCORE stamps (findings-1.9 key
+              # names VERBATIM — score 2 dp / score_band integer / score_raw
+              # signed 3 dp) + the absorption-headroom ADVISORY pair + the
+              # v4 `escapes` flag (rides for the Q8 escape caveat). Same
+              # nil-tolerant posture as the v0.13 keys: null on pre-v6
+              # trees / never-analyzed nodes — the side-panel rows drop,
+              # never fabricate.
+              "score"         => gn["score"],
+              "score_band"    => gn["score_band"],
+              "score_raw"     => gn["score_raw"],
+              "absorb"        => gn["absorb"],
+              "absorb_raw"    => gn["absorb_raw"],
+              "escapes"       => gn["escapes"]
             }
           end
         end
@@ -1013,10 +1136,28 @@ module Archbuddy
                 // (legacy graph / never analyzed) — nil-tolerant, never
                 // fabricated. Advisory wording only.
                 var compass = '';
+                // v0.16 (T4/Q8): the SCORE is the headline row (rule 1) —
+                // rendered FIRST when stamped; null stamps drop (pre-v6 /
+                // never analyzed — byte-identical back-compat, never
+                // fabricated). Band/raw ride the same row (saturation reads
+                // on raw, never the clamped band).
+                var hasScore = n.score !== null && n.score !== undefined;
+                if (hasScore) compass += '<dt>score</dt><dd>' + n.score + ' (band ' + n.score_band + ', raw ' + n.score_raw + ')</dd>';
                 if (n.leverage !== null && n.leverage !== undefined) compass += '<dt>leverage</dt><dd>' + n.leverage + '</dd>';
                 if (n.collapse !== null && n.collapse !== undefined) compass += '<dt>collapse</dt><dd>' + n.collapse + '</dd>';
-                if (n.quadrant !== null && n.quadrant !== undefined) compass += '<dt>quadrant</dt><dd>' + esc(n.quadrant) + '</dd>';
+                // Q8 rule 2/5: the quadrant stays DIAGNOSTIC — but the
+                // "underused" label never renders against a negative score
+                // (the score is the truth; the quadrant is overridden).
+                var quad = n.quadrant;
+                if (quad === 'underused' && hasScore && n.score < 0) quad = 'diagnostic overridden by negative score — break it down';
+                if (quad !== null && quad !== undefined) compass += '<dt>quadrant</dt><dd>' + esc(quad) + '</dd>';
                 if (n.toll_booth === true) compass += '<dt>toll booth</dt><dd>bypass candidate (advisory)</dd>';
+                // Q8 rule set (d): escape-flagged NEGATIVE nodes carry the
+                // O2 caveat (X-5 copy content verbatim).
+                if (n.escapes === true && hasScore && n.score < 0) compass += '<dt>escape</dt><dd>inline surface above contract — NOT statically extraction-recoverable</dd>';
+                // L9-A: absorb copy renders ONLY when score >= 0 (advisory
+                // headroom — engine-published, absent unless eligible).
+                if (n.absorb !== null && n.absorb !== undefined && hasScore && n.score >= 0) compass += '<dt>absorb</dt><dd>' + n.absorb + ' (advisory headroom, raw ' + n.absorb_raw + ')</dd>';
                 var fl = n.resolved ? (n.file || '') + (n.line ? ':' + n.line : '') : '(unresolved)';
                 var findings = (n.findings && n.findings.length) ? n.findings.join(', ') : 'none';
                 side.innerHTML = '<h3>' + esc(n.symbol) + '</h3>' +
