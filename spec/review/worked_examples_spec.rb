@@ -8,7 +8,7 @@ require_relative "../support/stub_vintage"
 # v0.15 P1-T6: the Q5 canon at ENGINE level — the new A5-equivalents.
 # #2083: EXACTLY EN(error) + MG(error) + UCC(warn, Q4 clause) + UCD(warn,
 # ×65536) + the ratchet breach + review_surface union 1; counts
-# {error: 2, warn: 2}; exit 1. #2146: ZERO findings from all seven rules,
+# {error: 2, warn: 2}; exit 1. #2146: ZERO findings from all eight rules,
 # net +1.000, union 2, exit 0 — what clean looks like.
 RSpec.describe "Engine-level worked examples (Q5 canon)" do
   WE_FIXTURES = File.expand_path("../fixtures/review/vintages", __dir__)
@@ -74,7 +74,7 @@ RSpec.describe "Engine-level worked examples (Q5 canon)" do
   end
 
   describe "#2146 (two small NEW eps — what clean looks like)" do
-    it "yields ZERO findings from all seven rules, net +1.000, union 2, exit 0" do
+    it "yields ZERO findings from all eight rules, net +1.000, union 2, exit 0" do
       result, delta = evaluate_pair("twin_2146_base", "twin_2146_head")
 
       expect(result.findings).to eq([])

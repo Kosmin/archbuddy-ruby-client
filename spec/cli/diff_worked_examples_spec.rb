@@ -78,7 +78,7 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
 
   # ---- (b) always-run synthetic gates ------------------------------------------
 
-  describe "always-run synthetic twins (the A5 gates, amended to the 7-family)" do
+  describe "always-run synthetic twins (the A5 gates, amended to the 8-family)" do
     it "#2083-twin: the FULL Q5 canon through the shipped CLI" do
       Dir.mktmpdir do |dir|
         config = File.join(dir, ".archbuddy.yml")
@@ -124,7 +124,7 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
       end
     end
 
-    it "#2146-twin, NO config: zero findings from all seven rules, RS 2/2, net +1.000" do
+    it "#2146-twin, NO config: zero findings from all eight rules, RS 2/2, net +1.000" do
       code, stdout, = run_diff(target: fixture("twin_2146_head"),
                                base_cache: fixture("twin_2146_base"),
                                trust_cache: true, format: "json")

@@ -7,12 +7,12 @@ require "fileutils"
 require "json-schema"
 require "archbuddy/cli"
 
-# v0.15 P2-T13(e): the CLI-level 7-family evaluability battery
+# v0.15 P2-T13(e): the CLI-level 8-family evaluability battery (v0.16 T8)
 # ([S:R25] filename) — cross-vintage honesty through `archbuddy diff`.
 # The NoNewTollBooths rows are struck (rule retired, Q11); the escape rows
 # live on FirewallBreaches; UseCaseDividend adds the arity reason. Nothing
 # is ever fabricated (P8's honest-N/A observable).
-RSpec.describe "diff evaluability cross-vintage (7-family)" do
+RSpec.describe "diff evaluability cross-vintage (8-family)" do
   FIXTURES_EV = File.expand_path("../fixtures/review/vintages", __dir__)
   SCHEMA_EV = File.expand_path("../fixtures/review/archbuddy-diff-report-1.schema.json", __dir__)
 

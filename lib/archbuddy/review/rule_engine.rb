@@ -233,8 +233,16 @@ module Archbuddy
       end
 
       def node_refire_message(style, recorded, current)
-        if style == :count
+        case style
+        when :count
           format("grew past grandfathered baseline %d → %d", recorded, current)
+        when :score_debt
+          # ReusabilityScore (v0.16, D-C5): recorded/current are debt milli
+          # ((−score_raw × 1000).round) — render back as the published 3 dp
+          # raw score; the skip predicate above stays the verbatim integer
+          # `value_raw <= recorded` (debt grows as the node worsens).
+          format("reusability debt worsened: raw %.3f → %.3f (pinned value exceeded)",
+                 -(recorded / 1000.0), -(current / 1000.0))
         else
           format("grew past grandfathered baseline %d (2^%.1f) → %d (2^%.1f)",
                  recorded, Math.log2(recorded), current, Math.log2(current))
