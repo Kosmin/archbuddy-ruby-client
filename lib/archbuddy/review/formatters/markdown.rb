@@ -27,6 +27,7 @@ module Archbuddy
           unless lint?
             sections << ratchet_table
             sections << review_surface_section
+            sections << reusability_section # v0.16 T10 — mirrors the envelope block
           end
           sections << calibration_blockquote
           sections << findings_details
@@ -166,6 +167,67 @@ module Archbuddy
             end
           end
           lines.join("\n")
+        end
+
+        # v0.16 T10 (diff only): compact mirror of the envelope
+        # `reusability` block — per-side score-provenance line (Q6/D-C3:
+        # committed stamps reflect the last analyze), worst-head-first
+        # score-delta table (10 open, +N tail; envelope caps at 20), and
+        # the L9-A absorb-candidates blockquote with the O8 hedged copy
+        # (candidates carry score ≥ 0 only — the Q8 law extended, so the
+        # absorb upsell never renders on a negative-pole node).
+        REUSABILITY_OPEN_CAP = 10
+
+        def reusability_section
+          r = context.reusability
+          return nil if r.nil?
+
+          lines = ["### reusability", "",
+                   "base #{side_cell(r[:base])} → head #{side_cell(r[:head])} — " \
+                   "_committed stamps reflect the last analyze_"]
+          lines.concat(reusability_delta_table(r[:deltas] || []))
+          lines.concat(absorb_blockquote(r[:absorb_candidates] || []))
+          lines.join("\n")
+        end
+
+        def side_cell(side)
+          cell = "#{side[:source]} (#{side[:scored_nodes]} scored"
+          cell += ", #{side[:stale_stamps]} stale" if side[:stale_stamps].to_i.positive?
+          "#{cell})"
+        end
+
+        def reusability_delta_table(rows)
+          return [] if rows.empty?
+
+          lines = ["", "| node | class | base | head | Δraw (milli) |",
+                   "|---|---|---|---|---|"]
+          rows.first(REUSABILITY_OPEN_CAP).each do |row|
+            lines << "| #{node_cell(row[:file], row[:symbol])} " \
+                     "| #{row[:classification].to_s.upcase} " \
+                     "| #{score_cell(row[:base])} | #{score_cell(row[:head])} " \
+                     "| #{row[:delta_raw_milli] ? format('%+d', row[:delta_raw_milli]) : '—'} |"
+          end
+          if rows.size > REUSABILITY_OPEN_CAP
+            lines << ""
+            lines << "+#{rows.size - REUSABILITY_OPEN_CAP} more (see the JSON artifact)"
+          end
+          lines
+        end
+
+        def score_cell(side)
+          side ? format("%+g", side[:score]) : "—"
+        end
+
+        def absorb_blockquote(candidates)
+          return [] if candidates.empty?
+
+          parts = candidates.map do |c|
+            raw = c[:absorb_raw] ? format("%g", c[:absorb_raw]) : "n/a"
+            "`#{c[:symbol]}` absorb #{format('%+g', c[:absorb])} (raw #{raw})"
+          end
+          ["",
+           "> absorb candidates — a listed function or a sibling at its call " \
+           "site could absorb caller-side decisions: #{parts.join('; ')}"]
         end
 
         # Lint: top-20 open + rows 21–120 in <details> (cap 120 — R4 §Q4;

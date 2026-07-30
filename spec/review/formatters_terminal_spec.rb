@@ -166,6 +166,57 @@ RSpec.describe Archbuddy::Review::Formatters::Terminal do
     end
   end
 
+  describe "the reusability section (v0.16 T10 — mirrors the envelope block)" do
+    def reusability_input
+      { base: { source: "committed-cache", analyzed: true, serializer: [6],
+                scored_nodes: 3, stale_stamps: 0 },
+        head: { source: "working-tree-cache", analyzed: true, serializer: [6],
+                scored_nodes: 4, stale_stamps: 1 },
+        deltas: [
+          { file: "app/api/a.rb", symbol: "A#PATCH[0]", classification: :grown,
+            base: { score: -4.23, score_raw: -15.0 },
+            head: { score: -4.52, score_raw: -18.75 },
+            delta_raw_milli: -3750 },
+          { file: "app/api/b.rb", symbol: "B#GET[0]", classification: :new,
+            base: nil, head: { score: 0.0, score_raw: 0.0 },
+            delta_raw_milli: nil }
+        ],
+        absorb_candidates: [
+          { file: "app/api/c.rb", symbol: "C#collection", score: 0.0,
+            absorb: 4.32, absorb_raw: 6.907 }
+        ] }
+    end
+
+    it "renders the provenance line, null-tolerant delta lines, and the hedged absorb line" do
+      doc = render(base_context(reusability: reusability_input,
+                                delta_summary: { counts: {}, net_log2: 0.0 }))
+      expect(doc).to include(
+        "reusability: base committed-cache (3 scored) -> head " \
+        "working-tree-cache (4 scored, 1 stale) — committed stamps reflect the last analyze"
+      )
+      expect(doc).to include(
+        "  score A#PATCH[0] (app/api/a.rb): -4.23 -> -4.52 (Δraw -3750 milli) [GROWN]"
+      )
+      expect(doc).to include("  score B#GET[0] (app/api/b.rb): n/a -> +0 [NEW]")
+      expect(doc).to include(
+        "  absorb candidates (a listed function or a sibling at its call site " \
+        "could absorb caller-side decisions): C#collection absorb +4.32 (raw 6.907)"
+      )
+    end
+
+    it "renders NO reusability lines when the block is nil (scoreless sides)" do
+      doc = render(base_context(delta_summary: { counts: {}, net_log2: 0.0 }))
+      expect(doc).not_to include("reusability:")
+    end
+
+    it "renders no absorb line when there are no candidates (never an empty upsell)" do
+      block = reusability_input.merge(absorb_candidates: [])
+      doc = render(base_context(reusability: block,
+                                delta_summary: { counts: {}, net_log2: 0.0 }))
+      expect(doc).not_to include("absorb candidates")
+    end
+  end
+
   describe "degenerates + nil tolerance" do
     it "renders a summary-only document on an all-nil-optionals diff context" do
       doc = render(base_context(delta_summary: { counts: {}, net_log2: 0.0 }))

@@ -7,8 +7,9 @@ module Archbuddy
     module Formatters
       # Problem-matcher-friendly terminal renderer. Diff document order:
       # findings (+ ep contributor sub-lines) → ratchet lines → review
-      # surface (2b) → disclosures (2c) → grandfathered → not-evaluable →
-      # impact → summary. Lint order (Q9): summary FIRST → findings →
+      # surface (2b) → disclosures (2c) → reusability (v0.16 T10; only
+      # when ≥1 side carries score stamps) → grandfathered → not-evaluable
+      # → impact → summary. Lint order (Q9): summary FIRST → findings →
       # use-case leaderboard → ratchet context → grandfathered →
       # calibration footer. Both units wherever a branching value appears
       # (P7); finding lines NEVER contain a line number (fragments are
@@ -28,6 +29,7 @@ module Archbuddy
           lines.concat(ratchet_lines)
           lines.concat(review_surface_lines) # item 2b
           lines.concat(disclosure_lines)     # item 2c
+          lines.concat(reusability_lines)    # v0.16 T10 — mirrors the envelope block
           lines.concat(grandfathered_lines)
           lines.concat(not_evaluable_lines)
           lines.concat(impact_lines)
@@ -134,6 +136,58 @@ module Archbuddy
                      "with no net metric movement"
           end
           lines
+        end
+
+        # ---- reusability (diff only, v0.16 T10) --------------------------------------
+
+        # Compact mirror of the envelope `reusability` block: per-side
+        # score-provenance line (Q6/D-C3 — committed stamps reflect the
+        # last analyze), worst score deltas (top 5; full list in JSON), and
+        # the L9-A absorb-candidates disclosure with the O8 hedged copy
+        # (never a named-certainty claim; Q8 law — the line only carries
+        # score ≥ 0 nodes, so break-it-down copy and absorb copy never mix).
+        def reusability_lines
+          r = context.reusability
+          return [] if r.nil?
+
+          lines = [provenance_line(r)]
+          (r[:deltas] || []).first(5).each do |row|
+            lines << "  score #{row[:symbol]} (#{row[:file]}): " \
+                     "#{score_cell(row[:base])} -> #{score_cell(row[:head])}" \
+                     "#{milli_cell(row[:delta_raw_milli])} [#{row[:classification].to_s.upcase}]"
+          end
+          lines.concat(absorb_line(r[:absorb_candidates] || []))
+          lines
+        end
+
+        def provenance_line(block)
+          "reusability: base #{side_cell(block[:base])} -> head " \
+            "#{side_cell(block[:head])} — committed stamps reflect the last analyze"
+        end
+
+        def side_cell(side)
+          cell = "#{side[:source]} (#{side[:scored_nodes]} scored"
+          cell += ", #{side[:stale_stamps]} stale" if side[:stale_stamps].to_i.positive?
+          "#{cell})"
+        end
+
+        def score_cell(side)
+          side ? format("%+g", side[:score]) : "n/a"
+        end
+
+        def milli_cell(milli)
+          milli ? " (Δraw #{format('%+d', milli)} milli)" : ""
+        end
+
+        def absorb_line(candidates)
+          return [] if candidates.empty?
+
+          parts = candidates.map do |c|
+            raw = c[:absorb_raw] ? format("%g", c[:absorb_raw]) : "n/a"
+            "#{c[:symbol]} absorb #{format('%+g', c[:absorb])} (raw #{raw})"
+          end
+          ["  absorb candidates (a listed function or a sibling at its call " \
+           "site could absorb caller-side decisions): #{parts.join('; ')}"]
         end
 
         # ---- leaderboard (lint only, Q9) -------------------------------------------

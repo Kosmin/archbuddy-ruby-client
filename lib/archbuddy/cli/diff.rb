@@ -11,10 +11,10 @@ module Archbuddy
     # (v0.15 P2-T11). Two-vintage pipeline: resolve base (injected > committed >
     # stateless) and head (trust-cache > tracked+clean > manifest-fresh >
     # re-collect), build the first-class Delta (node + ep surfaces), evaluate
-    # the 7-rule family, thread review_surface/disclosures/calibration into the
-    # ReviewContext, render ONE document to stdout, and exit via the
-    # finding-or-breach math ([S:C5] — `Findings#exit_code` is the single
-    # owner; L3 advisory default when no config gates).
+    # the 8-rule family, thread review_surface/disclosures/calibration/
+    # reusability into the ReviewContext, render ONE document to stdout, and
+    # exit via the finding-or-breach math ([S:C5] — `Findings#exit_code` is
+    # the single owner; L3 advisory default when no config gates).
     #
     # CLEAN-STDOUT (P5): stdout receives EXACTLY ONE write — the rendered
     # document; every note/warning/error goes to stderr. On ANY exit-2 path
@@ -82,7 +82,9 @@ module Archbuddy
           context = build_context(
             target: target, opts: opts, config: config, base_v: base_v,
             base_label: base_label, head_v: head_v, head_label: head_label,
-            delta: delta, evaluation: evaluation, exit_code: exit_code
+            delta: delta, evaluation: evaluation, exit_code: exit_code,
+            reusability: reusability_block(base_v, base_label, head_v,
+                                           head_label, delta, config)
           )
           $stdout.puts Review::Formatter.for(format).new(context).render
           exit exit_code
@@ -140,7 +142,8 @@ module Archbuddy
       # ---- context assembly ----------------------------------------------------
 
       def build_context(target:, opts:, config:, base_v:, base_label:, head_v:,
-                        head_label:, delta:, evaluation:, exit_code:)
+                        head_label:, delta:, evaluation:, exit_code:,
+                        reusability: nil)
         Review::Formatter::ReviewContext.new(
           command: "diff", target: target, config_path: opts[:config],
           advisory: !!opts[:advisory], fail_level: config.effective_fail_level,
@@ -155,7 +158,8 @@ module Archbuddy
           exit_code: exit_code, tool: tool_block,
           use_cases: nil, # diff never renders the leaderboard (Q9(iv))
           review_surface: evaluation.review_surface,
-          disclosures: delta.disclosures
+          disclosures: delta.disclosures,
+          reusability: reusability
         )
       end
 
@@ -222,6 +226,92 @@ module Archbuddy
           engine: defined?(ArchitectureAuditor::VERSION) ? ArchitectureAuditor::VERSION : nil,
           serializer: Cache::Writer::SERIALIZER_VERSION
         }
+      end
+
+      # ---- reusability envelope block (v0.16 T10, D-C3/D-C4/Q6) ---------------
+
+      # The diff-only `reusability` block: per-side score-provenance
+      # disclosure (committed stamps reflect the LAST ANALYZE — Q6/D-C3),
+      # per-node score deltas over changed nodes, and the absorb-candidates
+      # disclosure (L9-A: gated on the engine `absorb` key, never a score
+      # key). nil (⇒ envelope key ABSENT, never null) when NEITHER side
+      # carries a score stamp — pre-v6 caches / never-analyzed vintages get
+      # one stderr note instead (CLEAN-STDOUT: notes never ride stdout).
+      # Every number is an engine-published value selected verbatim or a
+      # SUBTRACTION of published milli values (L2/D17 — the one pinned
+      # presentational delta; the client never computes a score).
+      def reusability_block(base_v, base_label, head_v, head_label, delta, config)
+        base_side = Review::ScoreRollup.side_provenance(
+          base_v, source_label: base_label[:vintage], fresh_analyze: false
+        )
+        head_side = Review::ScoreRollup.side_provenance(
+          head_v, source_label: head_label[:vintage], fresh_analyze: false
+        )
+        if base_side[:scored_nodes].zero? && head_side[:scored_nodes].zero?
+          warn "note: reusability score block omitted — no score stamps on " \
+               "either side (serializer < v6 or vintage never analyzed)"
+          return nil
+        end
+
+        { base: base_side, head: head_side, deltas: score_deltas(delta),
+          absorb_candidates: absorb_candidates(head_v, config) }
+      end
+
+      # Changed (NEW/GROWN/SHRUNK) nodes carrying a score stamp on either
+      # side, worst-head-first (most negative published head score; null
+      # heads last), capped 20. `delta_raw_milli` = head − base on the
+      # engine-published `score_raw` in milli units (D-C5's integer
+      # encoding — deltas stay visible inside the saturated |5| poles, Q2);
+      # null when either side lacks the stamp (never fabricated).
+      def score_deltas(delta)
+        rows = delta.entries.filter_map do |entry|
+          next unless %i[new grown shrunk].include?(entry.classification)
+
+          base_score = stamp_of(entry.base_node)
+          head_score = stamp_of(entry.head_node)
+          next if base_score.nil? && head_score.nil?
+
+          { file: entry.file, symbol: entry.symbol,
+            classification: entry.classification,
+            base: base_score, head: head_score,
+            delta_raw_milli: raw_milli_delta(base_score, head_score) }
+        end
+        rows.sort_by { |r| [r[:head] ? r[:head][:score] : Float::INFINITY, r[:file], r[:symbol]] }
+            .first(20)
+      end
+
+      def stamp_of(node)
+        return nil if node.nil? || node.score.nil? || node.score_raw.nil?
+
+        { score: node.score, score_raw: node.score_raw }
+      end
+
+      def raw_milli_delta(base_score, head_score)
+        return nil if base_score.nil? || head_score.nil?
+
+        (head_score[:score_raw] * 1000).round - (base_score[:score_raw] * 1000).round
+      end
+
+      # The +5 routing-incentive DISCLOSURE (D-C4 as amended by L9-A): head
+      # nodes whose engine `absorb` advisory value reaches the
+      # `absorb_min_score` rule param — NEVER a finding, and rendered only
+      # for score ≥ 0 nodes (the Q8 law extended: absorb copy never rides a
+      # negative-pole node). A null param disables the disclosure ([]).
+      def absorb_candidates(head_v, config)
+        threshold = config.rule_for("ReusabilityScore", file: nil)["absorb_min_score"]
+        return [] if threshold.nil?
+
+        head_v.nodes
+              .select do |n|
+                !n.absorb.nil? && n.absorb >= threshold &&
+                  !n.score.nil? && n.score >= 0
+              end
+              .sort_by { |n| [-n.absorb, n.file, n.symbol] }
+              .first(5)
+              .map do |n|
+                { file: n.file, symbol: n.symbol, score: n.score,
+                  absorb: n.absorb, absorb_raw: n.absorb_raw }
+              end
       end
     end
   end

@@ -7,13 +7,16 @@ module Archbuddy
   module Review
     module Formatters
       # The `archbuddy-diff-report/1` envelope (name UNCHANGED — L4; every
-      # v0.15 addition additive). Omission posture: delta/ratchet/delta_top/
+      # v0.15 addition additive; the v0.16 `reusability` key additive the
+      # same way). Omission posture: delta/ratchet/delta_top/
       # review_surface/disclosures keys ABSENT (not null) in lint;
       # `use_cases` lint-only after `summary`; TOP-LEVEL `review_surface`
       # after `ratchet` (R41); `summary.unreachable_from_entrypoints` in
-      # BOTH commands, key ABSENT when edges absent or zero eps (Q8/R37).
-      # Floats round(6); insertion-ordered hashes + JSON.pretty_generate =
-      # byte-deterministic.
+      # BOTH commands, key ABSENT when edges absent or zero eps (Q8/R37);
+      # `reusability` (v0.16 T10) diff-only AFTER `review_surface`, ABSENT
+      # in lint and ABSENT when neither side carries a score stamp (absent
+      # ≠ null — the envelope posture). Floats round(6); insertion-ordered
+      # hashes + JSON.pretty_generate = byte-deterministic.
       class Json < Formatter
         def render
           JSON.pretty_generate(envelope)
@@ -38,6 +41,7 @@ module Archbuddy
             doc["delta_top"] = (context.delta_top || []).map { |row| delta_top_row(row) }
             doc["ratchet"] = ratchet_rows
             doc["review_surface"] = review_surface_block if context.review_surface
+            doc["reusability"] = reusability_block if context.reusability
           end
           doc["ratchet_context"] = ratchet_context_rows if lint? && ratchet_context_rows.any?
           doc["grandfathered"] = grandfathered_rows
@@ -217,6 +221,47 @@ module Archbuddy
               "recorded" => skip.recorded, "current" => skip.current,
               "healed" => !!skip.healed }
           end
+        end
+
+        # v0.16 T10: the reusability block — per-side score provenance
+        # (committed stamps reflect the LAST ANALYZE — Q6/D-C3 disclosure),
+        # score deltas on published `score_raw` milli (null-tolerant), and
+        # the L9-A absorb-candidates disclosure. Every value arrives
+        # engine-published (or a published-milli subtraction) from the CLI;
+        # round6 is an idempotent pass-through on 2/3 dp reals.
+        def reusability_block
+          r = context.reusability
+          {
+            "base" => side_provenance_row(r[:base]),
+            "head" => side_provenance_row(r[:head]),
+            "deltas" => (r[:deltas] || []).map { |row| score_delta_row(row) },
+            "absorb_candidates" => (r[:absorb_candidates] || []).map { |row| absorb_row(row) }
+          }
+        end
+
+        def side_provenance_row(side)
+          { "source" => side[:source], "analyzed" => !!side[:analyzed],
+            "serializer" => side[:serializer] || [],
+            "scored_nodes" => side[:scored_nodes].to_i,
+            "stale_stamps" => side[:stale_stamps].to_i }
+        end
+
+        def score_delta_row(row)
+          { "file" => row[:file], "symbol" => row[:symbol],
+            "classification" => row[:classification].to_s.upcase,
+            "base" => score_side(row[:base]), "head" => score_side(row[:head]),
+            "delta_raw_milli" => row[:delta_raw_milli] }
+        end
+
+        # null when that side lacks the stamp (never fabricated — L6).
+        def score_side(side)
+          side && { "score" => round6(side[:score]), "score_raw" => round6(side[:score_raw]) }
+        end
+
+        def absorb_row(row)
+          { "file" => row[:file], "symbol" => row[:symbol],
+            "score" => round6(row[:score]), "absorb" => round6(row[:absorb]),
+            "absorb_raw" => round6(row[:absorb_raw]) }
         end
 
         def calibration_block

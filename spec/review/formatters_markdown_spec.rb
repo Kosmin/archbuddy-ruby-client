@@ -89,6 +89,69 @@ RSpec.describe Archbuddy::Review::Formatters::Markdown do
     expect(doc).to include("> note: 1 touched file(s) not reachable from any entrypoint: b.rb")
   end
 
+  describe "the reusability section (v0.16 T10 — mirrors the envelope block)" do
+    def reusability_input(deltas: nil)
+      { base: { source: "committed-cache", analyzed: true, serializer: [6],
+                scored_nodes: 3, stale_stamps: 0 },
+        head: { source: "working-tree-cache", analyzed: true, serializer: [6],
+                scored_nodes: 4, stale_stamps: 1 },
+        deltas: deltas || [
+          { file: "app/api/a.rb", symbol: "A#PATCH[0]", classification: :grown,
+            base: { score: -4.23, score_raw: -15.0 },
+            head: { score: -4.52, score_raw: -18.75 },
+            delta_raw_milli: -3750 },
+          { file: "app/api/b.rb", symbol: "B#GET[0]", classification: :new,
+            base: nil, head: { score: 0.0, score_raw: 0.0 },
+            delta_raw_milli: nil }
+        ],
+        absorb_candidates: [
+          { file: "app/api/c.rb", symbol: "C#collection", score: 0.0,
+            absorb: 4.32, absorb_raw: 6.907 }
+        ] }
+    end
+
+    def delta_row(index)
+      { file: "app/api/d#{index}.rb", symbol: "D#{index}#x", classification: :grown,
+        base: { score: -1.0, score_raw: -1.5 },
+        head: { score: -1.0 - (index / 100.0), score_raw: -1.6 },
+        delta_raw_milli: -100 }
+    end
+
+    it "renders the provenance line, the null-tolerant delta table, and the absorb blockquote" do
+      doc = render(base_ctx(reusability: reusability_input))
+      expect(doc).to include("### reusability")
+      expect(doc).to include(
+        "base committed-cache (3 scored) → head working-tree-cache " \
+        "(4 scored, 1 stale) — _committed stamps reflect the last analyze_"
+      )
+      expect(doc).to include(
+        "| `A#PATCH[0]` — app/api/a.rb | GROWN | -4.23 | -4.52 | -3750 |"
+      )
+      expect(doc).to include("| `B#GET[0]` — app/api/b.rb | NEW | — | +0 | — |")
+      expect(doc).to include(
+        "> absorb candidates — a listed function or a sibling at its call site " \
+        "could absorb caller-side decisions: `C#collection` absorb +4.32 (raw 6.907)"
+      )
+    end
+
+    it "caps the delta table at 10 open rows with the JSON-artifact tail" do
+      doc = render(base_ctx(reusability: reusability_input(
+        deltas: (1..14).map { |i| delta_row(i) }
+      )))
+      section = doc[doc.index("### reusability")..]
+      expect(section.scan(/^\| `D\d+#x`/).size).to eq(10)
+      expect(section).to include("+4 more (see the JSON artifact)")
+    end
+
+    it "renders NO section when the block is nil, and never in lint" do
+      expect(render(base_ctx)).not_to include("### reusability")
+      lint = base_ctx(command: "lint", base: nil, delta_summary: nil,
+                      use_cases: { count: 0, leaderboard: [], unreachable: nil },
+                      reusability: reusability_input)
+      expect(render(lint)).not_to include("### reusability")
+    end
+  end
+
   it "renders the headline + gate + advisory variants deterministically" do
     context = base_ctx(findings: [finding(1, severity: :error)], exit_code: 1)
     doc = render(context)

@@ -10,7 +10,7 @@ module ReviewStubs
     kind: "function", klass: nil, branches: 1, decisions: 0,
     entrypoint: false, entrypoint_kind: nil, escapes: nil, outcome_arity: nil,
     toll_booth: nil, quadrant: nil, leverage: nil, collapse: nil,
-    score: nil, score_band: nil, score_raw: nil,
+    score: nil, score_band: nil, score_raw: nil, absorb: nil, absorb_raw: nil,
     serializer_version: 5
   }.freeze
 

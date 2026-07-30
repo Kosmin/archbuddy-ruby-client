@@ -157,6 +157,46 @@
         }
       }
     },
+    "reusability": {
+      "type": "object",
+      "required": ["base", "head", "deltas", "absorb_candidates"],
+      "additionalProperties": false,
+      "properties": {
+        "base": { "$ref": "#/definitions/score_side_provenance" },
+        "head": { "$ref": "#/definitions/score_side_provenance" },
+        "deltas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "symbol", "classification", "base", "head", "delta_raw_milli"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string" },
+              "symbol": { "type": "string" },
+              "classification": { "enum": ["NEW", "GROWN", "SHRUNK"] },
+              "base": { "$ref": "#/definitions/score_stamp" },
+              "head": { "$ref": "#/definitions/score_stamp" },
+              "delta_raw_milli": { "type": ["integer", "null"] }
+            }
+          }
+        },
+        "absorb_candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "symbol", "score", "absorb", "absorb_raw"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string" },
+              "symbol": { "type": "string" },
+              "score": { "type": "number" },
+              "absorb": { "type": "number" },
+              "absorb_raw": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
     "ratchet_context": {
       "type": "array",
       "items": {
@@ -181,5 +221,28 @@
       }
     },
     "exit_code": { "enum": [0, 1, 2] }
+  },
+  "definitions": {
+    "score_side_provenance": {
+      "type": "object",
+      "required": ["source", "analyzed", "serializer", "scored_nodes", "stale_stamps"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string" },
+        "analyzed": { "type": "boolean" },
+        "serializer": { "type": "array", "items": { "type": "integer" } },
+        "scored_nodes": { "type": "integer" },
+        "stale_stamps": { "type": "integer" }
+      }
+    },
+    "score_stamp": {
+      "type": ["object", "null"],
+      "required": ["score", "score_raw"],
+      "additionalProperties": false,
+      "properties": {
+        "score": { "type": "number" },
+        "score_raw": { "type": "number" }
+      }
+    }
   }
 }

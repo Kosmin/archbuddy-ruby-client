@@ -10,11 +10,14 @@ module Archbuddy
       # Members nil per mode: :use_cases is diff-nil; :review_surface /
       # :disclosures are lint-nil; :delta_summary/:delta_top/:delta_index
       # lint-nil ([S:F11] — delta_index feeds node findings' values only).
+      # :reusability (v0.16 T10) is lint-nil AND nil when neither side
+      # carries a score stamp — formatters render the block/section only
+      # when present (the envelope key is ABSENT, never null).
       ReviewContext = Struct.new(
         :command, :target, :config_path, :advisory, :fail_level, :base, :head,
         :findings, :grandfathered, :not_evaluable, :delta_summary, :delta_top,
         :ratchet, :excluded_files, :calibration, :exit_code, :tool, :delta_index,
-        :use_cases, :review_surface, :disclosures,
+        :use_cases, :review_surface, :disclosures, :reusability,
         keyword_init: true
       )
 

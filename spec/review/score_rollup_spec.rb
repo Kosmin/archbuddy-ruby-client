@@ -12,14 +12,15 @@ RSpec.describe Archbuddy::Review::ScoreRollup do
 
   def node(score: nil, score_band: nil, score_raw: nil, branches: nil,
            outcome_arity: nil, collapse: nil, toll_booth: nil,
-           file: "a.rb", symbol: "A#m")
+           absorb: nil, absorb_raw: nil, file: "a.rb", symbol: "A#m")
     Archbuddy::Review::Vintage::Node.new(
       file: file, symbol: symbol, kind: "function", klass: nil,
       branches: branches, decisions: 0, entrypoint: false,
       entrypoint_kind: nil, escapes: false, outcome_arity: outcome_arity,
       toll_booth: toll_booth, quadrant: nil, leverage: nil,
       collapse: collapse, score: score, score_band: score_band,
-      score_raw: score_raw, serializer_version: 6,
+      score_raw: score_raw, absorb: absorb, absorb_raw: absorb_raw,
+      serializer_version: 6,
       keys_present: %w[score score_band score_raw]
     )
   end

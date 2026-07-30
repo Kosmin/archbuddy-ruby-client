@@ -226,6 +226,122 @@ RSpec.describe Archbuddy::CLI::Diff do
     end
   end
 
+  describe "the reusability envelope block (v0.16 T10, e2e over v6 caches)" do
+    # A minimal serializer-v6 committed cache: aggregate + one fragment.
+    # Score stamps are fixture stand-ins for ENGINE-published values (the
+    # client only ever copies/subtracts them — L2/D17); `collapse` is kept
+    # consistent with branches/arity so the stamps read FRESH (D-C3).
+    def write_v6_cache(dir, nodes)
+      frag_rel = ".archbuddy/app/api/w.rb.json"
+      FileUtils.mkdir_p(File.join(dir, File.dirname(frag_rel)))
+      File.write(File.join(dir, "archbuddy-findings.json"), JSON.pretty_generate(
+        "serializer_version" => 6,
+        "sources" => { "app/api/w.rb" => { "path" => frag_rel, "shard_mode" => "single" } }
+      ))
+      File.write(File.join(dir, frag_rel), JSON.pretty_generate(
+        "serializer_version" => 6, "file" => "app/api/w.rb", "nodes" => nodes
+      ))
+    end
+
+    def v6_node(symbol:, branches:, score:, score_raw:, score_band: nil,
+                absorb: nil, absorb_raw: nil, entrypoint: false)
+      { "symbol" => symbol, "kind" => "function", "class" => "W",
+        "branches" => branches, "decisions" => 1, "entrypoint" => entrypoint,
+        "entrypoint_kind" => entrypoint ? "grape" : nil, "escapes" => false,
+        "outcome_arity" => 1, "toll_booth" => false, "quadrant" => nil,
+        "leverage" => nil, "collapse" => branches.to_f.round(2),
+        "score" => score, "score_band" => score_band, "score_raw" => score_raw,
+        "absorb" => absorb, "absorb_raw" => absorb_raw }
+    end
+
+    it "emits the block (per-side provenance, raw-milli delta, L9-A absorb gate) and schema-validates" do
+      Dir.mktmpdir do |dir|
+        base_dir = File.join(dir, "base")
+        head_dir = File.join(dir, "head")
+        FileUtils.mkdir_p([base_dir, head_dir])
+        write_v6_cache(base_dir, [
+          v6_node(symbol: "W#go", branches: 8, score: -1.2, score_raw: -1.9,
+                  score_band: -1, entrypoint: true)
+        ])
+        write_v6_cache(head_dir, [
+          v6_node(symbol: "W#go", branches: 16, score: -1.5, score_raw: -2.2,
+                  score_band: -2, entrypoint: true),
+          v6_node(symbol: "W#booth", branches: 1, score: 0.0, score_raw: 0.0,
+                  score_band: 0, absorb: 4.32, absorb_raw: 6.907)
+        ])
+        config = write_config(dir, <<~YAML)
+          version: 1
+          rules:
+            ReusabilityScore: { absorb_min_score: 4 }
+        YAML
+
+        code, stdout, stderr = run_diff(target: head_dir, base_cache: base_dir,
+                                        trust_cache: true, config: config,
+                                        format: "json")
+        expect(code).to eq(0)
+        doc = JSON.parse(stdout)
+
+        block = doc.fetch("reusability")
+        expect(block["base"]).to eq(
+          "source" => "injected-dir", "analyzed" => true, "serializer" => [6],
+          "scored_nodes" => 1, "stale_stamps" => 0
+        )
+        expect(block["head"]["source"]).to eq("trusted-cache")
+        expect(block["head"]["scored_nodes"]).to eq(2)
+        expect(block["head"]["stale_stamps"]).to eq(0)
+
+        grown = block["deltas"].find { |r| r["symbol"] == "W#go" }
+        expect(grown["classification"]).to eq("GROWN")
+        expect(grown["base"]).to eq("score" => -1.2, "score_raw" => -1.9)
+        expect(grown["head"]).to eq("score" => -1.5, "score_raw" => -2.2)
+        expect(grown["delta_raw_milli"]).to eq(-300) # (−2.2 − −1.9) in milli
+
+        expect(block["absorb_candidates"]).to eq([
+          { "file" => "app/api/w.rb", "symbol" => "W#booth", "score" => 0.0,
+            "absorb" => 4.32, "absorb_raw" => 6.907 }
+        ])
+        expect(stderr).not_to include("reusability score block omitted")
+
+        schema = File.expand_path("../fixtures/review/archbuddy-diff-report-1.schema.json", __dir__)
+        require "json-schema"
+        expect(JSON::Validator.fully_validate(schema, doc)).to eq([])
+      end
+    end
+
+    it "gates absorb candidates at the default +5 param (4.32 stays a non-disclosure)" do
+      Dir.mktmpdir do |dir|
+        base_dir = File.join(dir, "base")
+        head_dir = File.join(dir, "head")
+        FileUtils.mkdir_p([base_dir, head_dir])
+        twin_nodes = [
+          v6_node(symbol: "W#go", branches: 8, score: -1.2, score_raw: -1.9,
+                  entrypoint: true),
+          v6_node(symbol: "W#booth", branches: 1, score: 0.0, score_raw: 0.0,
+                  absorb: 4.32, absorb_raw: 6.907)
+        ]
+        write_v6_cache(base_dir, twin_nodes)
+        write_v6_cache(head_dir, twin_nodes)
+        code, stdout, = run_diff(target: head_dir, base_cache: base_dir,
+                                 trust_cache: true, format: "json")
+        expect(code).to eq(0)
+        doc = JSON.parse(stdout)
+        expect(doc["reusability"]["absorb_candidates"]).to eq([])
+        expect(doc["reusability"]["deltas"]).to eq([]) # unchanged nodes never ride deltas
+      end
+    end
+
+    it "omits the key on scoreless (pre-v6) sides with ONE stderr note — absent, never null" do
+      code, stdout, stderr = run_diff(**twin_kwargs(format: "json"))
+      expect(code).to eq(0)
+      doc = JSON.parse(stdout)
+      expect(doc).not_to have_key("reusability")
+      note = "note: reusability score block omitted — no score stamps on " \
+             "either side (serializer < v6 or vintage never analyzed)"
+      expect(stderr.scan(note).size).to eq(1)
+      expect(stdout[0]).to eq("{") # CLEAN-STDOUT: the document is stdout's only write
+    end
+  end
+
   describe "no-mutation + tmpdir hygiene" do
     def tree_digest(dir)
       Dir.glob(File.join(dir, "**", "*"), File::FNM_DOTMATCH).sort.map do |path|

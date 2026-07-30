@@ -12,6 +12,10 @@ require_relative "../support/stub_vintage"
 # across six contexts, the #2083 canon rows, absent-vs-null posture
 # (unreachable_from_entrypoints / review_surface — Q8), values-null on ep
 # findings ([S:F11]), fingerprint canon, byte-determinism.
+# v0.16 T10: the additive `reusability` block (per-side score provenance +
+# raw-milli deltas + L9-A absorb candidates), its absent-≠-null posture,
+# and BOTH schema generations (stored 0.13.0 samples must still validate
+# against the re-cut schema — the envelope name never changed).
 RSpec.describe Archbuddy::Review::Formatters::Json do
   JSON_FIXTURES = File.expand_path("../fixtures/review/vintages", __dir__)
   SCHEMA = File.expand_path("../fixtures/review/archbuddy-diff-report-1.schema.json", __dir__)
@@ -172,6 +176,93 @@ RSpec.describe Archbuddy::Review::Formatters::Json do
     )
     expect(doc["delta_top"].map { |r| r["delta_log2"] }).to contain_exactly(1.0, 0.0)
     expect(doc["exit_code"]).to eq(0)
+  end
+
+  describe "the reusability block (v0.16 T10)" do
+    # Symbol-keyed input exactly as cli/diff.rb builds it (values are
+    # engine-published; the −15.000 → −18.750 pair is the G-1 monster
+    # canon at published 3 dp raw).
+    def reusability_input
+      { base: { source: "committed-cache", analyzed: true, serializer: [6],
+                scored_nodes: 3, stale_stamps: 0 },
+        head: { source: "working-tree-cache", analyzed: true, serializer: [6],
+                scored_nodes: 4, stale_stamps: 1 },
+        deltas: [
+          { file: "app/api/a.rb", symbol: "A#PATCH[0]", classification: :grown,
+            base: { score: -4.23, score_raw: -15.0 },
+            head: { score: -4.52, score_raw: -18.75 },
+            delta_raw_milli: -3750 },
+          { file: "app/api/b.rb", symbol: "B#GET[0]", classification: :new,
+            base: nil, head: { score: 0.0, score_raw: 0.0 },
+            delta_raw_milli: nil }
+        ],
+        absorb_candidates: [
+          { file: "app/api/c.rb", symbol: "C#collection", score: 0.0,
+            absorb: 4.32, absorb_raw: 6.907 }
+        ] }
+    end
+
+    it "renders per-side provenance, null-tolerant deltas, absorb rows — and schema-validates" do
+      doc = render_doc(base_ctx(reusability: reusability_input))
+      expect(doc["reusability"]).to eq(
+        "base" => { "source" => "committed-cache", "analyzed" => true,
+                    "serializer" => [6], "scored_nodes" => 3, "stale_stamps" => 0 },
+        "head" => { "source" => "working-tree-cache", "analyzed" => true,
+                    "serializer" => [6], "scored_nodes" => 4, "stale_stamps" => 1 },
+        "deltas" => [
+          { "file" => "app/api/a.rb", "symbol" => "A#PATCH[0]",
+            "classification" => "GROWN",
+            "base" => { "score" => -4.23, "score_raw" => -15.0 },
+            "head" => { "score" => -4.52, "score_raw" => -18.75 },
+            "delta_raw_milli" => -3750 },
+          { "file" => "app/api/b.rb", "symbol" => "B#GET[0]",
+            "classification" => "NEW", "base" => nil,
+            "head" => { "score" => 0.0, "score_raw" => 0.0 },
+            "delta_raw_milli" => nil }
+        ],
+        "absorb_candidates" => [
+          { "file" => "app/api/c.rb", "symbol" => "C#collection",
+            "score" => 0.0, "absorb" => 4.32, "absorb_raw" => 6.907 }
+        ]
+      )
+      validate!(doc)
+    end
+
+    it "keeps the key ABSENT (never null) when no side is stamped, and ABSENT in lint" do
+      expect(render_doc(base_ctx)).not_to have_key("reusability")
+      expect(render_doc(lint_ctx(rows: [], count: 0))).not_to have_key("reusability")
+      # lint stays reusability-free even if a caller mistakenly threads one
+      lint_doc = render_doc(lint_ctx(rows: [], count: 0).tap { |c| c.reusability = reusability_input })
+      expect(lint_doc).not_to have_key("reusability")
+    end
+
+    it "renders twice byte-identically with the block present" do
+      context = base_ctx(reusability: reusability_input)
+      expect(described_class.new(context).render).to eq(described_class.new(context).render)
+    end
+
+    # The stored 0.13.0 samples are ABBREVIATED jq-recipe fixtures, not
+    # full envelopes (they pre-date this change and were never
+    # schema-validated: they omit `tool`, `run.advisory`, per-finding
+    # `line`/`grandfathered`, …). The generation guarantee the re-cut must
+    # uphold: it rejects NOTHING NEW on a stored 0.13.0 doc — every
+    # validation error is one of those pre-existing MISSING-required gaps;
+    # in particular the top-level `additionalProperties: false` still
+    # accepts every 0.13.0 key set (the re-cut is purely additive; the
+    # samples carry no `reusability`).
+    it "rejects nothing new on the stored 0.13.0 envelope samples (additive re-cut)" do
+      %w[sample-diff-report.json sample-diff-report-empty.json].each do |name|
+        stored = JSON.parse(File.read(File.expand_path("../fixtures/docs/#{name}", __dir__),
+                                      encoding: "UTF-8"))
+        expect(stored).not_to have_key("reusability") # the 0.13.0 generation
+        errors = JSON::Validator.fully_validate(SCHEMA, stored)
+        expect(errors).not_to be_empty # the abbreviation gaps are real — never a vacuous pass
+        errors.each do |error|
+          expect(error).to match(/did not contain a required property/)
+          expect(error).not_to match(/additional propert|reusability/i)
+        end
+      end
+    end
   end
 
   describe "absent-vs-null posture (Q8)" do

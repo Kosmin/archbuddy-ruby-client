@@ -11,14 +11,16 @@ module Archbuddy
       # One vintage node. Absent fragment keys → nil AND absent from
       # `keys_present`; fragment `"class"` maps to `:klass`. v6 stamps add
       # the engine-published score triple `score`/`score_band`/`score_raw`
-      # (findings-1.9 names verbatim, G1) — copied, never computed; a null
-      # value means "analyzed, node unscored" (honest N/A, L6), an ABSENT
-      # key means the fragment predates serializer v6.
+      # plus the absorption-headroom ADVISORY pair `absorb`/`absorb_raw`
+      # (findings-1.9 names verbatim, G1/L9-A) — copied, never computed; a
+      # null value means "analyzed, node unscored" (or, for the absorb
+      # pair, "not eligible" — the engine omits the keys, honest N/A, L6),
+      # an ABSENT key means the fragment predates serializer v6.
       Node = Data.define(
         :file, :symbol, :kind, :klass, :branches, :decisions,
         :entrypoint, :entrypoint_kind, :escapes, :outcome_arity,
         :toll_booth, :quadrant, :leverage, :collapse,
-        :score, :score_band, :score_raw,
+        :score, :score_band, :score_raw, :absorb, :absorb_raw,
         :serializer_version, :keys_present
       )
 

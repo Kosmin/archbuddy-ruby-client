@@ -15,7 +15,8 @@ RSpec.describe Archbuddy::Review::Vintage do
       entrypoint_kind: entrypoint ? "grape" : nil, escapes: escapes,
       outcome_arity: outcome_arity, toll_booth: toll_booth, quadrant: nil,
       leverage: nil, collapse: nil, score: score, score_band: score_band,
-      score_raw: score_raw, serializer_version: 5,
+      score_raw: score_raw, absorb: nil, absorb_raw: nil,
+      serializer_version: 5,
       keys_present: keys || %w[branches symbol]
     )
   end

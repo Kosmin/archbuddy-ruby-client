@@ -189,6 +189,8 @@ module Archbuddy
           score: raw["score"],
           score_band: raw["score_band"],
           score_raw: raw["score_raw"],
+          absorb: raw["absorb"],
+          absorb_raw: raw["absorb_raw"],
           serializer_version: serializer_version,
           keys_present: raw.keys.sort.freeze
         )
