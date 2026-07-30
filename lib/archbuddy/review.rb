@@ -7,7 +7,10 @@ module Archbuddy
   #
   # Everything in this namespace computes FRAGMENTS-FIRST from the committed
   # real-name cache (aggregate + detail tree): no engine invocation anywhere
-  # on the review path.
+  # on the review path — with ONE flag-gated exception (v0.16 T11, Q6):
+  # `diff --analyze-sides` shells out to the engine per side via
+  # EngineRunner (VintageSource.analyze_scratch_side!) for fresh-by-
+  # construction score stamps; the default path stays engine-free.
   module Review
     # Hard acquisition/read failure (missing aggregate, no scored sources,
     # unresolvable refs, invalid vintage data). The CLI maps this to exit 2.

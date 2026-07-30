@@ -1,7 +1,10 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "architecture_auditor"
 require_relative "../cache/collect_manifest"
+require_relative "../cache"
+require_relative "../engine_runner"
 
 module Archbuddy
   module Review
@@ -15,6 +18,16 @@ module Archbuddy
     # justification on stderr. Worktrees are create/use/REMOVE (ensure-paired).
     # Non-git targets skip the tracked+clean check (repo_root nil) and fall
     # through manifest → re-collect.
+    #
+    # v0.16 T11 (Q6 escape hatch, D-C2): `analyze_sides: true` BYPASSES the
+    # committed/reuse rungs on BOTH sides — each side is a scratch collect
+    # + EngineRunner.analyze + Cache::Writer fold into the SAME scratch
+    # (one stamp-semantics path, serializer v6 tested once; no second
+    # id-map join — the id-map is born and dies in scratch, L6), then the
+    # ordinary FragmentWalk.read picks up score stamps that are fresh BY
+    # CONSTRUCTION (D-C3). Provenance label: "analyze-sides". A committed
+    # cache has no graph.yml (gitignored), so analyze REQUIRES the scratch
+    # collect — the committed/injected rungs cannot serve this mode.
     module VintageSource
       AGGREGATE = "archbuddy-findings.json"
 
@@ -22,7 +35,7 @@ module Archbuddy
 
       # @return [[Vintage, {ref:, sha:, vintage:}]]
       # @raise [Review::VintageError] with the pinned message per failing step
-      def base(target:, scratch:, base_ref: nil, base_cache: nil)
+      def base(target:, scratch:, base_ref: nil, base_cache: nil, analyze_sides: false)
         return injected_base(base_cache, base_ref) if base_cache
 
         root = Git.repo_root(target)
@@ -50,7 +63,9 @@ module Archbuddy
         end
 
         prefix = Git.prefix(target)
-        if Git.cache_committed_at?(root, base_sha, prefix)
+        if analyze_sides
+          analyzed_base(root, base_sha, prefix, ref, scratch)
+        elsif Git.cache_committed_at?(root, base_sha, prefix)
           committed_base(root, base_sha, prefix, ref, scratch)
         else
           stateless_base(root, base_sha, prefix, ref, scratch)
@@ -58,8 +73,10 @@ module Archbuddy
       end
 
       # @return [[Vintage, {sha:, vintage:, dirty:}]]
-      def head(target:, scratch:, trust_cache: false)
+      def head(target:, scratch:, trust_cache: false, analyze_sides: false)
         target = File.expand_path(target)
+        return analyzed_head(target, scratch) if analyze_sides
+
         aggregate = File.join(target, AGGREGATE)
         return trusted_head(target, aggregate) if trust_cache
 
@@ -115,6 +132,31 @@ module Archbuddy
       def stateless_base(root, base_sha, prefix, ref, scratch)
         warn "note: no committed archbuddy cache at #{base_sha[0, 7]} — " \
              "collecting base in a temporary worktree"
+        write_root = collect_base_worktree(root, base_sha, prefix, scratch)
+        vintage = FragmentWalk.read(write_root)
+        note_empty_base(vintage)
+        [vintage, { ref: ref, sha: base_sha, vintage: "stateless-collect" }]
+      end
+
+      # v0.16 T11 (Q6/D-C2): the --analyze-sides base — scratch worktree
+      # collect (committed rung DELIBERATELY bypassed: no graph.yml rides a
+      # committed cache) + engine analyze + writer fold. Fresh stamps by
+      # construction.
+      def analyzed_base(root, base_sha, prefix, ref, scratch)
+        warn "note: --analyze-sides: collecting base at #{base_sha[0, 7]} in a " \
+             "temporary worktree + engine analyze (fresh score stamps; " \
+             "~4-10 s/side at ~2k nodes, ~98 s/side at 16k — R4/R1 measured)"
+        write_root = collect_base_worktree(root, base_sha, prefix, scratch)
+        analyze_scratch_side!(write_root, "base")
+        vintage = FragmentWalk.read(write_root)
+        note_empty_base(vintage)
+        [vintage, { ref: ref, sha: base_sha, vintage: "analyze-sides" }]
+      end
+
+      # The ONE worktree-collect lifecycle owner (create/use/REMOVE,
+      # ensure-paired) — shared by the stateless and analyze-sides base
+      # rungs. @return [String] the scratch write_root holding the vintage.
+      def collect_base_worktree(root, base_sha, prefix, scratch)
         wt = Git.worktree_add(root, base_sha)
         raise VintageError, "error: cannot create a worktree at #{base_sha[0, 7]}" if wt.nil?
 
@@ -125,12 +167,58 @@ module Archbuddy
         ensure
           Git.worktree_remove(root, wt)
         end
-        vintage = FragmentWalk.read(write_root)
-        note_empty_base(vintage)
-        [vintage, { ref: ref, sha: base_sha, vintage: "stateless-collect" }]
+        write_root
       end
 
       # ---- head modes ---------------------------------------------------------
+
+      # v0.16 T11 (Q6/D-C2): the --analyze-sides head — fresh scratch collect
+      # (trust/tracked/manifest reuse rungs DELIBERATELY bypassed) + engine
+      # analyze + writer fold. Fresh stamps by construction.
+      def analyzed_head(target, scratch)
+        warn "note: --analyze-sides: collecting head + engine analyze " \
+             "(fresh score stamps; ~4-10 s/side at ~2k nodes, " \
+             "~98 s/side at 16k — R4/R1 measured)"
+        write_root = File.join(scratch, "head")
+        Collector.collect(source_root: target, write_root: write_root)
+        analyze_scratch_side!(write_root, "head")
+        root = Git.repo_root(target)
+        prefix = root ? Git.prefix(target) : nil
+        [FragmentWalk.read(write_root), head_label(target, root, prefix, "analyze-sides")]
+      end
+
+      # ---- analyze-sides transport (v0.16 T11, Q6/D-C2) ------------------------
+
+      # Run the engine over one scratch side's opaque graph.yml, then fold
+      # the fresh findings into the SAME scratch via Cache::Writer — the
+      # cli/analyze.rb `rewrite_aggregate` pattern (D-C2): ONE stamp-semantics
+      # path (serializer v6 tested once), no second id-map join — the id-map
+      # is born and dies in scratch (L6). CLEAN-STDOUT: the engine
+      # subprocess's stdout is routed to STDERR (`stdout: $stderr`) — in diff
+      # context the rendered document is stdout's ONLY write. Engine failure
+      # (absent from the bundle AND from PATH, or nonzero exit) maps to
+      # VintageError — the diff CLI's exit-2 discipline, stdout EMPTY.
+      def analyze_scratch_side!(write_root, side)
+        workspace    = File.join(write_root, Archbuddy::Collect::DEFAULT_WORKSPACE_DIR)
+        graph_yml    = File.join(workspace, "graph.yml")
+        findings_yml = File.join(workspace, "findings.yml")
+        begin
+          EngineRunner.analyze(graph_yml, out: findings_yml, stdout: $stderr)
+        rescue EngineRunner::EngineError
+          raise VintageError,
+                "error: --analyze-sides: engine `architecture-auditor analyze` failed on " \
+                "the #{side} side — the flag requires the architecture_auditor engine " \
+                "(bundle it or put `architecture-auditor` on PATH); drop --analyze-sides " \
+                "to use the cached acquisition path"
+        end
+
+        serializer = ArchitectureAuditor::Contract::Serializer
+        Cache::Writer.new(project_root: write_root).write(
+          graph:    serializer.load(graph_yml),
+          id_map:   serializer.load(File.join(workspace, "id-map.yml")),
+          findings: serializer.load(findings_yml)
+        )
+      end
 
       def trusted_head(target, aggregate)
         unless File.file?(aggregate)

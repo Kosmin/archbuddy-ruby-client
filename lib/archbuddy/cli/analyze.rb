@@ -4,6 +4,7 @@ require "dry/cli"
 require "architecture_auditor"
 require_relative "../collect"
 require_relative "../cache"
+require_relative "../engine_runner"
 
 module Archbuddy
   module CLI
@@ -58,14 +59,15 @@ module Archbuddy
         warn "analyze complete: engine scored graph.yml -> findings.yml; committed cache refreshed"
       end
 
-      # Invoke the engine `analyze` the way a user does. Prefer the bundled
-      # binstub; fall back to a plain `architecture-auditor` on PATH. Raises a
-      # clear error (never a silent partial write) if analyze fails.
+      # Invoke the engine `analyze` the way a user does — delegated to the
+      # shared EngineRunner ladder (v0.16 T11: bundled binstub → PATH
+      # fallback, extracted verbatim; the `diff --analyze-sides` transport
+      # reuses it). Behavior-identical here: the engine's stdout is
+      # inherited (no redirect) and failure keeps THIS command's historical
+      # `exit 1` contract — EngineRunner raises, the CLI layer decides.
       def run_engine_analyze(graph_yml, findings_yml)
-        ok = system("bundle", "exec", "architecture-auditor", "analyze", graph_yml, "--out", findings_yml)
-        ok ||= system("architecture-auditor", "analyze", graph_yml, "--out", findings_yml)
-        return if ok
-
+        Archbuddy::EngineRunner.analyze(graph_yml, out: findings_yml)
+      rescue Archbuddy::EngineRunner::EngineError
         warn "error: engine `architecture-auditor analyze` failed — cannot write the committed cache"
         exit 1
       end

@@ -343,4 +343,120 @@ RSpec.describe Archbuddy::Review::VintageSource do
       expect(vintage.nodes).not_to be_empty
     end
   end
+
+  describe "--analyze-sides transport (v0.16 T11, Q6/D-C2)" do
+    require "yaml"
+
+    # Spec-local engine double (the F10 pattern): stands in for the REAL
+    # `architecture-auditor analyze` subprocess — reads the scratch collect's
+    # opaque graph.yml and writes a findings.yml whose per-node `reusability`
+    # entries carry the findings-1.9 score keys VERBATIM (stand-ins for
+    # ENGINE-published values; the client only copies them — L2/D17).
+    # Records each call's `stdout:` CLEAN-STDOUT routing for the pin below.
+    def stub_engine!(score: -1.23, score_band: -1, score_raw: -1.9)
+      calls = []
+      allow(Archbuddy::EngineRunner).to receive(:analyze) do |graph_yml, out:, stdout: nil|
+        calls << { graph_yml: graph_yml, out: out, stderr_routed: stdout.equal?($stderr) }
+        graph = YAML.safe_load(File.read(graph_yml))
+        reusability = (graph["nodes"] || []).to_h do |node|
+          [node["id"],
+           { "leverage" => nil, "collapse" => nil, "toll_booth" => false,
+             "quadrant" => nil, "score" => score, "score_band" => score_band,
+             "score_raw" => score_raw }]
+        end
+        File.write(out, YAML.dump({ "reusability" => reusability }))
+        true
+      end
+      calls
+    end
+
+    def committed_cache_repo
+      repo = File.join(@dir, "repo")
+      FileUtils.mkdir_p(repo)
+      init_repo(repo)
+      write_cache(repo) # a committed cache that would win BOTH default rungs
+      write_source(repo)
+      git!(repo, "add", "-f", ".")
+      git!(repo, "commit", "-q", "-m", "cache + source")
+      repo
+    end
+
+    it "forces scratch collect + engine analyze on the BASE side — committed rung bypassed, stamps fresh by construction" do
+      repo = committed_cache_repo
+      calls = stub_engine!
+
+      expect(GitMod).not_to receive(:extract_cache) # the committed rung never runs
+      (vintage, label), err = quiet_stderr do
+        described_class.base(target: repo, base_ref: "main", scratch: @scratch,
+                             analyze_sides: true)
+      end
+
+      expect(label[:vintage]).to eq("analyze-sides")
+      expect(label[:sha]).to eq(git!(repo, "rev-parse", "HEAD"))
+      expect(err).to match(
+        /note: --analyze-sides: collecting base at [0-9a-f]{7} in a temporary worktree \+ engine analyze/
+      )
+      expect(err).to include("~4-10 s/side at ~2k nodes, ~98 s/side at 16k — R4/R1 measured")
+      expect_worktrees_clean(repo)
+
+      # Fresh collect, NOT the stale committed cache: the real source node is
+      # present, the cache's phantom A#x is not.
+      expect(vintage["lib/a.rb", "A#x"]).to be_nil
+      node = vintage.nodes.find { |n| n.symbol == "Thing#choose" }
+      expect(node).not_to be_nil
+      # Engine-published score stamps folded via Cache::Writer (D-C2) and read
+      # back through the ordinary FragmentWalk — findings-1.9 names verbatim.
+      expect(node.score).to eq(-1.23)
+      expect(node.score_band).to eq(-1)
+      expect(node.score_raw).to eq(-1.9)
+      expect(vintage.analyzed?).to be(true)
+      expect(vintage.meta[:serializer_versions]).to eq([6])
+
+      # CLEAN-STDOUT pin: the engine subprocess's stdout is routed to stderr.
+      expect(calls.size).to eq(1)
+      expect(calls).to all(include(stderr_routed: true))
+    end
+
+    it "forces scratch collect + engine analyze on the HEAD side — trust/reuse rungs bypassed" do
+      repo = committed_cache_repo
+      calls = stub_engine!(score: 0.0, score_band: 0, score_raw: 0.0)
+
+      (vintage, label), err = quiet_stderr do
+        described_class.head(target: repo, scratch: @scratch, analyze_sides: true)
+      end
+
+      expect(label[:vintage]).to eq("analyze-sides")
+      expect(label[:dirty]).to be(false)
+      expect(err).to include("note: --analyze-sides: collecting head + engine analyze")
+      expect(vintage["lib/a.rb", "A#x"]).to be_nil # tracked+clean rung bypassed
+      node = vintage.nodes.find { |n| n.symbol == "Thing#choose" }
+      expect(node.score).to eq(0.0)
+      expect(calls.size).to eq(1)
+      expect(calls).to all(include(stderr_routed: true))
+    end
+
+    it "maps an engine failure to the pinned VintageError per side (worktree still removed)" do
+      repo = committed_cache_repo
+      allow(Archbuddy::EngineRunner).to receive(:analyze)
+        .and_raise(Archbuddy::EngineRunner::EngineError, "ladder exhausted")
+
+      expect do
+        quiet_stderr do
+          described_class.base(target: repo, base_ref: "main", scratch: @scratch,
+                               analyze_sides: true)
+        end
+      end.to raise_error(
+        Archbuddy::Review::VintageError,
+        /error: --analyze-sides: engine `architecture-auditor analyze` failed on the base side — the flag requires the architecture_auditor engine/
+      )
+      expect_worktrees_clean(repo) # the collect worktree is ensure-removed
+
+      expect do
+        quiet_stderr do
+          described_class.head(target: repo, scratch: @scratch, analyze_sides: true)
+        end
+      end.to raise_error(Archbuddy::Review::VintageError,
+                         /failed on the head side/)
+    end
+  end
 end

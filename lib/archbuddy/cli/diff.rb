@@ -39,6 +39,9 @@ module Archbuddy
       option :advisory, type: :boolean, default: false, desc: "Never gate (= --fail-level none)"
       option :todo, desc: "Path to the value-pinned todo document"
       option :no_todo, type: :boolean, default: false, desc: "Ignore any todo document"
+      option :analyze_sides, type: :boolean, default: false,
+                             desc: "Freshly collect + engine-analyze BOTH sides (fresh score " \
+                                   "stamps; requires the architecture-auditor engine)"
 
       FAIL_LEVELS = %w[none info warn error].freeze
 
@@ -68,10 +71,11 @@ module Archbuddy
         begin
           base_v, base_label = Review::VintageSource.base(
             target: target, scratch: scratch, base_ref: base_ref,
-            base_cache: opts[:base_cache]
+            base_cache: opts[:base_cache], analyze_sides: !!opts[:analyze_sides]
           )
           head_v, head_label = Review::VintageSource.head(
-            target: target, scratch: scratch, trust_cache: opts[:trust_cache]
+            target: target, scratch: scratch, trust_cache: opts[:trust_cache],
+            analyze_sides: !!opts[:analyze_sides]
           )
           delta = Review::Delta.new(base: base_v, head: head_v)
           evaluation = Review::RuleEngine.evaluate(vintage: head_v, delta: delta,
@@ -98,6 +102,11 @@ module Archbuddy
       def validate_flags!(opts)
         if opts[:todo] && opts[:no_todo]
           warn "error: --todo and --no-todo are mutually exclusive"
+          exit 2
+        end
+        if opts[:analyze_sides] && opts[:base_cache]
+          warn "error: --analyze-sides and --base-cache are mutually exclusive — " \
+               "both override base acquisition"
           exit 2
         end
         level = opts[:fail_level]
@@ -241,11 +250,15 @@ module Archbuddy
       # SUBTRACTION of published milli values (L2/D17 — the one pinned
       # presentational delta; the client never computes a score).
       def reusability_block(base_v, base_label, head_v, head_label, delta, config)
+        # T11: an "analyze-sides" side carries stamps fresh BY CONSTRUCTION
+        # (D-C3) — the staleness detector is skipped for that side.
         base_side = Review::ScoreRollup.side_provenance(
-          base_v, source_label: base_label[:vintage], fresh_analyze: false
+          base_v, source_label: base_label[:vintage],
+          fresh_analyze: base_label[:vintage] == "analyze-sides"
         )
         head_side = Review::ScoreRollup.side_provenance(
-          head_v, source_label: head_label[:vintage], fresh_analyze: false
+          head_v, source_label: head_label[:vintage],
+          fresh_analyze: head_label[:vintage] == "analyze-sides"
         )
         if base_side[:scored_nodes].zero? && head_side[:scored_nodes].zero?
           warn "note: reusability score block omitted — no score stamps on " \

@@ -51,7 +51,7 @@ RSpec.describe Archbuddy::CLI::Diff do
   end
 
   describe "--help" do
-    it "exits 0 and documents the merge-base semantics + all 8 options" do
+    it "exits 0 and documents the merge-base semantics + all 9 options" do
       output, status = Open3.capture2e(
         { "ARCHITECTURE_AUDITOR_PATH" => ENV.fetch("ARCHITECTURE_AUDITOR_PATH", nil) }.compact,
         RbConfig.ruby, File.join(REPO_ROOT, "exe", "archbuddy"), "diff", "--help",
@@ -61,7 +61,7 @@ RSpec.describe Archbuddy::CLI::Diff do
       expect(output).to include("git merge-base BASE_REF HEAD")
       # dry-cli renders booleans as --[no-]flag; accept both spellings.
       %w[format config base-cache trust-cache fail-level
-         advisory todo no-todo].each do |flag|
+         advisory todo no-todo analyze-sides].each do |flag|
         expect(output).to match(/--(\[no-\])?#{Regexp.escape(flag)}/)
       end
     end
@@ -339,6 +339,131 @@ RSpec.describe Archbuddy::CLI::Diff do
              "either side (serializer < v6 or vintage never analyzed)"
       expect(stderr.scan(note).size).to eq(1)
       expect(stdout[0]).to eq("{") # CLEAN-STDOUT: the document is stdout's only write
+    end
+  end
+
+  describe "--analyze-sides transport (v0.16 T11, Q6 escape hatch)" do
+    require "yaml"
+
+    AS_GIT_ENV = {
+      "GIT_AUTHOR_NAME" => "spec", "GIT_AUTHOR_EMAIL" => "spec@example.invalid",
+      "GIT_COMMITTER_NAME" => "spec", "GIT_COMMITTER_EMAIL" => "spec@example.invalid",
+      "GIT_CONFIG_GLOBAL" => "/dev/null", "GIT_CONFIG_SYSTEM" => "/dev/null"
+    }.freeze
+
+    def as_git!(dir, *args)
+      out, err, status = Open3.capture3(AS_GIT_ENV, "git", "-C", dir, *args)
+      raise "git #{args.join(' ')} failed: #{err}" unless status.success?
+
+      out.strip
+    end
+
+    # A tiny git repo with NO committed cache — both sides must come from the
+    # analyze-sides scratch transport.
+    def build_source_repo(dir)
+      repo = File.join(File.realpath(dir), "repo") # macOS /var → /private/var (git toplevel)
+      FileUtils.mkdir_p(File.join(repo, "lib"))
+      File.write(File.join(repo, "lib/thing.rb"), <<~RUBY)
+        class Thing
+          def choose(a, b)
+            if a
+              1
+            elsif b
+              2
+            else
+              3
+            end
+          end
+        end
+      RUBY
+      as_git!(repo, "init", "-q", "-b", "main")
+      as_git!(repo, "add", ".")
+      as_git!(repo, "commit", "-q", "-m", "source")
+      repo
+    end
+
+    # Spec-local engine double (the F10 pattern) — writes findings-1.9-shaped
+    # per-node score entries for every graph node (engine-published stand-ins).
+    def stub_engine!
+      allow(Archbuddy::EngineRunner).to receive(:analyze) do |graph_yml, out:, stdout: nil|
+        graph = YAML.safe_load(File.read(graph_yml))
+        reusability = (graph["nodes"] || []).to_h do |node|
+          [node["id"],
+           { "leverage" => nil, "collapse" => nil, "toll_booth" => false,
+             "quadrant" => nil, "score" => -1.23, "score_band" => -1,
+             "score_raw" => -1.9 }]
+        end
+        File.write(out, YAML.dump({ "reusability" => reusability }))
+        true
+      end
+    end
+
+    it "round-trips the flag: fresh per-side stamps, analyze-sides provenance, stale_stamps 0 by construction" do
+      Dir.mktmpdir do |dir|
+        repo = build_source_repo(dir)
+        stub_engine!
+        leftovers_before = Dir.glob(File.join(Dir.tmpdir, "archbuddy-diff-*"))
+
+        code, stdout, stderr = run_diff(target: repo, base_ref: "main",
+                                        analyze_sides: true, format: "json")
+        expect(code).to eq(0)
+        expect(stdout[0]).to eq("{") # CLEAN-STDOUT: the document is stdout's only write
+        doc = JSON.parse(stdout)
+
+        expect(doc["run"]["base"]["vintage"]).to eq("analyze-sides")
+        expect(doc["run"]["head"]["vintage"]).to eq("analyze-sides")
+        block = doc.fetch("reusability") # fresh stamps where the cached path said N/A
+        %w[base head].each do |side|
+          expect(block[side]["source"]).to eq("analyze-sides")
+          expect(block[side]["analyzed"]).to be(true)
+          expect(block[side]["serializer"]).to eq([6])
+          expect(block[side]["scored_nodes"]).to be > 0
+          expect(block[side]["stale_stamps"]).to eq(0) # fresh BY CONSTRUCTION (D-C3)
+        end
+        expect(stderr).not_to include("reusability score block omitted")
+        expect(stderr).to include("note: --analyze-sides: collecting head + engine analyze")
+
+        # Scratch lifecycle: the diff tmpdir is ensure-removed on success.
+        expect(Dir.glob(File.join(Dir.tmpdir, "archbuddy-diff-*"))).to eq(leftovers_before)
+        expect(Archbuddy::EngineRunner).to have_received(:analyze).twice
+      end
+    end
+
+    it "engine-absent environment: exit 2, stdout EMPTY, message names the engine dependency, scratch cleaned" do
+      Dir.mktmpdir do |dir|
+        repo = build_source_repo(dir)
+        allow(Archbuddy::EngineRunner).to receive(:analyze)
+          .and_raise(Archbuddy::EngineRunner::EngineError,
+                     "engine `architecture-auditor analyze` failed (tried `bundle exec architecture-auditor`, then PATH)")
+        leftovers_before = Dir.glob(File.join(Dir.tmpdir, "archbuddy-diff-*"))
+
+        code, stdout, stderr = run_diff(target: repo, base_ref: "main", analyze_sides: true)
+        expect(code).to eq(2)
+        expect(stdout).to eq("")
+        expect(stderr).to include(
+          "error: --analyze-sides: engine `architecture-auditor analyze` failed on the base side"
+        )
+        expect(stderr).to include("requires the architecture_auditor engine")
+
+        # Scratch lifecycle: the diff tmpdir is ensure-removed on failure too.
+        expect(Dir.glob(File.join(Dir.tmpdir, "archbuddy-diff-*"))).to eq(leftovers_before)
+      end
+    end
+
+    it "rejects --analyze-sides combined with --base-cache (both override acquisition)" do
+      code, stdout, stderr = run_diff(**twin_kwargs(analyze_sides: true))
+      expect(code).to eq(2)
+      expect(stdout).to eq("")
+      expect(stderr).to include(
+        "error: --analyze-sides and --base-cache are mutually exclusive — both override base acquisition"
+      )
+    end
+
+    it "leaves default (flagless) behavior untouched — no engine call on the cached path" do
+      allow(Archbuddy::EngineRunner).to receive(:analyze) # would record any call
+      code, = run_diff(**twin_kwargs)
+      expect(code).to eq(0)
+      expect(Archbuddy::EngineRunner).not_to have_received(:analyze)
     end
   end
 
