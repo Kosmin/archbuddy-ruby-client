@@ -212,11 +212,13 @@ module Archbuddy
         )
       end
 
-      # I-C5': the always-on leaderboard — Q9 12-key rows (R39) sorted
-      # branching_log2 DESC, ep ASC, read from the SAME memoized
-      # vintage.graph the engine used (R52/§5-C31). `edges?` false → nil
-      # (the engine's N/A notes carry the honesty); zero eps → count 0 +
-      # `unreachable: nil` (Q8 — never an all-unreachable disclosure).
+      # I-C5': the always-on leaderboard — Q9 13-key rows (R39 + the v0.16
+      # D-C1 `reusability_score` headline) sorted branching_log2 DESC, ep
+      # ASC, read from the SAME memoized vintage.graph the engine used
+      # (R52/§5-C31 one-computation; `cone_nodes` rides the same memo).
+      # `edges?` false → nil (the engine's N/A notes carry the honesty);
+      # zero eps → count 0 + `unreachable: nil` (Q8 — never an
+      # all-unreachable disclosure).
       def use_cases_member(vintage)
         return nil unless vintage.edges?
 
@@ -227,13 +229,18 @@ module Archbuddy
 
         sorted = metrics.sort_by { |(_file, ep_symbol), m| [-m.branching_log2, ep_symbol.to_s] }
         rows = sorted.each_with_index.map do |((file, ep_symbol), m), index|
-          leaderboard_row(index + 1, file, ep_symbol, m)
+          leaderboard_row(index + 1, file, ep_symbol, m, vintage.graph)
         end
         { count: metrics.size, leaderboard: rows,
           unreachable: vintage.graph.unreachable_from_entrypoints }
       end
 
-      def leaderboard_row(rank, file, ep_symbol, metrics)
+      # 13th key `reusability_score` (v0.16 T9, D-C1): the negative-first
+      # dominance headline over the ep's cone, SELECTED from
+      # engine-published `score` stamps via `ScoreRollup.ep_headline` —
+      # never computed client-side (D17/L2). No scored cone node ⇒ null,
+      # NEVER a fabricated 0 (L6 — 0 would read "equilibrium", a verdict).
+      def leaderboard_row(rank, file, ep_symbol, metrics, graph)
         max_cone_log2 = metrics.max_cone_node && metrics.max_cone_node[:log2]
         {
           "rank" => rank, "ep" => ep_symbol, "kind" => metrics.entrypoint_kind,
@@ -241,7 +248,8 @@ module Archbuddy
           "mass" => metrics.mass, "reach" => metrics.reach,
           "files" => metrics.files, "depth" => metrics.depth,
           "dividend" => metrics.dividend, "max_cone_node_log2" => max_cone_log2,
-          "cost_note" => cost_note(max_cone_log2)
+          "cost_note" => cost_note(max_cone_log2),
+          "reusability_score" => Review::ScoreRollup.ep_headline(graph.cone_nodes(ep_symbol))
         }
       end
 

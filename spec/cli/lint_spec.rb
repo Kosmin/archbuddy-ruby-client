@@ -8,13 +8,15 @@ require "open3"
 require "archbuddy/cli"
 
 # v0.15 P1-T7: `archbuddy lint [TARGET]` — the always-on Q9 leaderboard
-# (12-key rows, R39) over the live-collected controller fixture, the
-# exclude_entrypoints anti-gaming contract, zero-ep Q8 honesty, the 0-node
-# precedence pin, --trust-cache reuse, and stdout purity.
+# (13-key rows: R39 + the v0.16 T9/D-C1 `reusability_score` cone headline)
+# over the live-collected controller fixture, the exclude_entrypoints
+# anti-gaming contract, zero-ep Q8 honesty, the 0-node precedence pin,
+# --trust-cache reuse, and stdout purity.
 RSpec.describe Archbuddy::CLI::Lint do
   REPO_ROOT = File.expand_path("../..", __dir__)
-  TWELVE_KEYS = %w[rank ep kind file branching_log2 mass reach files depth
-                   dividend max_cone_node_log2 cost_note].freeze
+  THIRTEEN_KEYS = %w[rank ep kind file branching_log2 mass reach files depth
+                     dividend max_cone_node_log2 cost_note
+                     reusability_score].freeze
 
   # The [D1] tmpdir fixture: a 6-decision guard-style single-outcome action
   # (branches 64 = 2^6; V_floor stays 1) + one unreached helper. The class
@@ -89,7 +91,7 @@ RSpec.describe Archbuddy::CLI::Lint do
     end
   end
 
-  describe "--format json (the Q9 leaderboard, 12-key rows)" do
+  describe "--format json (the Q9 leaderboard, 13-key rows)" do
     it "renders use_cases.count 1 with the R39 row + unreachable share" do
       Dir.mktmpdir do |dir|
         build_fixture(dir)
@@ -105,18 +107,71 @@ RSpec.describe Archbuddy::CLI::Lint do
 
         expect(doc["use_cases"]["count"]).to eq(1)
         row = doc["use_cases"]["leaderboard"].fetch(0)
-        expect(row.keys.sort).to eq(TWELVE_KEYS.sort) # the 12-key set (R39)
+        expect(row.keys.sort).to eq(THIRTEEN_KEYS.sort) # the 13-key set (R39 + D-C1)
         expect(row["branching_log2"]).to eq(6.0)
         expect(row["kind"]).to eq("controllers")
         expect(row["ep"]).to eq("FooController#show")
         # dividend self-consistency — read from output, never hardcoded
         # (guard-style single outcome ⇒ V_floor 1 ⇒ dividend = 2^branching).
         expect(row["dividend"]).to be_within(1e-6).of(2**row["branching_log2"])
+        # live-collect, never analyzed ⇒ no cone node carries a score stamp
+        # ⇒ the 13th key is null, NEVER a fabricated 0 (D-C1/L6 honesty).
+        expect(row).to have_key("reusability_score")
+        expect(row["reusability_score"]).to be_nil
 
         unreachable = doc["summary"]["unreachable_from_entrypoints"]
         expect(unreachable["nodes"]).to be >= 0
         # fixture total = 2 app nodes (show + tiny helper)
         expect(unreachable["share"]).to eq((unreachable["nodes"] / 2.0).round(4))
+      end
+    end
+  end
+
+  describe "reusability_score (the 13th key, v0.16 T9/D-C1)" do
+    # Stamp engine-published score values into a committed v6 fragment the
+    # way an analyze would (the writer's stamp channel carries them; the
+    # client only SELECTS — D17/L2). Values ride findings-1.9 names
+    # verbatim (G1): score 2 dp / score_band integer / score_raw 3 dp.
+    def stamp_score!(dir, fragment_rel, symbol, score:, score_band:, score_raw:)
+      fragment = File.join(dir, ".archbuddy", "#{fragment_rel}.json")
+      doc = JSON.parse(File.read(fragment))
+      node = doc["nodes"].find { |n| n["symbol"] == symbol }
+      node["score"] = score
+      node["score_band"] = score_band
+      node["score_raw"] = score_raw
+      File.write(fragment, JSON.generate(doc))
+    end
+
+    it "renders the engine-published cone headline, cone-scoped (v6 stamped cache)" do
+      Dir.mktmpdir do |dir|
+        build_fixture(dir)
+        Archbuddy::Review::Collector.collect(source_root: dir, write_root: dir)
+        # In-cone ep node: engine-published +2.50; the unreached helper
+        # carries a WORSE (negative-dominant) score that must NOT leak into
+        # the ep's headline — the cone is the selection universe (D-C1).
+        stamp_score!(dir, "app/main.rb", "FooController#show",
+                     score: 2.5, score_band: 3, score_raw: 2.079)
+        stamp_score!(dir, "app/helper.rb", "Helper#tiny",
+                     score: -4.52, score_band: -5, score_raw: -18.75)
+        code, stdout, = run_lint(target: dir, trust_cache: true, format: "json")
+        expect(code).to eq(0)
+        row = JSON.parse(stdout)["use_cases"]["leaderboard"].fetch(0)
+        expect(row["ep"]).to eq("FooController#show")
+        expect(row["reusability_score"]).to eq(2.5) # verbatim, never recomputed
+      end
+    end
+
+    it "renders null NEVER 0 when no cone node carries a score stamp" do
+      Dir.mktmpdir do |dir|
+        build_fixture(dir)
+        code, stdout, = run_lint(target: dir, format: "json")
+        expect(code).to eq(0)
+        row = JSON.parse(stdout)["use_cases"]["leaderboard"].fetch(0)
+        expect(row).to have_key("reusability_score") # present-as-null, never absent
+        expect(row["reusability_score"]).to be_nil
+        # JSON-level pin: the key renders as null (0 would read "equilibrium",
+        # a fabricated verdict — L6)
+        expect(stdout).to include("\"reusability_score\": null")
       end
     end
   end
