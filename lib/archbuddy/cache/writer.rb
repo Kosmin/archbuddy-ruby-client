@@ -515,6 +515,10 @@ module Archbuddy
       # v0.16 (v6): `score_distribution` and `by_class` are SUB-KEYS of the
       # `reusability` block — they ride the existing whole-block carry free
       # (no list change; spec-pinned).
+      # M6: the `entrypoints` COST keys are grafted too — SYMMETRIC with the
+      # egress carry (both fold COUNTS fresh, both carry engine-published COST).
+      # Missing this carry dropped the analyze-published entrypoints cost on a
+      # collect-only regen, so `--check` drifted after any real analyze.
       def preserve_existing_scores(rel, doc)
         prior = read_prior_aggregate(rel)
         return if prior.nil?
@@ -524,6 +528,7 @@ module Archbuddy
         %w[blast_radius forward_depth reverse_depth branching_factor variety_mass reusability].each do |key|
           doc[key] = prior[key] if prior.key?(key)
         end
+        carry_entrypoint_cost!(doc["entrypoints"], prior["entrypoints"]) if prior["entrypoints"].is_a?(Hash)
         carry_egress_cost!(doc["egress"], prior["egress"]) if prior["egress"].is_a?(Hash)
       end
 
@@ -533,6 +538,21 @@ module Archbuddy
       def carry_egress_cost!(egress_doc, prior_egress)
         %w[mean median capped_fraction by_category_cost].each do |key|
           egress_doc[key] = prior_egress[key] if prior_egress.key?(key)
+        end
+      end
+
+      # M6: graft the prior aggregate's entrypoints COST keys onto the
+      # freshly-folded counts block, EXACTLY mirroring carry_egress_cost!.
+      # `entrypoint_counts` recomputes the COUNTS from the graph on every
+      # write, but on a collect-only write (findings nil) it has no findings
+      # to fold the COST from — so mean/median/capped_fraction/by_category_cost
+      # come back null/{}. Without this carry a collect-only regen (e.g.
+      # `--check`) DROPS the analyze-published cost keys and `--check` sees a
+      # phantom `entrypoints` diff (M6). Only keys the prior actually carries
+      # are grafted (a pre-1.5 prior has none — nothing manufactured).
+      def carry_entrypoint_cost!(entrypoint_doc, prior_entrypoints)
+        %w[mean median capped_fraction by_category_cost].each do |key|
+          entrypoint_doc[key] = prior_entrypoints[key] if prior_entrypoints.key?(key)
         end
       end
 

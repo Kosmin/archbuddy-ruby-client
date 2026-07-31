@@ -140,6 +140,43 @@ RSpec.describe "collect --check CI staleness gate (R3-1)" do
     end
   end
 
+  # M6: an analyze that publishes a `forward_discoverability` cost stamps the
+  # `entrypoints` aggregate with mean/median/capped_fraction/by_category_cost.
+  # The `--check` collect-only regen must CARRY those forward (mirroring the
+  # egress carry) or the `entrypoints` block drifts and the gate exits 1 after
+  # every real analyze. Without carry_entrypoint_cost! this exits DRIFT.
+  it "exits 0 (clean) after an analyze stamps entrypoints forward cost — the carry keeps it clean (M6)" do
+    Dir.mktmpdir do |dir|
+      init_repo(dir)
+      seed(dir)
+      run_collect(dir)
+
+      # simulate `archbuddy analyze` with a findings-1.5+ forward_discoverability
+      # cost surface (headline + per-category lens) → entrypoints block gets cost.
+      graph  = YAML.safe_load(File.read(File.join(dir, ".archbuddy/graph.yml")))
+      id_map = YAML.safe_load(File.read(File.join(dir, ".archbuddy/id-map.yml")))
+      findings = {
+        "scores" => {
+          "forward_discoverability" => {
+            "grade" => "C", "score" => 3.4, "median" => 2.0, "capped_fraction" => 0.25
+          },
+          "forward_discoverability_by_category" => {
+            "top_level" => { "score" => 3.4, "median" => 2.0, "grade" => "C",
+                             "median_grade" => "B", "capped_fraction" => 0.25 }
+          }
+        }
+      }
+      Archbuddy::Cache::Writer.new(project_root: dir)
+                              .write(graph: graph, id_map: id_map, findings: findings)
+      git(dir, "add", "-A")
+      git(dir, "commit", "-qm", "analyze stamps entrypoints cost")
+
+      code, msg = run_check(dir)
+      expect(code).to eq(Archbuddy::Cache::Checker::CLEAN)
+      expect(msg).to match(/up-to-date|no drift/i)
+    end
+  end
+
   it "exits 1 (DRIFT) when source changed but the committed cache was not regenerated + committed" do
     Dir.mktmpdir do |dir|
       init_repo(dir)

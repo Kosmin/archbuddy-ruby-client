@@ -447,6 +447,50 @@ RSpec.describe "committed counter blocks (v0.10 W3 / serializer v2)" do
       end
     end
 
+    # M6: the entrypoints COST keys must ride the collect-only carry too —
+    # SYMMETRIC with the egress carry above. Without the carry a collect-only
+    # rewrite (e.g. `collect --check`) DROPS the analyze-published entrypoints
+    # cost (mean/median/capped_fraction/by_category_cost → null/{}), so the
+    # `entrypoints` block drifts and `--check` exits 1 after any real analyze.
+    it "carry-forward: a collect-only rewrite keeps the entrypoints COST byte-identical (M6)" do
+      Dir.mktmpdir do |dir|
+        anon, = anon_with_proxy_id
+        # findings-1.5+ that publishes the per-entrypoint forward cost surface
+        # (headline + per-category lens) — the exact shape entrypoint_counts folds.
+        findings = {
+          "scores" => {
+            "forward_discoverability" => {
+              "grade" => "C", "score" => 34.0, "median" => 20.0,
+              "median_grade" => "B", "capped_fraction" => 0.25, "hotspots" => []
+            },
+            "forward_discoverability_by_category" => {
+              "controllers" => { "score" => 34.0, "median" => 20.0, "grade" => "C",
+                                 "median_grade" => "B", "capped_fraction" => 0.25, "hotspots" => [] }
+            }
+          }
+        }
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: anon.graph, id_map: anon.id_map, findings: findings)
+        analyzed = read_aggregate(dir)
+        # precondition: analyze actually published the entrypoints cost surface
+        expect(analyzed["entrypoints"]["mean"]).to eq(34.0)
+        expect(analyzed["entrypoints"]["by_category_cost"]).not_to be_empty
+
+        # collect-only rewrite (the real `collect --check` regen path)
+        _, diagnostics = collect
+        write_collect(dir, anon, diagnostics)
+        after = read_aggregate(dir)
+
+        # counts stay FRESH (client fold); the engine-published COST is CARRIED
+        # (never recomputed) — so the whole block round-trips byte-identically.
+        expect(after["entrypoints"]["mean"]).to eq(34.0)
+        expect(after["entrypoints"]["median"]).to eq(20.0)
+        expect(after["entrypoints"]["capped_fraction"]).to eq(0.25)
+        expect(after["entrypoints"]["by_category_cost"]).to eq(analyzed["entrypoints"]["by_category_cost"])
+        expect(after["entrypoints"]).to eq(analyzed["entrypoints"]) # round-trip fidelity
+      end
+    end
+
     it "a v2 prior manufactures NOTHING: collect over a v2 cache adds no v3 blocks or cost keys" do
       Dir.mktmpdir do |dir|
         v2 = {
