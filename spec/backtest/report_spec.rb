@@ -211,4 +211,82 @@ RSpec.describe Backtest::Report do
       expect(File.read(File.join(dir, "BACKTEST.md"), encoding: "UTF-8")).to eq(first)
     end
   end
+
+  # v0.16 T15 (X-5): tier 4 folds in ADDITIVELY — the 19-key core `gates` object
+  # and its eq(19) pin are byte-identical. §8 of the markdown is a STATIC gate
+  # ROSTER emitted deterministically from the LOCKED canon (Tier4::GATE_FAMILIES +
+  # the published anchor constants) — corpus-free, so the committed doc is
+  # generator output a warm run reproduces byte-for-byte with or without the
+  # corpus (P3-V2 anti-drift). Live pass/fail is a RUNTIME artifact: it rides the
+  # `tier4` sibling block of backtest.json (schema archbuddy-backtest/1 unchanged,
+  # additive keys only), never baked into the markdown.
+  describe "tier-4 additive fold" do
+    def write_tier4(dir)
+      File.write(File.join(dir, "tier4.json"), JSON.generate(
+                                                 "schema" => "archbuddy-tier4/1",
+                                                 "gate_count" => 13,
+                                                 "vintages" => %w[68abf8310626 f61b758c21d1],
+                                                 "vintages_absent" => [],
+                                                 "gates" => { "G-1a" => true, "G-4" => true,
+                                                              "G-5" => "skipped", "author_scan_clean" => true },
+                                                 "notes" => { "engine" => "0.11.0" }
+                                               ))
+    end
+
+    it "renders the static §8 roster + folds live results into the tier4 json block ONLY; core eq(19)" do
+      Dir.mktmpdir do |dir|
+        write_tiers(dir)
+        write_tier4(dir)
+        quiet { described_class.generate(out: dir, cli_gate_runner: STUB_CLI_GATES) }
+
+        md = File.read(File.join(dir, "BACKTEST.md"), encoding: "UTF-8")
+        expect(md).to include("## 8. Tier 4 — reusability score gates (13 score gates)")
+        # the roster names every gate family with its canon anchor (not live bools)
+        Backtest::Tier4::GATE_FAMILIES.each { |g| expect(md).to include("| #{g} |") }
+        expect(md).to include("`#{Backtest::Tier4::MONSTER[1]}` base score -4.23 (band -4)")
+        expect(md).not_to include("| G-1a | true |") # live pass/fail never leaks into the md
+        expect(md).to include("## 6. Gates (19 core gates)") # header story, X-6
+
+        json = JSON.parse(File.read(File.join(dir, "backtest.json"), encoding: "UTF-8"))
+        expect(json["gates"].size).to eq(19) # core object untouched
+        expect(json["gates"].keys.sort).to eq(Backtest::Report::GATE_KEYS.sort)
+        expect(json["schema"]).to eq("archbuddy-backtest/1") # additive keys only
+        expect(json["tier4"]["gate_count"]).to eq(13) # live results ride the json twin
+        expect(json["tier4"]["gates"]["G-5"]).to eq("skipped")
+      end
+    end
+
+    it "emits the SAME static §8 roster with NO tier4.json (corpus-free reproducibility); no tier4 json block" do
+      first = nil
+      Dir.mktmpdir do |dir|
+        write_tiers(dir)
+        write_tier4(dir)
+        quiet { described_class.generate(out: dir, cli_gate_runner: STUB_CLI_GATES) }
+        md = File.read(File.join(dir, "BACKTEST.md"), encoding: "UTF-8")
+        first = md[md.index("## 8. Tier 4")..]
+      end
+
+      Dir.mktmpdir do |dir|
+        write_tiers(dir) # NO tier4.json
+        quiet { described_class.generate(out: dir, cli_gate_runner: STUB_CLI_GATES) }
+        md = File.read(File.join(dir, "BACKTEST.md"), encoding: "UTF-8")
+        expect(md).to include("## 8. Tier 4 — reusability score gates (13 score gates)")
+        expect(md[md.index("## 8. Tier 4")..]).to eq(first) # §8 byte-identical either way
+
+        json = JSON.parse(File.read(File.join(dir, "backtest.json"), encoding: "UTF-8"))
+        expect(json["gates"].size).to eq(19)
+        expect(json).not_to have_key("tier4")
+      end
+    end
+
+    # P3-V2 anti-drift guard (X-5): the COMMITTED docs/BACKTEST.md §8 IS the
+    # emitter's output — never a hand edit a warm run would revert.
+    it "pins the committed docs/BACKTEST.md §8 == Report.tier4_section (never hand-edited)" do
+      repo_root = File.expand_path("../..", __dir__)
+      committed = File.read(File.join(repo_root, "docs", "BACKTEST.md"), encoding: "UTF-8")
+      idx = committed.index("## 8. Tier 4")
+      expect(idx).not_to be_nil, "committed BACKTEST.md is missing the §8 tier-4 section"
+      expect(committed[idx..]).to eq(described_class.tier4_section)
+    end
+  end
 end

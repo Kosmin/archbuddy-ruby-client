@@ -7,6 +7,7 @@ require_relative "cli"
 require_relative "author_scan"
 require_relative "repos"
 require_relative "head_scorer"
+require_relative "tier4" # §8 roster reads the LOCKED canon constants (no engine at load)
 
 module Backtest
   # The adoption document (BACKTEST.md) + its machine twin (backtest.json,
@@ -127,6 +128,7 @@ module Backtest
       md << worked_examples_section(tiers["tier2"])
       md << gates_section(gates)
       md << appendix_section(tiers["tier2"], cli_note)
+      md << tier4_section
       md
     end
 
@@ -286,9 +288,52 @@ module Backtest
     end
 
     def gates_section(gates)
-      md = +"## 6. Gates (#{gates.size})\n\n| gate | value |\n|---|---|\n"
+      md = +"## 6. Gates (#{gates.size} core gates)\n\n| gate | value |\n|---|---|\n"
       gates.each { |name, value| md << "| #{name} | #{value} |\n" }
       md << "\n"
+    end
+
+    # §8 — the v0.16 tier-4 reusability-score gate ROSTER. Emitted DETERMINISTICALLY
+    # from the LOCKED §2 canon in Tier4 (GATE_FAMILIES + the published anchor
+    # constants) — it needs NO live corpus run, so the committed BACKTEST.md is
+    # generator output that a warm run reproduces byte-for-byte with OR without the
+    # corpus (X-5: rows land via the emitter, never a hand edit regeneration reverts;
+    # the anti-drift guard). Live pass/fail is a RUNTIME artifact (tier4.json →
+    # backtest.json's `tier4` sibling block; report.rb#generate folds it there), never
+    # baked into this doc. The 19-key core `gates` object stays byte-identical. Nodes
+    # are named by (file, symbol) only (L6).
+    def tier4_section
+      n = Tier4::GATE_FAMILIES.size
+      base = Tier4::MONSTER_ANCHOR[Tier4::BASE]
+      head = Tier4::MONSTER_ANCHOR[Tier4::HEAD]
+      rank1 = Tier4::RANK1_ANCHOR
+      esc = Tier4::WORST_ESCAPE_ANCHOR
+      rows = {
+        "G-1a" => "monster `#{Tier4::MONSTER[1]}` base score #{base[0]} (band #{base[1]})",
+        "G-1b" => "monster head score #{head[0]} (band #{head[1]}); score_raw drops base→head",
+        "G-2" => "rank-1 booth `#{Tier4::RANK1[1]}` #{rank1[0]} (band #{rank1[1]}); 20-booth cohort scores positive",
+        "G-3" => "pole exclusivity: no negative-scored booth, no positive-scored non-booth",
+        "G-4" => "six-band distribution shares within envelope; n_null 0; fold matches published bands",
+        "G-5" => "#2146 new thin entrypoints score 0 (band 0) by deadband",
+        "G-8" => "unchanged-tuple nodes carry no score churn across consecutive vintages",
+        "G-10" => "escapes score negative; worst `#{Tier4::WORST_ESCAPE[1]}` #{esc[0]} (band #{esc[1]})",
+        "G-11" => "per-class signed extremes: monster class headline #{Tier4::MONSTER_CLASS_ROW['headline']}, rank 1",
+        "G-12" => "absorb exclusivity: escaping / collapse>2 nodes carry no absorb",
+        "G-13" => "absorb band churn-free across consecutive vintages",
+        "G-14" => "absorb distribution within the eligibility envelope",
+        "G-15" => "zero-predecessor entrypoints carry no absorb"
+      }
+      md = +"## 8. Tier 4 — reusability score gates (#{n} score gates)\n\n"
+      md << "19 core gates (above) + #{n} reusability-score gates assert the LOCKED " \
+            "calibration canon on ENGINE-EMITTED findings 1.9 (engine >= #{Tier4::ENGINE_MIN}) " \
+            "across #{Tier4::VINTAGES.size} calibration vintages. This roster is generated from " \
+            "the gate registry; live pass/fail is a runtime artifact (`tier4.json` → the `tier4` " \
+            "block of backtest.json), never baked into this committed doc. Callers converge here; " \
+            "nodes are named by (file, symbol) only.\n\n"
+      md << "| gate | canon anchor (engine-emitted 1.9) |\n|---|---|\n"
+      Tier4::GATE_FAMILIES.each { |g| md << "| #{g} | #{rows.fetch(g)} |\n" }
+      md << "\n"
+      md
     end
 
     def appendix_section(t2, cli_note)
@@ -332,6 +377,9 @@ module Backtest
     def generate(out:, cli_gate_runner: nil)
       out_dir = File.expand_path(out)
       tiers = %w[tier0 tier1 tier2 tier3].to_h { |name| [name, read_tier(out_dir, name)] }
+      # Tier 4 (v0.16) is read through a DEDICATED additive call — the 19-key
+      # core `gates` object and its eq(19) pin stay untouched (X-5).
+      tier4 = read_tier(out_dir, "tier4")
 
       unless arc_value_ok?(tiers["tier1"])
         warn "error: BACKTEST.md degenerate — generation bug (the 2^17 arc value is not " \
@@ -380,6 +428,9 @@ module Backtest
         },
         "gates" => gates
       }
+      # v0.16 tier-4 rides as an ADDITIVE sibling block (schema archbuddy-backtest/1
+      # unchanged, additive keys only) — never folded into the 19-key `gates`.
+      doc["tier4"] = tier4.slice("gate_count", "gates", "vintages", "vintages_absent", "notes") if tier4
       File.write(File.join(out_dir, "backtest.json"), JSON.pretty_generate(doc))
 
       gates.values.all? ? 0 : 1

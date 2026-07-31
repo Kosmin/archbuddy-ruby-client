@@ -90,7 +90,7 @@ Node-level (#2083): `Api::V1::RedeemTemplates#PATCH[0]` 8192 → 65536 branches 
 
 What clean looks like (#2146): 2 NEW use cases (GET[0] {0.0, mass 7}, PATCH[0] {1.0, mass 22}), net +1.000, RS ∪=2 — landing it required re-verifying nothing pre-existing.
 
-## 6. Gates (19)
+## 6. Gates (19 core gates)
 
 | gate | value |
 |---|---|
@@ -119,3 +119,23 @@ What clean looks like (#2146): 2 NEW use cases (GET[0] {0.0, mass 7}, PATCH[0] {
 Read-only corpus; per-file column whitelist (author columns unreachable by construction); id-map never read; head scores cached under gitignored tmp/; worktrees created → used → REMOVED per run; base reads ≈ 2 s from committed caches vs 35.4 s/side stateless collect (measured).
 
 Merge-parent sensitivity appendix: the one-shot `--pairs merge-parent` sweep feeds both the sensitivity check and the ReviewSurface distribution above (double collect cost, documented).
+## 8. Tier 4 — reusability score gates (13 score gates)
+
+19 core gates (above) + 13 reusability-score gates assert the LOCKED calibration canon on ENGINE-EMITTED findings 1.9 (engine >= 0.11.0) across 4 calibration vintages. This roster is generated from the gate registry; live pass/fail is a runtime artifact (`tier4.json` → the `tier4` block of backtest.json), never baked into this committed doc. Callers converge here; nodes are named by (file, symbol) only.
+
+| gate | canon anchor (engine-emitted 1.9) |
+|---|---|
+| G-1a | monster `Api::V1::RedeemTemplates#PATCH[0]` base score -4.23 (band -4) |
+| G-1b | monster head score -4.52 (band -5); score_raw drops base→head |
+| G-2 | rank-1 booth `Api::V1::Locations#collection` 4.07 (band 4); 20-booth cohort scores positive |
+| G-3 | pole exclusivity: no negative-scored booth, no positive-scored non-booth |
+| G-4 | six-band distribution shares within envelope; n_null 0; fold matches published bands |
+| G-5 | #2146 new thin entrypoints score 0 (band 0) by deadband |
+| G-8 | unchanged-tuple nodes carry no score churn across consecutive vintages |
+| G-10 | escapes score negative; worst `Batch::ProcessRecord#destroy_association` -2.3 (band -2) |
+| G-11 | per-class signed extremes: monster class headline -4.52, rank 1 |
+| G-12 | absorb exclusivity: escaping / collapse>2 nodes carry no absorb |
+| G-13 | absorb band churn-free across consecutive vintages |
+| G-14 | absorb distribution within the eligibility envelope |
+| G-15 | zero-predecessor entrypoints carry no absorb |
+

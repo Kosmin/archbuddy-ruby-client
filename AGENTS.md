@@ -163,7 +163,7 @@ For rationale/decision history (D1–D48, M1–M3) see [`docs/IMPLEMENTATION_PLA
 | **ReviewSurface** (v0.13) | The ∪ count of use cases a reviewer must re-verify to land a change (Σ = total review reads); `re-verify N use case(s)` is the rendered copy. |
 | **unreachable-from-entrypoints** (v0.13) | Nodes no entrypoint cone reaches — excluded from use-case metrics, disclosed MANDATORILY in every report (`not reachable from any entrypoint`), still covered by node-level rules + ratchet budgets. |
 | **RETIRED_RULES** (v0.13) | The six pre-conversion rule names; using one in config/todo is a validation error naming the successor. Allowed in docs ONLY inside CONFIGURATION.md's `## Retired rules` region + the CHANGELOG (spec-enforced). |
-| **backtest tiers** (v0.13) | `script/backtest/` tiers 0–3: rollup reproduction → flag-rate inventory → delta-rule replay on the 433-PR corpus → ratchet counterfactual; `--tier all` assembles `BACKTEST.md` behind 19 gates + the author-scan. |
+| **backtest tiers** (v0.13, +v0.16 tier 4) | `script/backtest/` tiers 0–4: rollup reproduction → flag-rate inventory → delta-rule replay on the 433-PR corpus → ratchet counterfactual → reusability-score gates (v0.16); `--tier all` assembles `BACKTEST.md` behind 19 core gates + the tier-4 score gates + the author-scan. |
 
 ## Task workflow (every task ends with this)
 
@@ -221,7 +221,7 @@ bundle exec exe/archbuddy lint .
 # Backtest (repo-local, env-gated; skips gracefully when the envs are unset)
 ARCHBUDDY_STUDY_CORPUS=/path/to/study-corpus \
 ARCHBUDDY_STUDY_REPOS="org/repo=/path/to/checkout[,org/other=/path[:subdir]]" \
-  bundle exec ruby script/backtest.rb --tier all       # [--tier 0|1|2|3|all] [--pairs base-merge|merge-parent] [--sample N] [--out DIR]
+  bundle exec ruby script/backtest.rb --tier all       # [--tier 0|1|2|3|4|all] [--pairs base-merge|merge-parent] [--sample N] [--out DIR]
 ```
 
 **The shared `.archbuddy/` workspace** (relative to CWD) is the flag-free default for both commands:

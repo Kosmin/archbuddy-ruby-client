@@ -449,8 +449,9 @@ What clean looks like (#2146, the contrast): two NEW endpoints, net +1.000, exit
 - **Cone metrics are floors** under dynamic dispatch: unresolved sends mean the true branching
   can only be higher, never lower.
 
-The backtest behind the numbers — 19 machine-checked gates replaying the 433-PR study corpus
-through the shipped reader/rules/CLI, tiers 0–3 plus the adoption pitch — is documented in
+The backtest behind the numbers — 19 core machine-checked gates plus the v0.16 tier-4
+reusability-score gates, replaying the 433-PR study corpus through the shipped reader/rules/CLI,
+tiers 0–4 plus the adoption pitch — is documented in
 [`docs/BACKTEST.md`](docs/BACKTEST.md). CI wiring (vendor matrix, jq snippets):
 [`docs/CI_RECIPES.md`](docs/CI_RECIPES.md). Committing the cache:
 [`docs/COMMITTING_ARCHBUDDY.md`](docs/COMMITTING_ARCHBUDDY.md).

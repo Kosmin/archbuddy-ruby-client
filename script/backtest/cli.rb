@@ -47,7 +47,7 @@ module Backtest
 
       load_tiers
 
-      tiers = opts[:tier] == "all" ? %w[0 1 2 3] : [opts[:tier]]
+      tiers = opts[:tier] == "all" ? %w[0 1 2 3 4] : [opts[:tier]]
       codes = tiers.map { |tier| run_tier(tier, corpus, opts) }
 
       # `--tier all` also assembles the adoption document + machine twin
@@ -78,8 +78,8 @@ module Backtest
         case arg
         when "--tier"
           value = args.shift
-          unless %w[0 1 2 3 all].include?(value)
-            warn "error: unknown --tier '#{value}' (0|1|2|3|all)"
+          unless %w[0 1 2 3 4 all].include?(value)
+            warn "error: unknown --tier '#{value}' (0|1|2|3|4|all)"
             return nil
           end
           opts[:tier] = value
