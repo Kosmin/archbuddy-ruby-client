@@ -356,6 +356,34 @@ an old (pre-0.12.0) client's `collect` over a v5 cache rewrites the committed sh
 vintage — acceptable; the next `analyze` with a current client restores v5. The v4→v5 stamp churn
 and the new fragment keys ship as ONE committed-cache churn event per audited repo.
 
+**v0.16 read posture (findings 1.9, SERIALIZER v6):** the client reads findings 1.9 NIL-TOLERANTLY.
+The reusability score is ENGINE-computed and served — the client CONSUMES, never recomputes (D17).
+Three additive surfaces, all ADVISORY: **(a)** each fragment node gains the score family
+`{score, score_band, score_raw}` (`score` real 2 dp, `score_band` integer −5..+5, `score_raw` the
+signed pre-clamp magnitude for delta resolution inside the saturated |5| poles) plus the L9-A
+absorption-headroom advisory pair `{absorb, absorb_raw}` — copied VERBATIM from findings 1.9's
+per-node `reusability` map, all emit-when-present; a node with no arity data carries a NULL triple
+(never a fabricated 0), and the L9-A pair is ABSENT unless the node is eligible (immediate callers
+carry absorbable complexity, low own fan-out, not an escape); **(b)** the aggregate folds the
+findings-1.9 `score_distribution` stat block (`{n_scored, n_null, zero_share, bands}`,
+present-iff-source) VERBATIM; **(c)** a NEW top-level `reusability_by_class` map — one row per class
+`{min, max, count, n_negative, n_positive, headline}` keyed by opaque `cls_` ids, `headline` = the
+engine-published negative-first dominance verdict (published so the client re-derives NOTHING);
+classless graphs omit the map. All ride the analyze-time per-fragment CARRY (a collect-only rewrite
+grafts the prior fragment's stamps per surviving node; a v5 prior grafts nothing; keys drop only
+with the node). **Report surfaces:** `archbuddy diff`'s `archbuddy-diff-report/1` envelope gains a
+per-node `reusability` block (present iff ≥ 1 stamped side) with base/head triples,
+`delta_raw_milli` deltas on `score_raw`, and per-side staleness provenance; the 8th rule
+`ReusabilityScore` (:info) and the 13th leaderboard key `reusability_score` read these stamps.
+**Transport:** the committed-cache path is the cheap default; `--analyze-sides` runs the engine per
+side for fresh stamps by construction (the staleness antidote). **Copy law (Q8):** "reuse more /
+underused" renders ONLY when the score ≥ 0; the +5 pole proves callers CONVERGE and absorption is
+free, never that callers share logic (not statically computable). A 1.8-or-older doc has no score
+family → no score, no block, no diff-envelope block — byte-identical to 0.13.0. **Downgrade caveat
+(repeats v5's):** an old (pre-0.14.0) client's `collect` over a v6 cache rewrites the committed
+shape back to its own vintage — acceptable; the next `analyze` with a current client restores v6.
+The v5→v6 stamp churn ships as ONE committed-cache churn event per audited repo.
+
 **Score semantics (findings 1.3):** `score` is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost to a `db_op` terminal — an **unbounded architectural cost**
 (≥ 0, no upper limit), lower is better. The score is computed in **real space** (no logarithm, no K

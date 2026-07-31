@@ -189,7 +189,7 @@ headline**; the letter grade is a tentative secondary indicator:
   block (findings 1.3): `Connectivity: N/total nodes scored (P%)`. A low percentage (e.g. 5/1672,
   0.3%) flags that only a small sample of the graph was reachable from entrypoints — treat the
   dimension scores as indicative, not representative.
-- **v0.10 counter banners** — a SERIALIZER v2+ committed aggregate (v5 as of v0.13) carries three
+- **v0.10 counter banners** — a SERIALIZER v2+ committed aggregate (v6 as of v0.16) carries three
   counter blocks, each rendered as a nil-tolerant banner beside connectivity (absent on an older
   aggregate — back-compat):
   - `Entrypoints: N total (controllers 3, jobs 1, …)` — ingress counts by category; once the
@@ -224,7 +224,7 @@ headline**; the letter grade is a tentative secondary indicator:
   blocks the engine has not published are OMITTED (never "N/A" noise): a pre-1.6 engine yields
   only the first two questions; a v1/v2 cache renders byte-identically to v0.10 (no section).
 
-- **v0.13 Reusability Compass** — three per-function signals (findings 1.8, SERIALIZER v5)
+- **v0.13 Reusability Compass** — three per-function signals (findings 1.9, SERIALIZER v6)
   answering *"extract more reusability here, or duplicate the call and bypass?"*, ALL ADVISORY
   and UNGRADED:
   - **leverage** = variety hidden / arity exposed (≫ 1 = a real abstraction; null when the
@@ -242,6 +242,36 @@ headline**; the letter grade is a tentative secondary indicator:
   function's leverage / collapse / quadrant — the per-function localization surface, read
   straight from the committed fragment stamps (carried across collect-only rewrites; refreshed
   on analyze). Pre-1.8/pre-v5 caches render byte-identically to v0.11 (no line, no section).
+
+- **v0.16 Reusability Score** — the engine (findings 1.9, SERIALIZER v6) computes a calibrated
+  **−5..+5 per-function score** and the client surfaces it, ALL ADVISORY:
+  - **the scale** — negative = *false reusability* / extreme multiplexing (break it down before
+    growing it); 0 = equilibrium (any change increases overall complexity); positive = a trivially
+    simple pass-through that could **absorb more** caller-side complexity. Each node carries three
+    keys — `score` (real, 2 dp), `score_band` (integer −5..+5), and `score_raw` (the signed
+    pre-clamp magnitude, so movement stays visible inside the saturated |5| poles). A node with no
+    arity data carries NO score surface at all — a null triple, never a fabricated 0.
+  - **the 8th rule `ReusabilityScore`** (default `:info`, advisory — never fails a build on its
+    own): fires at `score ≤ min_score` (default **−4**); a separate absorption-headroom incentive
+    surfaces when `absorb ≥ absorb_min_score` (default **+5**) as a disclosure, never a finding.
+  - **the 13th leaderboard key `reusability_score`** — the per-use-case negative-first dominance
+    headline over the entrypoint cone (`null`, never 0, when no cone node is scored).
+  - **`archbuddy diff`** gains a per-node `reusability` block in the JSON/markdown/terminal output
+    (present iff ≥ 1 stamped side), carrying base/head triples and `delta_raw_milli` deltas on the
+    raw magnitude with per-side staleness provenance. By default the deltas read the committed
+    cache (free); `archbuddy diff --analyze-sides` instead runs the engine per side into scratch
+    caches for **fresh stamps by construction** (the antidote to committed-cache staleness).
+  - **absorption headroom** (L9-A, advisory): a low-fan-out function whose immediate callers carry
+    far more complexity than its own subtree could make caller-side decisions linear instead of
+    multiplexed — surfaced as "this function **or a sibling at this call site** could absorb
+    caller-side decisions", never a named-certainty claim.
+
+  Product-copy law: "reuse more / underused" renders ONLY when the score ≥ 0; the +5 pole proves
+  callers **converge** here and absorbing is free at zero variety cost — it can NEVER prove the
+  callers share logic (not statically computable). Pre-1.9/pre-v6 caches render byte-identically
+  to v0.13 (no score, no block, no section). Full semantics, the formula family, the measured
+  constants with provenance, and the honest limits live in
+  [`docs/REUSABILITY_SCORE.md`](docs/REUSABILITY_SCORE.md).
 
 **Interpreting the cost:** the score is the **arithmetic mean over controller entrypoints** of each
 entrypoint's branch-product round-trip cost — an **unbounded architectural cost** (≥ 0, no upper

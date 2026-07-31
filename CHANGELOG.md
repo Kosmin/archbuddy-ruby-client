@@ -1,5 +1,80 @@
 # Changelog
 
+## [0.14.0] — the per-function reusability score (v0.16)
+
+The client half of the v0.16 reusability-score arc: the engine (findings 1.9 / architecture-auditor
+0.11.0) now computes a calibrated **−5..+5 per-function score** — negative = false reusability /
+extreme multiplexing (break it down before growing it), 0 = equilibrium, positive = a trivially
+simple pass-through that could absorb more caller-side complexity — and the client CONSUMES and
+surfaces it. Everything ADDITIVE, nil-tolerant, and ADVISORY: pre-1.9 / pre-v6 caches render
+byte-identically to 0.13.0 (no score, no new section, no new report block). L6/R-HONEST throughout —
+N/A over fabrication (a null triple is never a fabricated 0), constants carry measured provenance,
+and no author data leaves the SECRET id-map. Engine dependency floor raised to `"~> 0.11"` (the
+score keys need findings 1.9; a fresh clone resolves the engine via the Gemfile git source once
+0.11.0 is pushed — until then the documented `ARCHITECTURE_AUDITOR_PATH` dev override applies).
+
+### Added
+- **SERIALIZER v6 (T1 — THE one serializer bump of the release, sole owner):** fragment nodes
+  gain the three per-node score stamps `{score, score_band, score_raw}` plus the L9-A advisory
+  pair `{absorb, absorb_raw}` (the `COMPASS_KEYS` family extension), copied VERBATIM from findings
+  1.9's per-node `reusability` map at analyze/reset and carried across collect-only rewrites by the
+  existing per-fragment carry (`carry_prior_compass!` iterates `COMPASS_KEYS`, so the new keys ride
+  the SAME mechanism — keys drop only with the node; a v5 prior grafts nothing; first-ever collect
+  stays null). The aggregate additionally folds the findings-1.9 `score_distribution` stat block
+  (present-iff-source) and the top-level `reusability_by_class` map (one committed row per class:
+  `{class, min, max, count, n_negative, n_positive, headline}`, `headline` = the engine-computed
+  negative-first dominance verdict, published so no consumer re-derives it). Both join the
+  collect-only carry list. **Downgrade caveat (repeats v5's):** an OLD (pre-0.14.0) client's
+  `collect` over a v6 cache rewrites the committed shape back to its own vintage — acceptable; the
+  next `analyze` with a current client restores v6. The v5→v6 stamp churn ships as ONE
+  committed-cache churn event per audited repo.
+- **Read side (T2/T5):** the score triple + absorb pair parse into `Report::Scores` and the review
+  `Vintage::Node` reader (v6 ⇒ populated; v5 ⇒ nil members, absent from `keys_present`); the
+  `score_distribution` and per-class `Reusability::ClassRow` (all six keys + `headline` + resolved
+  `class` symbol) parse identically from the aggregate and from raw findings. Pre-1.9 docs yield
+  nil members throughout — never a fabricated score.
+- **8th business rule `ReusabilityScore` (T7/T8):** kind `:node` on the `ExponentialNode` template,
+  default severity `:info` (ADVISORY — never exits 1 at the default), params `min_score: -4`
+  (fires on nodes at or below the calibrated extreme-multiplexing floor; measured −5 needs
+  N ≥ 18.421) and `absorb_min_score: +5` (the absorption-headroom incentive; +5 real needs
+  mass_savings ≥ 120). The `absorb_min_score` arm reads the engine `absorb` key (never the score
+  key) and renders as a presenter disclosure, never a finding. Diff universe = NEW ∪ GROWN nodes
+  only; a stale committed stamp degrades to disclosure, never a gate. Todo grammar accepts the
+  negative `min_score` and encodes debt in milli-log2 (`(−score_raw × 1000).round`).
+- **13th lint leaderboard key `reusability_score` (T9):** the ep-cone negative-first dominance
+  headline (`min` if ≤ −1, else `max` if ≥ +1, else 0; `null` — never 0 — when no cone node
+  carries a stamp), lifted via the new public `Graph#cone_nodes` + `Review::ScoreRollup`.
+- **Diff-envelope `reusability` block (T10):** `archbuddy diff`'s `archbuddy-diff-report/1` JSON
+  envelope gains a per-node `reusability` block (present iff ≥ 1 stamped side) across all three
+  formatters (JSON / markdown / terminal), carrying base/head score triples, `delta_raw_milli`
+  (null-tolerant deltas on `score_raw` so movement stays visible inside the saturated |5| poles),
+  and the L9-A absorb disclosures with per-side staleness provenance. The envelope schema fixture
+  was re-cut in the same commit; stored 0.13.0 samples still validate.
+- **`--analyze-sides` transport (T11):** an opt-in escape hatch for `archbuddy diff` that runs the
+  engine per side (base + head) into scratch caches and folds the fresh stamps through
+  `Cache::Writer` — fresh stamps by construction (the antidote to committed-cache staleness). The
+  committed-cache path stays the cheap default; engine-absent ⇒ exit 2 with empty stdout; scratch
+  is always cleaned.
+- **Tier-4 backtest score gates (T15):** `script/backtest` gains an additive tier-4 that replays
+  the study corpus through the shipped reader/rules/CLI and asserts the B-marked score canon
+  (G-1a/G-1b monster band −4→−5, G-2 toll-booth floors, G-3 pole exclusivity, G-4 distribution
+  bands, G-8 churn-free, G-10 all-escapes-negative, G-11 per-class extremes) plus the L9-A
+  headroom gates G-12..G-15 — all on engine-EMITTED findings only (never a formula replica — the
+  transcription-drift kill). Tiers 0–3 stay byte-untouched; `--tier 4` dispatches it alone;
+  corpus-unset ⇒ skip exit 0; a below-0.11.0 engine ⇒ loud skip.
+- **`docs/REUSABILITY_SCORE.md` (P3-D1):** the reference for the scale semantics, the F-A formula
+  family and its measured constants with provenance, the Q8 product-copy law (never "reuse more"
+  with a negative score; never "callers have similar logic" — the +5 pole proves callers CONVERGE
+  and absorption is free, never that they share logic), and the L9-A absorption-headroom advisory
+  with its FP-honest copy. README and this changelog link to it; neither creates it.
+
+### Changed
+- Client version 0.13.0 → 0.14.0.
+- Engine dependency floor `"~> 0.2"` → `"~> 0.11"` (findings 1.9 needs engine 0.11.0).
+- Doc consistency sweep (M9): README / ARCHITECTURE / CONTRACT serializer-version and findings
+  banners advanced to v6 / 1.9; the `--analyze-sides` flag and the diff-envelope `reusability`
+  block documented.
+
 ## [0.13.0] — the business-metrics architecture reviewer
 
 The v0.14→v0.15 conversion shipped as ONE release: the reviewer prices USE CASES — what each
