@@ -469,4 +469,180 @@ RSpec.describe "diff degenerate battery" do
       expect(stdout).to match(/note: 1 use case\(s\) have changed nodes in their cone/)
     end
   end
+
+  # ---- v0.16 score degenerate matrix (T12) -----------------------------------
+  #
+  # The reusability-score feature's degenerate / honest-absence behaviors
+  # through the shipped CLI: never-analyzed sides, zero-ep + stale
+  # disclosures, mixed serializer generations, classless nodes, zero-arity
+  # surface absence (L6 — never a fabricated 0), and the absorb-absent path.
+  # Committed v6 fixtures where a real cache is clearest; hand-authored
+  # vintages for the generation/class/arity corners.
+  describe "v0.16 score degenerate matrix (T12)" do
+    def run_lint(**kwargs)
+      out = StringIO.new
+      err = StringIO.new
+      orig_out = $stdout
+      orig_err = $stderr
+      $stdout = out
+      $stderr = err
+      code = nil
+      begin
+        Archbuddy::CLI::Lint.new.call(**kwargs)
+      rescue SystemExit => e
+        code = e.status
+      ensure
+        $stdout = orig_out
+        $stderr = orig_err
+      end
+      [code, out.string, err.string]
+    end
+
+    # A v6 fragment node: the v5 `node` shape + the five findings-1.9 stamps.
+    # `collapse` defaults to the FRESH value round(branches / max(arity, 1), 2)
+    # (the D-C3 consistency channel); pass a mismatching value for staleness.
+    # `drop:` omits stamp keys — the L6 surface-absent path.
+    def v6_node(symbol, branches:, arity: 1, score: nil, score_band: nil,
+                score_raw: nil, absorb: nil, absorb_raw: nil, klass: :auto,
+                collapse: :fresh, entrypoint: false, kind: nil, drop: [])
+      base = node(symbol, branches: branches, entrypoint: entrypoint, kind: kind, arity: arity)
+      base["class"] = klass == :auto ? symbol.split("#").first : klass
+      base["collapse"] =
+        collapse == :fresh ? (branches.to_f / [arity || 1, 1].max).round(2) : collapse
+      { "score" => score, "score_band" => score_band, "score_raw" => score_raw,
+        "absorb" => absorb, "absorb_raw" => absorb_raw }
+        .each { |k, v| base[k] = v unless drop.include?(k) }
+      base
+    end
+
+    # Hand-authored multi-fragment vintage. Each spec: {file:, nodes:[, version:]}.
+    def write_v6(dir, version: 6, **fragments)
+      sources = {}
+      fragments.each_value do |spec|
+        rel = ".archbuddy/#{spec[:file]}.json"
+        sources[spec[:file]] = { "path" => rel, "shard_mode" => "single" }
+        path = File.join(dir, rel)
+        FileUtils.mkdir_p(File.dirname(path))
+        File.write(path, JSON.generate(
+                           "serializer_version" => spec.fetch(:version, version),
+                           "file" => spec[:file], "nodes" => spec[:nodes], "edges" => []
+                         ))
+      end
+      File.write(File.join(dir, "archbuddy-findings.json"),
+                 JSON.generate("serializer_version" => version, "sources" => sources))
+      dir
+    end
+
+    def mkdir(root, name)
+      FileUtils.mkdir_p(File.join(File.realpath(root), name)).first
+    end
+
+    it "row d: never-analyzed both sides ⇒ reusability block OMITTED + RS absent-note" do
+      code, stdout, stderr = run_diff(target: fixture("score_twin_v5_base"),
+                                      base_cache: fixture("score_twin_v5_base"),
+                                      trust_cache: true, format: "json")
+      expect(code).to eq(0)
+      doc = parse_json!(stdout)
+      expect(doc).not_to have_key("reusability") # absent, never a null block
+      expect(stderr).to include(
+        "note: reusability score block omitted — no score stamps on either side"
+      )
+      rs = doc["summary"]["not_evaluable"].select { |n| n["rule"] == "ReusabilityScore" }
+      expect(rs.map { |n| n["reason"] })
+        .to eq(["score stamps absent — serializer < v6 or vintage never analyzed"])
+    end
+
+    it "row e: zero-ep v6 vintage ⇒ empty leaderboard, but the score rule still fires" do
+      code, stdout, = run_lint(target: fixture("score_zero_ep"),
+                               trust_cache: true, format: "json")
+      expect(code).to eq(0) # advisory
+      doc = JSON.parse(stdout)
+      expect(doc["use_cases"]["count"]).to eq(0)
+      expect(doc["use_cases"]["leaderboard"]).to eq([])
+      # seed-independent (Q7 G-7): the node-kind rule evaluates regardless of eps
+      rs = doc["findings"].select { |f| f["rule"] == "ReusabilityScore" }
+      expect(rs.map { |f| f["symbol"] }).to eq(["Lib::Unreached#big"])
+    end
+
+    it "row f: stale head stamp ⇒ per-node disclosure, NO finding, no fabricated number" do
+      code, stdout, = run_lint(target: fixture("score_stale_head"),
+                               trust_cache: true, format: "json")
+      expect(code).to eq(0)
+      doc = JSON.parse(stdout)
+      expect(doc["findings"].map { |f| f["rule"] }).not_to include("ReusabilityScore")
+      rs = doc["summary"]["not_evaluable"].select { |n| n["rule"] == "ReusabilityScore" }
+      expect(rs.map { |n| n["reason"] }).to eq([
+        "score stamp stale for app/api/drift.rb:Api::V1::Drift#PATCH[0] — " \
+        "run archbuddy analyze (or --analyze-sides)"
+      ])
+    end
+
+    it "mixed v5/v6 generations ⇒ provenance serializer [5,6]; only v6 scores evaluate" do
+      Dir.mktmpdir do |root|
+        mk = lambda do |name, big_branches, big_score|
+          write_v6(mkdir(root, name),
+                   six: { file: "lib/mix6.rb", version: 6,
+                          nodes: [v6_node("A#big", branches: big_branches, score: big_score,
+                                          score_band: -5, score_raw: -18.75)] },
+                   five: { file: "lib/mix5.rb", version: 5,
+                           nodes: [node("B#plain", branches: 4, arity: 2)] })
+        end
+        base = mk.call("base", 8192, -4.23)
+        head = mk.call("head", 65_536, -4.52)
+        code, stdout, = run_diff(target: head, base_cache: base, trust_cache: true, format: "json")
+        expect(code).to eq(0)
+        reuse = parse_json!(stdout)["reusability"]
+        expect(reuse["base"]["serializer"]).to eq([5, 6])
+        expect(reuse["head"]["serializer"]).to eq([5, 6])
+        # only the v6-stamped node produces a delta row; the v5 node is inert
+        expect(reuse["deltas"].map { |d| d["symbol"] }).to eq(["A#big"])
+      end
+    end
+
+    it "classless scored node ⇒ evaluated without a class (no crash, finding fires)" do
+      Dir.mktmpdir do |root|
+        dir = write_v6(File.realpath(root),
+                       one: { file: "lib/anon.rb", version: 6,
+                              nodes: [v6_node("A#big", branches: 65_536, klass: nil,
+                                              score: -4.52, score_band: -5, score_raw: -18.75)] })
+        code, stdout, = run_lint(target: dir, trust_cache: true, format: "json")
+        expect(code).to eq(0)
+        rs = JSON.parse(stdout)["findings"].select { |f| f["rule"] == "ReusabilityScore" }
+        expect(rs.map { |f| f["symbol"] }).to eq(["A#big"])
+      end
+    end
+
+    it "zero-arity surface absent ⇒ node carries NO score keys ⇒ RS absent-note, never a 0" do
+      Dir.mktmpdir do |root|
+        dir = write_v6(File.realpath(root),
+                       one: { file: "lib/arityless.rb", version: 6,
+                              nodes: [v6_node("A#noarity", branches: 4, arity: nil, collapse: nil,
+                                              drop: %w[score score_band score_raw absorb absorb_raw])] })
+        code, stdout, = run_lint(target: dir, trust_cache: true, format: "json")
+        expect(code).to eq(0)
+        doc = JSON.parse(stdout)
+        expect(doc["findings"].map { |f| f["rule"] }).not_to include("ReusabilityScore")
+        rs = doc["summary"]["not_evaluable"].select { |n| n["rule"] == "ReusabilityScore" }
+        expect(rs.map { |n| n["reason"] })
+          .to eq(["score stamps absent — serializer < v6 or vintage never analyzed"])
+      end
+    end
+
+    it "absorb-absent ⇒ diff renders NO absorb candidates (engine omitted the keys)" do
+      Dir.mktmpdir do |root|
+        pair = lambda do |name, branches, score, raw, band|
+          write_v6(mkdir(root, name),
+                   one: { file: "lib/a.rb", version: 6,
+                          nodes: [v6_node("A#ep", branches: branches, entrypoint: true,
+                                          kind: "grape", score: score, score_band: band,
+                                          score_raw: raw, drop: %w[absorb absorb_raw])] })
+        end
+        base = pair.call("base", 8192, -4.23, -15.0, -4)
+        head = pair.call("head", 65_536, -4.52, -18.75, -5)
+        code, stdout, = run_diff(target: head, base_cache: base, trust_cache: true, format: "json")
+        expect(code).to eq(0)
+        expect(parse_json!(stdout)["reusability"]["absorb_candidates"]).to eq([])
+      end
+    end
+  end
 end

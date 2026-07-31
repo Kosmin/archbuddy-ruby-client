@@ -1,0 +1,49 @@
+{
+  "serializer_version": 6,
+  "file": "app/api/redeem.rb",
+  "nodes": [
+    {
+      "symbol": "Api::V1::Redeem#PATCH[0]",
+      "kind": "endpoint",
+      "class": "Api::V1::Redeem",
+      "branches": 65536,
+      "decisions": 16,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": false,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": 65536.0,
+      "score": -4.52,
+      "score_band": -5,
+      "score_raw": -18.75,
+      "absorb": null,
+      "absorb_raw": null
+    },
+    {
+      "symbol": "Api::V1::Redeem#collection",
+      "kind": "function",
+      "class": "Api::V1::Redeem",
+      "branches": 1,
+      "decisions": 0,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": true,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": 1.0,
+      "score": 0.0,
+      "score_band": 0,
+      "score_raw": 0.0,
+      "absorb": 5.0,
+      "absorb_raw": 6.907
+    }
+  ],
+  "edges": [
+    { "from": "Api::V1::Redeem#PATCH[0]", "to": "Api::V1::Redeem#collection", "calls": 78 }
+  ]
+}

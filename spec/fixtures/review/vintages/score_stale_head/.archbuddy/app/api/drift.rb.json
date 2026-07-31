@@ -1,0 +1,27 @@
+{
+  "serializer_version": 6,
+  "file": "app/api/drift.rb",
+  "nodes": [
+    {
+      "symbol": "Api::V1::Drift#PATCH[0]",
+      "kind": "endpoint",
+      "class": "Api::V1::Drift",
+      "branches": 8192,
+      "decisions": 13,
+      "entrypoint": true,
+      "entrypoint_kind": "grape",
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": false,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": 3.0,
+      "score": -4.52,
+      "score_band": -5,
+      "score_raw": -18.75,
+      "absorb": null,
+      "absorb_raw": null
+    }
+  ],
+  "edges": []
+}

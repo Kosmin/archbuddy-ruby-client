@@ -1,0 +1,27 @@
+{
+  "serializer_version": 6,
+  "file": "lib/unreached.rb",
+  "nodes": [
+    {
+      "symbol": "Lib::Unreached#big",
+      "kind": "function",
+      "class": "Lib::Unreached",
+      "branches": 65536,
+      "decisions": 16,
+      "entrypoint": false,
+      "entrypoint_kind": null,
+      "escapes": false,
+      "outcome_arity": 1,
+      "toll_booth": false,
+      "quadrant": null,
+      "leverage": null,
+      "collapse": 65536.0,
+      "score": -4.52,
+      "score_band": -5,
+      "score_raw": -18.75,
+      "absorb": null,
+      "absorb_raw": null
+    }
+  ],
+  "edges": []
+}

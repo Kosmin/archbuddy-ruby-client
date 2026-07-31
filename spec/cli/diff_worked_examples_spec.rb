@@ -350,4 +350,196 @@ RSpec.describe "diff worked-example gates (Q5 canon)" do
       expect(wall).to be < 60.0
     end
   end
+
+  # ---- (e) v0.16 end-to-end score battery (T12) --------------------------------
+  #
+  # The whole reusability-score feature exercised through the SHIPPED CLI over
+  # committed v6 fixtures authored to X-6's worked values (the G-1 monster
+  # canon: score −4.23 → −4.52, raw −15.0 → −18.75, band −4 → −5; a +5 absorb
+  # booth callee). Rows a/b/c/g/h/i of the T12 matrix + byte-determinism; the
+  # degenerate rows (d–f + the generation/class/arity corners) live in
+  # diff_degenerate_spec.rb. Every value here is ENGINE-published and copied
+  # verbatim — the client never computes a score (L2/D17).
+  describe "v0.16 end-to-end score battery (T12)" do
+    def run_lint(**kwargs)
+      out = StringIO.new
+      err = StringIO.new
+      orig_out = $stdout
+      orig_err = $stderr
+      $stdout = out
+      $stderr = err
+      code = nil
+      begin
+        Archbuddy::CLI::Lint.new.call(**kwargs)
+      rescue SystemExit => e
+        code = e.status
+      ensure
+        $stdout = orig_out
+        $stderr = orig_err
+      end
+      [code, out.string, err.string]
+    end
+
+    def diff_twin(**overrides)
+      run_diff(**{ target: fixture("score_twin_head"), base_cache: fixture("score_twin_base"),
+                   trust_cache: true }.merge(overrides))
+    end
+
+    # row (a): grown-monster PR ⇒ ReusabilityScore :info + envelope deltas + exit 0
+    it "row a: grown monster ⇒ RS :info finding, envelope deltas, absorb candidate, exit 0" do
+      code, stdout, = diff_twin(format: "json")
+      expect(code).to eq(0) # default advisory — :info never gates (L7)
+      doc = JSON.parse(stdout)
+
+      rs = doc["findings"].select { |f| f["rule"] == "ReusabilityScore" }
+      expect(rs.map { |f| f["symbol"] }).to eq(["Api::V1::Redeem#PATCH[0]"])
+      expect(rs.first["severity"]).to eq("info")
+
+      reuse = doc["reusability"]
+      expect(reuse["base"]).to include("serializer" => [6], "scored_nodes" => 2, "stale_stamps" => 0)
+      expect(reuse["head"]).to include("serializer" => [6], "scored_nodes" => 2, "stale_stamps" => 0)
+      # the G-1 monster canon at published precision — the delta reads on raw
+      expect(reuse["deltas"]).to eq([
+        { "file" => "app/api/redeem.rb", "symbol" => "Api::V1::Redeem#PATCH[0]",
+          "classification" => "GROWN",
+          "base" => { "score" => -4.23, "score_raw" => -15.0 },
+          "head" => { "score" => -4.52, "score_raw" => -18.75 },
+          "delta_raw_milli" => -3750 }
+      ])
+      # L9-A absorb advisory (score ≥ 0 gate; never a finding)
+      expect(reuse["absorb_candidates"]).to eq([
+        { "file" => "app/api/redeem.rb", "symbol" => "Api::V1::Redeem#collection",
+          "score" => 0.0, "absorb" => 5.0, "absorb_raw" => 6.907 }
+      ])
+    end
+
+    # row (b): lint 13-key leaderboard row with the engine cone headline (D-C1)
+    it "row b: lint leaderboard renders the 13-key row with the engine cone headline" do
+      thirteen = %w[rank ep kind file branching_log2 mass reach files depth
+                    dividend max_cone_node_log2 cost_note reusability_score]
+      code, stdout, = run_lint(target: fixture("score_twin_head"),
+                               trust_cache: true, format: "json")
+      expect(code).to eq(0)
+      row = JSON.parse(stdout)["use_cases"]["leaderboard"].fetch(0)
+      expect(row.keys.sort).to eq(thirteen.sort)
+      expect(row["ep"]).to eq("Api::V1::Redeem#PATCH[0]")
+      # negative-first cone dominance: the −4.52 ep beats the 0.0 booth callee
+      expect(row["reusability_score"]).to eq(-4.52)
+    end
+
+    # row (c): pre-v6 base + v6 head ⇒ one-sided provenance + null deltas
+    it "row c: pre-v6 base + v6 head ⇒ one-sided provenance, null delta, no fabrication" do
+      code, stdout, = diff_twin(base_cache: fixture("score_twin_v5_base"), format: "json")
+      expect(code).to eq(0)
+      reuse = JSON.parse(stdout)["reusability"]
+      expect(reuse["base"]).to include("serializer" => [5], "scored_nodes" => 0)
+      expect(reuse["head"]).to include("serializer" => [6], "scored_nodes" => 2)
+      delta = reuse["deltas"].fetch(0)
+      expect(delta["symbol"]).to eq("Api::V1::Redeem#PATCH[0]")
+      expect(delta["base"]).to be_nil            # base unscored — honest one-sidedness
+      expect(delta["head"]).to eq("score" => -4.52, "score_raw" => -18.75)
+      expect(delta["delta_raw_milli"]).to be_nil # never fabricated across a v5 side
+    end
+
+    # row (g): the D-C5 debt-milli todo lifecycle (pin → skip → worsen →
+    # refire) through the SHIPPED diff CLI's --todo transport. The unit-level
+    # pin/skip/worsen/refire/heal grammar is exhaustively owned by
+    # spec/review/reusability_score_spec.rb ("the D-C5 debt-milli todo
+    # lifecycle" group, value_raw <= recorded verbatim); THIS row is its
+    # end-to-end CLI companion — the SAME integer skip predicate riding the
+    # GROWN monster (head debt milli 18750 = (−(−18.75) × 1000)) across both
+    # sides of the pinned boundary. "worsen" is expressed as the current debt
+    # exceeding a lower pinned baseline (the engine-published stamp is static —
+    # the client never recomputes it, L2/D17), which is exactly the refire arm
+    # of the predicate.
+    it "row g: debt-milli todo lifecycle through the CLI — pin ⇒ skip, worsen ⇒ refire" do
+      node = "app/api/redeem.rb: Api::V1::Redeem#PATCH[0]"
+      Dir.mktmpdir do |dir|
+        pin = lambda do |value|
+          path = File.join(dir, "todo-#{value}.yml")
+          File.write(path, <<~YAML)
+            version: 1
+            tool: "archbuddy 0.13.0"
+            rule_count: 1
+            node_count: 1
+            rules:
+              ReusabilityScore:
+                - node: "#{node}"
+                  value: #{value}
+          YAML
+          path
+        end
+
+        # PIN at the current debt (18750) ⇒ skip (value_raw == recorded); the
+        # RS finding is grandfathered away, the skip row is disclosed.
+        code, stdout, = diff_twin(todo: pin.call(18_750), format: "json")
+        expect(code).to eq(0)
+        doc = JSON.parse(stdout)
+        expect(doc["findings"].select { |f| f["rule"] == "ReusabilityScore" }).to eq([])
+        skip_row = doc["grandfathered"].find { |g| g["rule"] == "ReusabilityScore" }
+        expect(skip_row).to include(
+          "symbol" => "Api::V1::Redeem#PATCH[0]",
+          "recorded" => 18_750, "current" => 18_750, "healed" => false
+        )
+
+        # WORSEN past a lower pin (18500) ⇒ re-fire with the :score_debt
+        # message; still :info, so it never gates (L7).
+        code, stdout, = diff_twin(todo: pin.call(18_500), format: "json")
+        expect(code).to eq(0)
+        refire = JSON.parse(stdout)["findings"].find { |f| f["rule"] == "ReusabilityScore" }
+        expect(refire["symbol"]).to eq("Api::V1::Redeem#PATCH[0]")
+        expect(refire["severity"]).to eq("info")
+        expect(refire["value_raw"]).to eq(18_750)
+        expect(refire["grandfathered"]).to be(true) # grandfathered-baseline re-fire
+        expect(refire["message"]).to eq(
+          "reusability debt worsened: raw -18.500 → -18.750 (pinned value exceeded)"
+        )
+      end
+    end
+
+    # row (h): Q8 product-copy law over terminal + markdown output
+    it "row h: Q8 — no 'reuse more' anywhere in terminal/markdown; break-it-down present" do
+      %w[terminal markdown].each do |fmt|
+        code, stdout, = diff_twin(format: fmt)
+        expect(code).to eq(0)
+        expect(stdout.downcase).not_to include("reuse more") # Q8 rule 5 (score < 0)
+        expect(stdout).to include("ReusabilityScore")
+      end
+      # the break-it-down verdict renders on the negative pole (terminal line)
+      expect(diff_twin(format: "terminal")[1]).to include("break it down before growing it")
+    end
+
+    # row (i): clean-stdout + the exit ladder over every new path
+    it "row i: clean stdout on all formats + the exit ladder (advisory 0 / opt-in gate 1)" do
+      json_code, json_out, = diff_twin(format: "json")
+      expect(json_code).to eq(0)
+      expect(json_out[0]).to eq("{")            # stdout purity
+      expect { JSON.parse(json_out) }.not_to raise_error
+
+      %w[terminal markdown].each do |fmt|
+        expect(diff_twin(format: fmt)[1]).not_to include("{\"") # no JSON on the human stream
+      end
+
+      # opt-in gate: severity error + default fail-level error ⇒ exit 1
+      Dir.mktmpdir do |dir|
+        config = File.join(dir, ".archbuddy.yml")
+        File.write(config, <<~YAML)
+          version: 1
+          rules:
+            ReusabilityScore:
+              severity: error
+        YAML
+        code, stdout, = diff_twin(config: config, format: "json")
+        expect(code).to eq(1)
+        expect(JSON.parse(stdout)["exit_code"]).to eq(1)
+      end
+    end
+
+    # byte-determinism: same-input reruns are byte-identical (E-12 posture, client side)
+    it "byte-determinism: json and terminal reruns are byte-identical" do
+      %w[json terminal].each do |fmt|
+        expect(diff_twin(format: fmt)[1]).to eq(diff_twin(format: fmt)[1])
+      end
+    end
+  end
 end
