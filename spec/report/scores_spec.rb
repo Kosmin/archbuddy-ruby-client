@@ -678,7 +678,7 @@ RSpec.describe "v0.13 Reusability struct + parsers (V13-C)" do
   S = Archbuddy::Report::Scores unless defined?(S)
 
   # The committed v5 block shape (worked numbers = the live-verified
-  # app-management compass, 02-verification.md).
+  # calibration-corpus compass, 02-verification.md).
   def reusability_block
     {
       "reuse_index"       => { "mean" => 2.4, "median" => 1.0 },

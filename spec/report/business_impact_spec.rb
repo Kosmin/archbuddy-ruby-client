@@ -65,7 +65,7 @@ RSpec.describe Archbuddy::Report::BusinessImpact do
   end
 
   # --- v0.13: the Reuse compass line (copy table, byte-pinned; worked numbers
-  # = the live-verified app-management compass — 02-verification.md) ----------
+  # = the live-verified calibration-corpus compass — 02-verification.md) ------
   describe "the pinned Reuse compass copy table (v0.13, advisory wording)" do
     def compass(reuse_mean: 2.4, reuse_median: 1.0, booths: nil, extraction: nil)
       booths ||= [

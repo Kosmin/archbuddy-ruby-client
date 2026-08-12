@@ -578,7 +578,7 @@ consumes `AdapterResult` directly. The serialized `graph.yml` never carries it.
   break the engine's app-agnostic, no-boot boundary — L7/P2). The static probe seam is clean: a future
   dynamic pass is a new `Probe` subclass, not a rewrite.
 - **DB-connector probe** — a non-ActiveRecord connector probe (Sequel, ROM, …). Neither `nexus` nor
-  `app-management` uses one (0 validated targets); the seam makes it a trivial future add.
+  one calibration corpus uses one (0 validated targets); the seam makes it a trivial future add.
 
 ## Development
 

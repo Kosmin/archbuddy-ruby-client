@@ -5,19 +5,24 @@ require "yaml"
 require "open3"
 require "archbuddy"
 
-# v0.15 P1-T9: the app-management real-cache worked example, env-gated
-# (ARCHBUDDY_PROBE_APP_MANAGEMENT=1 + the path present). Every number is a
+# v0.15 P1-T9: the real-cache worked example, env-gated
+# (ARCHBUDDY_PROBE_CACHE=<abs path to a repo with a committed archbuddy
+# cache>). The probe target is supplied by the ENVIRONMENT and is NEVER
+# committed: this repo is PUBLIC and must contain only algorithms, never a
+# path, username, or repository name from any codebase it analyses.
+# Every number is a
 # SAME-MOMENT independent recount of the probe's own cache — never a
 # hardcoded plan-time value ([S] posture; V15-F8: the unreachable
 # cross-check reads .archbuddy/findings.yml per-node `metrics.dead`, NOT
 # the aggregate). The probe repo is READ-ONLY: --trust-cache reads the
 # existing cache; porcelain identity is asserted before/after.
-RSpec.describe "lint on the app-management committed cache (env-gated)" do
+RSpec.describe "lint on a committed real cache (env-gated)" do
   CLIENT_ROOT_RC = File.expand_path("../..", __dir__)
-  PROBE = "/Users/cosmin2/Projects/app-management"
+  # Supplied by the environment; nil when unset. Never hardcoded (see header).
+  PROBE = ENV.fetch("ARCHBUDDY_PROBE_CACHE", nil)
 
   def probe_enabled?
-    ENV["ARCHBUDDY_PROBE_APP_MANAGEMENT"] == "1" && File.directory?(PROBE) &&
+    !PROBE.nil? && !PROBE.empty? && File.directory?(PROBE) &&
       File.file?(File.join(PROBE, "archbuddy-findings.json"))
   end
 
@@ -60,7 +65,7 @@ RSpec.describe "lint on the app-management committed cache (env-gated)" do
   end
 
   it "reproduces the worked example with same-moment independent recounts" do
-    skip "ARCHBUDDY_PROBE_APP_MANAGEMENT != 1 or probe cache absent — example skipped" unless probe_enabled?
+    skip "ARCHBUDDY_PROBE_CACHE unset or probe cache absent — example skipped" unless probe_enabled?
 
     before = porcelain
     stdout, stderr, code = run_exe("--format", "json")

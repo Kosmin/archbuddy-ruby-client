@@ -310,10 +310,10 @@ fires fresh; ratchet `entrypoints:` budgets on the old symbol report
 their lines), `none` (all advisory lines suppressed). Advisory copy only —
 calibration NEVER gates. Recipe: docs/RECALIBRATION.md.
 
-## Worked example: linting a real committed cache (app-management)
+## Worked example: linting a real committed cache
 
 ```sh
-bundle exec exe/archbuddy lint /path/to/app-management --trust-cache --format json
+bundle exec exe/archbuddy lint /path/to/your-repo --trust-cache --format json
 ```
 
 `--trust-cache` here (a) exercises the escape hatch + its loud stderr warning

@@ -9,7 +9,7 @@ require "fileutils"
 #
 # I2 provenance pins (measure once, never re-derive):
 #   - client branch base: 3de9e09 (v0.10.0); engine L1 pin: 0aabcf8 (v0.8.0)
-#   - anchor arities machine-confirmed by the P1 prototype on app-management
+#   - anchor arities machine-confirmed by the P1 prototype on a calibration corpus
 #     tree d2300cb5 (107/107 defs resolved) and nexus tree eba78fde
 #     (17,223/17,238, 99.9%)
 #   - G1 sign-off (2026-07-17): the conscious re-anchors these inputs feed —
