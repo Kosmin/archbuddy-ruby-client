@@ -2,6 +2,8 @@
 
 require "prism"
 require_relative "resolver"
+require_relative "receiver_shape"
+require_relative "receiver_shape_tally"
 require_relative "grape_dsl"
 require_relative "root_dsl/rake_dsl"
 require_relative "probes/dispatch_probe"
@@ -27,7 +29,7 @@ module Archbuddy
           #              the generic <external> for target-less records.
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges,
                       :total_call_sites, :meta_resolved, :egress_counts,
-                      :cco_role_unattachable
+                      :cco_role_unattachable, :receiver_shapes
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
@@ -61,6 +63,12 @@ module Archbuddy
             # "how many crossings could the role not reach"), and the second
             # will gain reasons the first never will.
             @cco_role_unattachable = Hash.new(0)
+            # configurator W4 (C13): the per-receiver-shape breakdown of the
+            # unresolved call sites. COMPOSED, not implemented here — the
+            # Accumulator holds one and knows nothing about what it counts or
+            # what "unresolved" means. Diagnostics-only, like every counter
+            # above it.
+            @receiver_shapes = ReceiverShapeTally.new
           end
 
           # configurator W3 (C8): one tally per call site whose role has nowhere
@@ -383,7 +391,12 @@ module Archbuddy
                 node:            node,
                 type_scope:      current_type_scope
               )
-              record(@resolver.resolve(ctx), from_fq, node)
+              resolution = @resolver.resolve(ctx)
+              # configurator W4 (C13): UNCONDITIONAL delegation, no branch. The
+              # "is this unresolved" predicate and the shape classification both
+              # belong to the tally; this pass only supplies the pair.
+              @acc.receiver_shapes.observe(ctx, resolution)
+              record(resolution, from_fq, node)
             end
             super
           end
@@ -476,14 +489,9 @@ module Archbuddy
           # keeps L1 conservative: `Foo.build` (name :build) and any non-const
           # receiver decline. Shared by the write collectors and the pre-scan.
           def const_new_fq(value_node)
-            return nil unless value_node.is_a?(Prism::CallNode)
-            return nil unless value_node.name == :new
+            return nil unless ReceiverShape.constructor_chain?(value_node)
 
-            recv = value_node.receiver
-            case recv
-            when Prism::ConstantReadNode, Prism::ConstantPathNode
-              recv.slice
-            end
+            ReceiverShape.constructor_constant_fq(value_node)
           end
 
           # Record a local var's tracked type. Conditional-reassignment guard:

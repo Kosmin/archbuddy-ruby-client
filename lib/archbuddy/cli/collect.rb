@@ -153,6 +153,18 @@ module Archbuddy
           warn "note: #{probe_total} edge#{'s' if probe_total != 1} recovered by framework probes (#{breakdown})"
         end
 
+        # configurator W4 (C13): WHY the unresolved call sites are unresolved,
+        # split by receiver shape. Same channel and print discipline as the
+        # notes above (diagnostics only, never graph content); printed only when
+        # at least one call site went unresolved, so a fully-resolved run stays
+        # silent rather than emitting a row of zeros.
+        shape_counts = adapter_result.diagnostics[:receiver_shape_counts] || {}
+        if shape_counts.values.sum.positive?
+          breakdown = shape_counts.sort_by { |shape, _| shape.to_s }.map { |s, c| "#{s}=#{c}" }.join(" ")
+          warn "note: #{shape_counts.values.sum} unresolved call site" \
+               "#{'s' if shape_counts.values.sum != 1} by receiver shape (#{breakdown})"
+        end
+
         # M3: a run that finds NO entrypoints leaves the engine unable to
         # compute reachability (dead, path_length). Surface that as a clear
         # stderr WARNING — a diagnostic, never graph content — instead of

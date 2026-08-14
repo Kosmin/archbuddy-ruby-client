@@ -4,6 +4,7 @@ require "prism"
 require_relative "vocab"
 require_relative "probe"
 require_relative "boundary_rules"
+require_relative "receiver_shape"
 
 module Archbuddy
   module Collect
@@ -64,6 +65,13 @@ module Archbuddy
             :tier, :action, :target_fq, :kind, :provenance, :egress_category, :cco_role,
             keyword_init: true
           )
+
+          # The tier name the R9 fallthrough stamps. Named as a CONSTANT so the
+          # "this call site went unresolved" question has ONE producer:
+          # ReceiverShapeTally reads it rather than re-typing the symbol, and a
+          # rename here can no longer silently empty that tally (configurator W4
+          # / C13).
+          UNRESOLVED_TIER = :external
 
           def initialize(table, probes: [])
             @table  = table
@@ -192,7 +200,7 @@ module Archbuddy
             end
 
             # R9: everything unresolved -> the single shared external sink.
-            Resolution.new(tier: :external, action: :external, target_fq: nil, kind: "external")
+            Resolution.new(tier: UNRESOLVED_TIER, action: :external, target_fq: nil, kind: "external")
           end
 
           private
@@ -236,8 +244,11 @@ module Archbuddy
             "#{ctx.enclosing_class}.#{name}"
           end
 
+          # C13 hoist: one spelling of "is this receiver self". Implicit-self (a
+          # nil receiver) and an explicit `self` are the same thing to every
+          # consumer, and ReceiverShape is where that is decided.
           def self_receiver?(receiver)
-            receiver.nil? || receiver.is_a?(Prism::SelfNode)
+            ReceiverShape.self?(receiver)
           end
 
           # R4.5: the inferred constant FQ of a typed receiver, or nil (decline).
@@ -256,33 +267,24 @@ module Archbuddy
             recv = ctx.receiver
 
             # inline `Const.new` / `Const::Path.new` chain
-            if recv.is_a?(Prism::CallNode) && recv.name == :new &&
-               !recv.receiver.nil?
-              return constant_receiver_fq(recv.receiver)
-            end
+            return ReceiverShape.constructor_constant_fq(recv) if ReceiverShape.constructor_chain?(recv)
 
             scope = ctx.type_scope
             return nil if scope.nil?
 
-            case recv
-            when Prism::LocalVariableReadNode, Prism::InstanceVariableReadNode
-              scope[recv.name.to_s]
-            when Prism::CallNode
-              # Bare accessor call (`svc.method` where `svc` is a nil-receiver
-              # CallNode): resolve via the accessor-return map (merged into scope).
-              recv.receiver.nil? ? scope[recv.name.to_s] : nil
-            end
+            # local / ivar / BARE accessor call (`svc.method` where `svc` is a
+            # nil-receiver CallNode, resolved via the accessor-return map merged
+            # into scope). A call node WITH its own receiver has no scope key and
+            # therefore declines, exactly as before the C13 hoist.
+            key = ReceiverShape.scope_key(recv)
+            key && scope[key]
           end
 
           # If the receiver is a constant (Foo) or constant path (Foo::Bar),
-          # return its fq name; else nil.
+          # return its fq name; else nil. C13 hoist: the ladder itself lives in
+          # ReceiverShape now; the nil guard is redundant there and kept out.
           def constant_receiver_fq(receiver)
-            return nil if receiver.nil?
-
-            case receiver
-            when Prism::ConstantReadNode, Prism::ConstantPathNode
-              receiver.slice
-            end
+            ReceiverShape.constant_fq(receiver)
           end
 
           def edge(tier, target_fq)

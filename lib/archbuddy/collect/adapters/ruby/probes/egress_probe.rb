@@ -3,6 +3,7 @@
 require "prism"
 require_relative "../probe"
 require_relative "../resolver"
+require_relative "../receiver_shape"
 
 module Archbuddy
   module Collect
@@ -92,11 +93,13 @@ module Archbuddy
             # `Const::Path`); nil otherwise. Deliberately duplicated small
             # (the resolver's constant_receiver_fq is private; probes stay
             # self-contained — the DispatchProbe pattern).
+            # C13 hoist: was its own copy of the constant ladder ("probes stay
+            # self-contained"). Self-containment is about POLICY, not about
+            # re-typing a node-class list; the policy — literal constants only,
+            # never a scope lookup — is still expressed right here by which
+            # primitive is called.
             def literal_constant_fq(receiver)
-              case receiver
-              when Prism::ConstantReadNode, Prism::ConstantPathNode
-                receiver.slice
-              end
+              ReceiverShape.constant_fq(receiver)
             end
 
             # v0.11 E1 (L13): carry the literal constant FQ on the existing

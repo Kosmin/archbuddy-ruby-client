@@ -179,7 +179,13 @@ module Archbuddy
               #   ride at all — today only the in-tree enqueue, which the
               #   DispatchProbe recovers as an edge ({} when none occurred).
               cco_role_suppressed: egress_roles.suppressed,
-              cco_role_unattachable: acc.cco_role_unattachable
+              cco_role_unattachable: acc.cco_role_unattachable,
+              # configurator W4 (C13): WHY the unresolved call sites are
+              # unresolved, split by receiver shape (self / literal_const /
+              # local / ivar / chained / other). Same channel and print
+              # discipline as the counters above — CLI/diagnostics only, NEVER
+              # graph.yml. {} when nothing went unresolved.
+              receiver_shape_counts: acc.receiver_shapes.counts
             }
           )
         end

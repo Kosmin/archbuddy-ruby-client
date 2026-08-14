@@ -3,6 +3,7 @@
 require "prism"
 require_relative "../probe"
 require_relative "../resolver"
+require_relative "../receiver_shape"
 
 module Archbuddy
   module Collect
@@ -83,15 +84,20 @@ module Archbuddy
             # The provable FQ of the receiver, mirroring the base tiers:
             # self → enclosing class (R3), literal constant (R4), typed
             # var/ivar via ctx.type_scope (R4.5). nil = decline.
+            #
+            # C13 hoist: the shape ladder is ReceiverShape's; the COMPOSITION
+            # stays here, because this probe deliberately differs from R4.5 in
+            # two ways that a shared `receiver_fq` would have erased — it
+            # resolves :self (R4.5 does not; R3 sits above it), and it DECLINES a
+            # :chained receiver outright (R4.5 resolves the bare-accessor and
+            # inline-`Const.new` forms). Both differences are now visible in this
+            # `case` instead of implied by which node classes were listed.
             def receiver_fq(ctx)
               recv = ctx.receiver
-              return ctx.enclosing_class if recv.nil? || recv.is_a?(Prism::SelfNode)
-
-              case recv
-              when Prism::ConstantReadNode, Prism::ConstantPathNode
-                recv.slice
-              when Prism::LocalVariableReadNode, Prism::InstanceVariableReadNode
-                ctx.type_scope && ctx.type_scope[recv.name.to_s]
+              case ReceiverShape.of(recv)
+              when :self          then ctx.enclosing_class
+              when :literal_const then ReceiverShape.constant_fq(recv)
+              when :local, :ivar  then ctx.type_scope && ctx.type_scope[ReceiverShape.scope_key(recv)]
               end
             end
           end

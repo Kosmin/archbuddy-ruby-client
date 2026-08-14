@@ -2,6 +2,7 @@
 
 require "prism"
 require_relative "../probe"
+require_relative "../receiver_shape"
 require_relative "../resolver"
 
 module Archbuddy
@@ -62,10 +63,11 @@ module Archbuddy
               receiver = unwrap_set_hop(receiver)
               return nil if receiver.nil?
 
-              case receiver
-              when Prism::ConstantReadNode, Prism::ConstantPathNode
-                receiver.slice
-              end
+              # C13 hoist: the constant ladder is ReceiverShape's. The `.set` hop
+              # above is NOT — it is this probe's own dispatch grammar and stays
+              # here, which is exactly the split the hoist is meant to make
+              # visible.
+              ReceiverShape.constant_fq(receiver)
             end
 
             # If the receiver is a single `.set(...)` call off some inner

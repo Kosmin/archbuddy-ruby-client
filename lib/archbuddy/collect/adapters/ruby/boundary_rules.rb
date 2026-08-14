@@ -3,6 +3,7 @@
 require "set"
 require "prism"
 require_relative "../../../config/path_matcher"
+require_relative "receiver_shape"
 
 module Archbuddy
   module Collect
@@ -341,31 +342,23 @@ module Archbuddy
           # never claim a call the object makes on itself — a boundary is a thing
           # you cross, not a thing you are.
           #
-          # DELIBERATELY DUPLICATED SMALL, exactly as `EgressProbe#literal_
-          # constant_fq` is ("probes stay self-contained — the DispatchProbe
-          # pattern"). C13's receiver-shape HOIST is the task that collapses these
-          # spellings into one shared pure module; doing it here would widen this
-          # task into that one.
+          # C13's receiver-shape HOIST has now happened: the node-class ladder
+          # lives in ReceiverShape and this method is pure composition. The
+          # `:self` decline stays EXPLICIT rather than falling out of an omitted
+          # branch — it is the load-bearing claim of the tier ("a boundary is a
+          # thing you cross, not a thing you are"), not an accident of which node
+          # classes a `case` happened to list.
           def receiver_constant_fq(ctx)
             recv = ctx.receiver
-            return nil if recv.nil?
+            return nil if ReceiverShape.self?(recv)
 
             # inline `Const.new` / `Const::Path.new`
-            if recv.is_a?(Prism::CallNode) && recv.name == :new && !recv.receiver.nil?
-              return literal_constant_fq(recv.receiver)
-            end
+            return ReceiverShape.constructor_constant_fq(recv) if ReceiverShape.constructor_chain?(recv)
 
-            literal = literal_constant_fq(recv)
+            literal = ReceiverShape.constant_fq(recv)
             return literal unless literal.nil?
 
             typed_constant_fq(ctx, recv)
-          end
-
-          def literal_constant_fq(receiver)
-            case receiver
-            when Prism::ConstantReadNode, Prism::ConstantPathNode
-              receiver.slice
-            end
           end
 
           # The conservative intra-procedural type scope (L1), read ONLY — never
@@ -374,12 +367,8 @@ module Archbuddy
             scope = ctx.type_scope
             return nil if scope.nil?
 
-            case recv
-            when Prism::LocalVariableReadNode, Prism::InstanceVariableReadNode
-              scope[recv.name.to_s]
-            when Prism::CallNode
-              recv.receiver.nil? ? scope[recv.name.to_s] : nil
-            end
+            key = ReceiverShape.scope_key(recv)
+            key && scope[key]
           end
 
           # Sink-identity normalization, mirroring `EgressProbe#normalize_target`
