@@ -1,0 +1,236 @@
+---
+ids:
+  cls_85ff61844bdd:
+    class_id:
+    file: app/clients/storage.rb
+    kind: class_rollup
+    line: 1
+    symbol: Storage
+  cls_906255fc968a:
+    class_id:
+    file: app/clients/gem_client.rb
+    kind: class_rollup
+    line: 1
+    symbol: GemClient
+  cls_d1ccb8a2741b:
+    class_id:
+    file: app/clients/http_client.rb
+    kind: class_rollup
+    line: 1
+    symbol: HttpClient
+  cls_fd41d928fdd9:
+    class_id:
+    file: app/clients/queue_client.rb
+    kind: class_rollup
+    line: 1
+    symbol: QueueClient
+  ext_14daca451cee:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:Excon>"
+    terminal_kind: http
+  ext_35f2ec8cfd4e:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:HTTP>"
+    terminal_kind: http
+  ext_3a97d7dcadf5:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:gem:Faraday>"
+    terminal_kind: gem
+  ext_48a81d423203:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:queue:OutOfTreeWorker>"
+    terminal_kind: queue
+  ext_49512ef6b264:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:queue:OutOfTreeJob>"
+    terminal_kind: queue
+  ext_57580a4d52e7:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external>"
+    terminal_kind:
+  ext_595364040ea0:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:Net::HTTP>"
+    terminal_kind: http
+  ext_6e7d822caee2:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:Typhoeus>"
+    terminal_kind: http
+  ext_77ffc0c48ade:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:Aws::S3::Client>"
+    terminal_kind: http
+  ext_89b789443609:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:HTTParty>"
+    terminal_kind: http
+  ext_b4c7d579ed85:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:RestClient>"
+    terminal_kind: http
+  ext_c91e3de8820d:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:gem:SomeGem>"
+    terminal_kind: gem
+  ext_d2b3af422828:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:Aws::SNS::Client>"
+    terminal_kind: http
+  ext_dd670f52f8d6:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:gem:HTTP>"
+    terminal_kind: gem
+  ext_f15d6dbed897:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:http:Faraday>"
+    terminal_kind: http
+  ext_f47e99e7da54:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:gem:Another::Gem>"
+    terminal_kind: gem
+  n_06a4d04650f5:
+    class_id: cls_85ff61844bdd
+    entrypoint_kind:
+    escapes: false
+    file: app/clients/storage.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: Storage#put
+    terminal_kind:
+  n_44ba00ccaa8e:
+    class_id: cls_d1ccb8a2741b
+    entrypoint_kind:
+    escapes: false
+    file: app/clients/http_client.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: HttpClient#fetch
+    terminal_kind:
+  n_5eadac733a44:
+    class_id: cls_fd41d928fdd9
+    entrypoint_kind:
+    escapes: false
+    file: app/clients/queue_client.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: QueueClient#enqueue
+    terminal_kind:
+  n_80a0edd5dd2e:
+    class_id: cls_906255fc968a
+    entrypoint_kind:
+    escapes: false
+    file: app/clients/gem_client.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: GemClient#call
+    terminal_kind:
+  n_b55f711e52a0:
+    class_id: cls_d1ccb8a2741b
+    entrypoint_kind:
+    escapes: false
+    file: app/clients/http_client.rb
+    kind: function
+    line: 12
+    outcome_arity: 1
+    symbol: HttpClient#guarded
+    terminal_kind:

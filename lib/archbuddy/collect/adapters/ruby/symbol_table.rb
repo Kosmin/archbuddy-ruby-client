@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "set"
-require_relative "vocab"
+require_relative "profile"
 require_relative "grape_dsl"
 
 module Archbuddy
@@ -25,15 +25,12 @@ module Archbuddy
               self.mixins = [] if mixins.nil?
             end
 
-            def active_record?
-              Vocab::ACTIVE_RECORD_BASES.include?(superclass.to_s)
-            end
-
-            def controller?
-              Vocab::CONTROLLER_BASES.include?(superclass.to_s) ||
-                fq_name.to_s.end_with?("Controller")
-            end
-
+            # `active_record?` / `controller?` USED TO LIVE HERE. They moved up
+            # onto SymbolTable (see #active_record_class? / #controller_class?)
+            # because both are now PROFILE questions and a ClassEntry is a bare
+            # Struct with no profile in scope — the alternative was giving every
+            # entry its own copy of the profile.
+            #
             # True when this class is a Grape API (`class Foo < Grape::API`).
             # Grape endpoint verb-blocks live directly inside such a class; the
             # DefinitionPass mints a synthetic endpoint MethodEntry per block.
@@ -77,7 +74,14 @@ module Archbuddy
             end
           end
 
-          def initialize
+          # `profile` is THE ONE SEAM by which engine-shipped ecosystem
+          # vocabulary reaches the collector (configurator W2). It defaults to
+          # the shipped reference profile so every existing caller — and every
+          # spec that news a bare table — is unaffected; there is deliberately
+          # NO `nil ⇒ hardcoded vocab` fallback, so a profile that fails to
+          # load raises here rather than silently reviving the old constants.
+          def initialize(profile: nil)
+            @profile = profile || Profile.reference
             @classes = {}  # fq_name => ClassEntry
             @methods = {}  # fq_symbol => MethodEntry
             # Routed-action pairs seeded by RouteCatalogue (W4). Stored as a Set
@@ -91,7 +95,7 @@ module Archbuddy
             @entrypoint_categories = {}
           end
 
-          attr_reader :classes, :methods
+          attr_reader :classes, :methods, :profile
 
           def add_class(entry)
             # First definition wins for metadata (reopened classes keep the
@@ -194,12 +198,19 @@ module Archbuddy
             false
           end
 
+          # The chain-walked ORM / controller discriminators. Both read the
+          # profile (ORM + controller base classes, and the controller NAME
+          # SUFFIX convention) — the predicates they replaced on ClassEntry
+          # asked the same questions of hardcoded constants.
           def active_record_class?(fq_name)
-            chain_any?(fq_name, &:active_record?)
+            chain_any?(fq_name) { |entry| @profile.orm_base?(entry.superclass) }
           end
 
           def controller_class?(fq_name)
-            chain_any?(fq_name, &:controller?)
+            chain_any?(fq_name) do |entry|
+              @profile.controller_base?(entry.superclass) ||
+                @profile.controller_name_suffix?(entry.fq_name)
+            end
           end
         end
       end

@@ -1,0 +1,162 @@
+---
+edges:
+- calls: 1
+  count:
+  from: n_08bb59686a0d
+  self_time_ms:
+  to: n_2915376b0e45
+- calls: 1
+  count:
+  from: n_2915376b0e45
+  self_time_ms:
+  to: n_b4d223161dcd
+- calls: 1
+  count:
+  from: n_203f7cbbf624
+  self_time_ms:
+  to: n_636138555468
+- calls: 1
+  count:
+  from: n_2c5fb0268163
+  self_time_ms:
+  to: n_3a36e57a3991
+- calls: 1
+  count:
+  from: n_bb9d4823332c
+  self_time_ms:
+  to: n_e348f0cf638f
+- calls: 1
+  count:
+  from: n_bb9d4823332c
+  self_time_ms:
+  to: n_b12661b4b862
+- calls: 1
+  count:
+  from: n_b12661b4b862
+  self_time_ms:
+  to: ext_1917c66ce540
+entrypoints:
+- n_08bb59686a0d
+generator:
+  adapter: ruby
+  capture: static
+  tool: archbuddy golden
+nodes:
+- branches: 1
+  class_id: cls_9433393e115d
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_08bb59686a0d
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_2915376b0e45
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_203f7cbbf624
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_2c5fb0268163
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_bb9d4823332c
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_e348f0cf638f
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_b12661b4b862
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_b4d223161dcd
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_636138555468
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2e951fcb50b
+  count:
+  decisions: 0
+  id: n_3a36e57a3991
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_57580a4d52e7
+  kind: external
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_1917c66ce540
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: gem
+  total_time_ms:
+schema_version: '1.5'

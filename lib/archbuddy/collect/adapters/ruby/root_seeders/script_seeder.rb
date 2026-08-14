@@ -20,7 +20,8 @@ module Archbuddy
           #   2. the file starts with a shebang (`#!...`) — read from disk,
           #      since the parsed AST does not carry leading comments,
           #   3. its top-level body is NOT loader-only — a body consisting
-          #      solely of `require`/`require_relative`/`load` calls is the
+          #      solely of the profile's loader-only calls
+          #      (`require`/`require_relative`/`load`) is the
           #      Bundler/Rails binstub shape (`load Gem.bin_path(...)`,
           #      `require "bundler/setup"`,
           #      `require_relative "../config/boot"`) and is DECLINED.
@@ -30,12 +31,6 @@ module Archbuddy
           # DECLINES the whole file. Tagging is via
           # SymbolTable#mark_entrypoint, which is itself `method?`-gated.
           class ScriptSeeder < RootSeeder
-            SCRIPT_DIRS = %w[scripts script].freeze
-
-            # Loader/binstub call names: a top-level body made ONLY of these
-            # is a loader, not a script.
-            LOADER_CALLS = %w[require require_relative load].freeze
-
             def self.root_type = :script
 
             def root_type = :script
@@ -43,10 +38,12 @@ module Archbuddy
             def seed(table, fragments: nil, root: nil)
               return if fragments.nil? || root.nil?
 
+              profile = table.profile
+
               fragments.each do |fragment|
-                next unless script_path?(fragment.rel_file)
+                next unless script_path?(profile, fragment.rel_file)
                 next unless shebang?(source_path(root, fragment.rel_file))
-                next unless real_body?(fragment.parsed_value)
+                next unless real_body?(profile, fragment.parsed_value)
 
                 tag_top_level_defs(table, fragment.rel_file)
               end
@@ -56,11 +53,11 @@ module Archbuddy
 
             # scripts/** and script/** at any depth; bin/ direct children
             # only (nested bin subtrees are not the binstub convention).
-            def script_path?(rel_file)
+            def script_path?(profile, rel_file)
               segments = rel_file.split("/")
               return false if segments.length < 2
 
-              SCRIPT_DIRS.include?(segments.first) ||
+              profile.script_dir?(segments.first) ||
                 (segments.first == "bin" && segments.length == 2)
             end
 
@@ -79,17 +76,17 @@ module Archbuddy
             # True when the top-level statements contain ANYTHING besides
             # loader calls. An empty body or a pure require/load chain (the
             # binstub shape) is declined.
-            def real_body?(program_node)
+            def real_body?(profile, program_node)
               statements = program_node.statements&.body || []
               return false if statements.empty?
 
-              statements.any? { |stmt| !loader_call?(stmt) }
+              statements.any? { |stmt| !loader_call?(profile, stmt) }
             end
 
-            def loader_call?(node)
+            def loader_call?(profile, node)
               node.is_a?(Prism::CallNode) &&
                 (node.receiver.nil? || node.receiver.is_a?(Prism::SelfNode)) &&
-                LOADER_CALLS.include?(node.name.to_s)
+                profile.script_loader_call?(node.name)
             end
 
             # Re-tag THIS file's top-level defs (owner_fq nil — already

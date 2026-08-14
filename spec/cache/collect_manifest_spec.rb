@@ -137,6 +137,52 @@ RSpec.describe Archbuddy::Cache::CollectManifest do
     end
   end
 
+  # configurator W2 (C5): the PROFILE is a producer version too. Before this,
+  # `fresh?` gated on content hashes + the collector/serializer versions only,
+  # so changing the vocabulary and touching no source served a stale cache
+  # under "manifest-verified fresh".
+  describe "the profile stamp" do
+    it "records the profile id and the digest of its shipped bytes" do
+      with_fixture_app do |dir|
+        run_collect(dir)
+        profile = Archbuddy::Collect::Adapters::Ruby::Profile.reference
+        stamp   = described_class.read(dir)["profile"]
+
+        expect(stamp).to eq("id" => profile.id, "digest" => profile.digest)
+      end
+    end
+
+    it "reads STALE when the recorded profile digest no longer matches" do
+      with_fixture_app do |dir|
+        run_collect(dir)
+        expect(described_class.fresh?(project_root: dir)).to be(true)
+
+        path = described_class.path(dir)
+        doc  = JSON.parse(File.read(path))
+        doc["profile"] = doc["profile"].merge("digest" => "0" * 64)
+        File.write(path, JSON.generate(doc))
+
+        expect(described_class.fresh?(project_root: dir)).to be(false)
+      end
+    end
+
+    # The fail-OPEN trap: `doc.dig("profile","digest") == current` compares nil
+    # to nil for a legacy manifest AND for a broken producer, i.e. it says
+    # "fresh" in exactly the direction that reintroduces the bug.
+    it "reads STALE for a manifest written before the profile key existed" do
+      with_fixture_app do |dir|
+        run_collect(dir)
+
+        path = described_class.path(dir)
+        doc  = JSON.parse(File.read(path))
+        doc.delete("profile")
+        File.write(path, JSON.generate(doc))
+
+        expect(described_class.fresh?(project_root: dir)).to be(false)
+      end
+    end
+  end
+
   it "leaves the COMMITTED cache bytes unchanged by the manifest write" do
     with_fixture_app do |dir|
       run_collect(dir)

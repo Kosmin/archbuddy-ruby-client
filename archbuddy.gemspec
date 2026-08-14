@@ -44,7 +44,12 @@ Gem::Specification.new do |spec|
 
   # The shared contract (Ids, Serializer, Validator, bundled schemas) — D47.
   # Sourced via the Gemfile (git source by default; local override for dev).
-  spec.add_dependency "architecture_auditor", "~> 0.11"
+  # >= 0.12 is the PROFILE FLOOR (configurator W2): below it there is no
+  # Contract::Profiles to read the collector's vocabulary from. `~> 0.11`
+  # would have admitted 0.12 fine — the reason to change it is that it also
+  # admits 0.11.0, which a migrated client cannot use. The upper bound keeps
+  # a 1.0 with a different contract from installing silently.
+  spec.add_dependency "architecture_auditor", ">= 0.12", "< 1.0"
   spec.add_dependency "prism", "~> 1.0"
   spec.add_dependency "dry-cli", "~> 1.4"
 

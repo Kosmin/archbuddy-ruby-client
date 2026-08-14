@@ -13,9 +13,9 @@ is for debugging/tests.
 
 | Tier | Fires when | Action | Result |
 |------|-----------|--------|--------|
-| **R0** operator | name ∈ `Vocab::OPERATOR_DENY` (`+ - * / == < []` …, D36) | `:drop` | No node, no edge — operators carry no architectural signal. |
-| **R1** metaprogramming — **narrowed to DYNAMIC meta (v0.10 W1-D/L21)** | name ∈ `Vocab::METAPROGRAMMING` **AND** it is NOT a `Vocab::META_RESOLVABLE` verb (`send`/`public_send`/`__send__`) with a **literal Symbol/String first arg** (`dynamic_meta?`/`literal_dispatch_arg?` in `resolver.rb`) | `:metaprogramming` | **Flagged, NO edge** — target is statically unknowable; counted in `diagnostics[:meta_sites_skipped]`. A LITERAL-arg dispatch falls through to R5 where `MetaSendProbe` resolves it; `define_method`/`method_missing`/`*_eval`/`const_get`/… stay ALWAYS-flagged. `try`/`try!` are only in `META_RESOLVABLE` (never flagged): dynamic `try` falls to R9 as pre-v0.10. |
-| **R2** db_op via **class context** | enclosing class is an AR subclass **AND** name ∈ `Vocab::ACTIVE_RECORD` | `:external`, `kind: "db_op"` | Synthesize a `db_op` node `"<EnclosingClass>.<name>"`. **The verified gotcha** — see below. |
+| **R0** operator | name ∈ the profile's `language.operator_deny` (`+ - * / == < []` …, D36) via `table.profile.operator?` | `:drop` | No node, no edge — operators carry no architectural signal. |
+| **R1** metaprogramming — **narrowed to DYNAMIC meta (v0.10 W1-D/L21)** | name ∈ the profile's `language.dynamic_dispatch_verbs` **AND** it is NOT also a `resolvable_dispatch_verbs` verb (`send`/`public_send`/`__send__`) with a **literal Symbol/String first arg** (`dynamic_meta?`/`literal_dispatch_arg?` in `resolver.rb`) | `:metaprogramming` | **Flagged, NO edge** — target is statically unknowable; counted in `diagnostics[:meta_sites_skipped]`. A LITERAL-arg dispatch falls through to R5 where `MetaSendProbe` resolves it; `define_method`/`method_missing`/`*_eval`/`const_get`/… stay ALWAYS-flagged. `try`/`try!` are only in `resolvable_dispatch_verbs` (never flagged): dynamic `try` falls to R9 as pre-v0.10. |
+| **R2** db_op via **class context** | enclosing class is an AR subclass **AND** name ∈ the profile's `framework.orm.methods` via `table.profile.orm_method?` | `:external`, `kind: "db_op"` | Synthesize a `db_op` node `"<EnclosingClass>.<name>"`. **The verified gotcha** — see below. |
 | **R3** self method | receiver is nil or `SelfNode` **AND** enclosing class has a known `#name` (then `.name`) method | `:edge` | Edge to `EnclosingClass#name` / `EnclosingClass.name`. |
 | **R4** app `Const.method` | receiver is a `ConstantReadNode`/`ConstantPathNode` for a known class | `:edge` (or `:db_op` if the const is a known AR class + AR method) | Edge to `Const.name` / `Const#name`; or a `db_op` `"Const.name"`. |
 | **R4.5** typed receiver (L1, v0.6) | receiver's type is PROVABLE from the conservative intra-procedural type scope (`ctx.type_scope`): an intra-method local / same-class ivar / memoized-accessor whose tracked value is exactly `Const.new`, or an inline `Const.new.method` / `Const::Path.new.method` chain — **AND** `table.method?(fq)` is true | `:edge` (or `:db_op` if the inferred const is a known AR class + AR method) | Edge to `Const#name` (instance, preferred for `.new`) / `Const.name`; or a `db_op` `"Const.name"` (mirrors R4's AR branch). **NEVER-FABRICATE:** declines (→ R5 → R9) unless the method provably exists. Pure resolution, NOT a whitelist; AR/Looker/Snowflake are not special-cased. |
@@ -24,8 +24,8 @@ is for debugging/tests.
 
 Two other classifications happen in the adapter (not the resolver):
 - **endpoint**: `RubyAdapter#endpoint?` marks a node `endpoint` when it is a non-singleton method on a
-  controller class (`SymbolTable#controller_class?` — superclass ∈ `CONTROLLER_BASES` or name ends in
-  `Controller`).
+  controller class (`SymbolTable#controller_class?` — superclass ∈ the profile's `framework.controllers.base_classes` or the name ends in one of its
+  `name_suffixes`).
 - **entrypoints**: chosen by `EntrypointDetector` per strategy (see ARCHITECTURE.md / CLI), not the
   resolver. v0.10: `detect_categorized` also assigns each entrypoint ONE ingress category
   (`grape → routed → controllers → jobs → rake → middleware → script → top_level → pattern`, first
@@ -54,5 +54,7 @@ chain via `chain_any?`), not the receiver. The db_op symbol is keyed by the encl
 - All target ids are minted later, only by the Anonymizer via `Contract::Ids` — the resolver works purely
   in real-symbol space.
 
-To change classification: edit `Vocab` (vocab data) and/or the tiers in `resolver.rb`, then update this
-table and re-run `spec/collect/collector_spec.rb`.
+To change classification: edit the ENGINE-SHIPPED PROFILE (`contract/profiles/ruby.rails.json` — that is where the
+vocabulary lives as of configurator W2) and/or the tiers in `resolver.rb`, then update this table and re-run
+`spec/collect/collector_spec.rb`. A vocabulary edit alone will fail `spec/collect/profile_golden_spec.rb`
+(the committed byte-identical golden) — that failure is the gate working; regenerate it deliberately.

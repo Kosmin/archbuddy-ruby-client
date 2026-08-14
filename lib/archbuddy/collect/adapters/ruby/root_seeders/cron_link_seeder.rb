@@ -42,13 +42,6 @@ module Archbuddy
           # Psych.safe_load'd / Prism-parsed defensively — malformed or
           # unreadable config → declined/skip, NEVER a crashed collect.
           class CronLinkSeeder < RootSeeder
-            # Convention paths (relative to the audited root) — L8 dialects.
-            SIDEKIQ_CRON_PATHS = ["config/schedule.yml", "config/sidekiq_cron.yml"].freeze
-            WHENEVER_PATH      = "config/schedule.rb"
-
-            # Runner method names that provably target a job's #perform root.
-            PERFORM_FAMILY = %w[perform perform_now perform_async perform_later perform_inline].freeze
-
             def self.root_type = :cron
 
             def root_type = :cron
@@ -68,8 +61,10 @@ module Archbuddy
             def seed(table, fragments: nil, root: nil)
               return if root.nil? # disk-shaped evidence needs the capture root
 
-              SIDEKIQ_CRON_PATHS.each { |rel| link_sidekiq_cron(table, File.join(root, rel)) }
-              link_whenever(table, File.join(root, WHENEVER_PATH))
+              profile = table.profile
+
+              profile.cron_config_paths.each { |rel| link_sidekiq_cron(table, File.join(root, rel)) }
+              link_whenever(table, File.join(root, profile.cron_whenever_path))
             end
 
             private
@@ -130,7 +125,7 @@ module Archbuddy
             def link_runner(table, target)
               match = target.match(RootDsl::ScheduleConfig::RUNNER_TARGET)
               const, meth = match && match.captures
-              unless const && PERFORM_FAMILY.include?(meth)
+              unless const && table.profile.cron_runner_verb?(meth)
                 @declined << "runner:#{target}"
                 return
               end

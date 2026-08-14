@@ -1,0 +1,362 @@
+---
+ids:
+  cls_3e505a2a2cff:
+    class_id:
+    file: app/api/public_endpoints.rb
+    kind: class_rollup
+    line: 1
+    symbol: PublicEndpoints
+  cls_4b91f971e1ee:
+    class_id:
+    file: app/legacy/reports_controller.rb
+    kind: class_rollup
+    line: 1
+    symbol: ReportsController
+  cls_4ecb69d79f7b:
+    class_id:
+    file: app/controllers/widgets_controller.rb
+    kind: class_rollup
+    line: 1
+    symbol: WidgetsController
+  cls_4ee2def00062:
+    class_id:
+    file: app/services/dynamics.rb
+    kind: class_rollup
+    line: 1
+    symbol: Dynamics
+  cls_5fa41f88e054:
+    class_id:
+    file: app/legacy/app_actions.rb
+    kind: class_rollup
+    line: 1
+    symbol: AppActions
+  cls_8ceb00190035:
+    class_id:
+    file: app/models/archived_widget.rb
+    kind: class_rollup
+    line: 1
+    symbol: ArchivedWidget
+  cls_9b13959c6d6f:
+    class_id:
+    file: app/controllers/api_controller.rb
+    kind: class_rollup
+    line: 1
+    symbol: ApiController
+  cls_b2d6abee639e:
+    class_id:
+    file: app/models/widget.rb
+    kind: class_rollup
+    line: 1
+    symbol: Widget
+  cls_cd6c878421f9:
+    class_id:
+    file: app/models/ledger_entry.rb
+    kind: class_rollup
+    line: 1
+    symbol: LedgerEntry
+  cls_d26b7de68148:
+    class_id:
+    file: app/legacy/base_actions.rb
+    kind: class_rollup
+    line: 1
+    symbol: BaseActions
+  ext_57580a4d52e7:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external>"
+    terminal_kind:
+  n_06d035d5386f:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.limit
+    terminal_kind:
+  n_09953fe269a9:
+    class_id: cls_3e505a2a2cff
+    entrypoint_kind:
+    escapes: false
+    file: app/api/public_endpoints.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.pluck
+    terminal_kind:
+  n_0e602c7b3507:
+    class_id: cls_8ceb00190035
+    entrypoint_kind:
+    escapes: false
+    file: app/models/archived_widget.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: ArchivedWidget.destroy_all
+    terminal_kind:
+  n_10e95f794356:
+    class_id: cls_d26b7de68148
+    entrypoint_kind:
+    escapes: false
+    file: app/legacy/base_actions.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.first
+    terminal_kind:
+  n_121ec42f1a44:
+    class_id: cls_9b13959c6d6f
+    entrypoint_kind:
+    escapes: false
+    file: app/controllers/api_controller.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.find_by
+    terminal_kind:
+  n_2558b413c8c9:
+    class_id: cls_4ee2def00062
+    entrypoint_kind:
+    escapes: false
+    file: app/services/dynamics.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: Dynamics#arithmetic
+    terminal_kind:
+  n_342c3e2234ce:
+    class_id: cls_cd6c878421f9
+    entrypoint_kind:
+    escapes: false
+    file: app/models/ledger_entry.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: LedgerEntry.sum
+    terminal_kind:
+  n_384d58f7a1db:
+    class_id: cls_d26b7de68148
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/legacy/base_actions.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: BaseActions#edit
+    terminal_kind:
+  n_3be31f21eb30:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.update!
+    terminal_kind:
+  n_3c52427729a3:
+    class_id: cls_4ee2def00062
+    entrypoint_kind:
+    escapes: false
+    file: app/services/dynamics.rb
+    kind: function
+    line: 18
+    outcome_arity: 1
+    symbol: Dynamics#tried
+    terminal_kind:
+  n_4435499a2563:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.touch
+    terminal_kind:
+  n_56774c5c24df:
+    class_id: cls_4ecb69d79f7b
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/controllers/widgets_controller.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: WidgetsController#index
+    terminal_kind:
+  n_6c6e9032da2d:
+    class_id: cls_4ecb69d79f7b
+    entrypoint_kind:
+    escapes: false
+    file: app/controllers/widgets_controller.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.where
+    terminal_kind:
+  n_7381c0004fbb:
+    class_id: cls_cd6c878421f9
+    entrypoint_kind:
+    escapes: false
+    file: app/models/ledger_entry.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: LedgerEntry.totals
+    terminal_kind:
+  n_7974bcc8bfe4:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.order
+    terminal_kind:
+  n_95520b4897f3:
+    class_id: cls_4ecb69d79f7b
+    entrypoint_kind:
+    escapes: false
+    file: app/controllers/widgets_controller.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.create!
+    terminal_kind:
+  n_98000830acb1:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: function
+    line: 6
+    outcome_arity: 1
+    symbol: Widget#refresh!
+    terminal_kind:
+  n_a6c38e33fac4:
+    class_id: cls_4ecb69d79f7b
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/controllers/widgets_controller.rb
+    kind: endpoint
+    line: 6
+    outcome_arity: 1
+    symbol: WidgetsController#create
+    terminal_kind:
+  n_a971307170cb:
+    class_id: cls_4b91f971e1ee
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/legacy/reports_controller.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: ReportsController#summary
+    terminal_kind:
+  n_b6d11079dca5:
+    class_id: cls_5fa41f88e054
+    entrypoint_kind:
+    escapes: false
+    file: app/legacy/app_actions.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.update_all
+    terminal_kind:
+  n_c08a5f722f9c:
+    class_id: cls_8ceb00190035
+    entrypoint_kind:
+    escapes: false
+    file: app/models/archived_widget.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: ArchivedWidget#purge
+    terminal_kind:
+  n_d9f7752fef95:
+    class_id: cls_4ee2def00062
+    entrypoint_kind:
+    escapes: false
+    file: app/services/dynamics.rb
+    kind: function
+    line: 6
+    outcome_arity: 1
+    symbol: Dynamics#resolvable
+    terminal_kind:
+  n_e8c2a8230d89:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: Widget.recent
+    terminal_kind:
+  n_e938613055cd:
+    class_id: cls_3e505a2a2cff
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/api/public_endpoints.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: PublicEndpoints#show
+    terminal_kind:
+  n_ec1933459b81:
+    class_id: cls_b2d6abee639e
+    entrypoint_kind:
+    escapes: false
+    file: app/models/widget.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.reload
+    terminal_kind:
+  n_f1073464a268:
+    class_id: cls_4ee2def00062
+    entrypoint_kind:
+    escapes: true
+    file: app/services/dynamics.rb
+    kind: function
+    line: 11
+    outcome_arity: 1
+    symbol: Dynamics#blind
+    terminal_kind:
+  n_f569c7480cfe:
+    class_id: cls_5fa41f88e054
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/legacy/app_actions.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: AppActions#update
+    terminal_kind:
+  n_f713410ddeb3:
+    class_id: cls_9b13959c6d6f
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/controllers/api_controller.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: ApiController#show
+    terminal_kind:
+  n_fd412e8fa2d3:
+    class_id: cls_cd6c878421f9
+    entrypoint_kind:
+    escapes: false
+    file: app/models/ledger_entry.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: LedgerEntry.group
+    terminal_kind:

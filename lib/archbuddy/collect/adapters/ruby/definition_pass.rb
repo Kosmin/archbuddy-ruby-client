@@ -115,7 +115,7 @@ module Archbuddy
 
             counter  = BranchCounter.count(node.body)
             outcomes = OutcomeArityCounter.classes(node.body)
-            escapes  = EscapeScanner.escapes?(node) # def node: parameters + body
+            escapes  = EscapeScanner.escapes?(node, profile: @table.profile) # def node: parameters + body
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -165,7 +165,7 @@ module Archbuddy
             fq_symbol = GrapeDsl.endpoint_fq(class_fq, verb, ordinal)
             counter   = BranchCounter.count(node.block&.body)
             outcomes  = OutcomeArityCounter.classes(node.block&.body)
-            escapes   = EscapeScanner.escapes?(node.block&.body)
+            escapes   = EscapeScanner.escapes?(node.block&.body, profile: @table.profile)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(
@@ -205,7 +205,7 @@ module Archbuddy
             fq_symbol = RootDsl::RakeDsl.rake_fq(@rake_stack, name, ordinal)
             counter   = BranchCounter.count(node.block&.body)
             outcomes  = OutcomeArityCounter.classes(node.block&.body)
-            escapes   = EscapeScanner.escapes?(node.block&.body)
+            escapes   = EscapeScanner.escapes?(node.block&.body, profile: @table.profile)
 
             @table.add_method(
               SymbolTable::MethodEntry.new(

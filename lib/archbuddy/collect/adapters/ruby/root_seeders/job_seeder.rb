@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "../root_seeder"
-require_relative "../vocab"
 
 module Archbuddy
   module Collect
@@ -17,10 +16,11 @@ module Archbuddy
           #   - its mixin chain includes Sidekiq::Job or Sidekiq::Worker
           #     (modern `include Sidekiq::Job`, via the L14 general mixin
           #     capture + chain_any_module?), OR
-          #   - its superclass chain hits Sidekiq::Worker (legacy
-          #     `class Foo < Sidekiq::Worker`), OR
-          #   - its superclass chain hits ApplicationJob / ActiveJob::Base
-          #     (chain-walked, so an intermediate in-app base still counts).
+          #   - its superclass chain hits one of the profile's job base
+          #     classes — the legacy `class Foo < Sidekiq::Worker` style and
+          #     the ActiveJob `< ApplicationJob` / `< ActiveJob::Base` style
+          #     share ONE chain walk (chain-walked, so an intermediate in-app
+          #     base still counts).
           #
           # NEVER-FABRICATE (L4): the job's `#perform` instance method must
           # provably exist in the table (`table.method?("Fq#perform")`);
@@ -49,16 +49,12 @@ module Archbuddy
 
             def sidekiq_mixin?(table, class_fq)
               table.chain_any_module?(class_fq) do |mixin_fq|
-                Vocab::SIDEKIQ_WORKER_MIXINS.include?(mixin_fq)
+                table.profile.job_mixin?(mixin_fq)
               end
             end
 
             def job_base?(table, class_fq)
-              table.chain_any?(class_fq) do |entry|
-                superclass = entry.superclass.to_s
-                Vocab::SIDEKIQ_WORKER_BASES.include?(superclass) ||
-                  Vocab::ACTIVE_JOB_BASES.include?(superclass)
-              end
+              table.chain_any?(class_fq) { |entry| table.profile.job_base?(entry.superclass) }
             end
           end
         end

@@ -3,8 +3,6 @@
 require "prism"
 require_relative "../probe"
 require_relative "../resolver"
-require_relative "../vocab"
-require_relative "dispatch_probe"
 
 module Archbuddy
   module Collect
@@ -15,8 +13,8 @@ module Archbuddy
           # generic `<external>` fallthrough into an EGRESS CATEGORY on a
           # PROVABLE literal-constant receiver:
           #
-          #   :http  — known HTTP-client constant root (Vocab::EGRESS_HTTP_
-          #            CONSTANTS + the `Aws::` prefix) AND an HTTP verb
+          #   :http  — known HTTP-client constant root (the profile's egress
+          #            roots + its declared root prefixes) AND an HTTP verb
           #            (`Faraday.get`, `Net::HTTP.start`). The verb gate keeps
           #            a local const misnamed `HTTP` from being classified on
           #            name alone.
@@ -62,7 +60,7 @@ module Archbuddy
               return nil if const_fq.nil?            # variable/computed → generic <external>
               return nil if in_tree?(ctx.table, const_fq) # base tiers/probes own in-tree consts
 
-              category = classify(const_fq, ctx.name.to_s)
+              category = classify(ctx.table.profile, const_fq, ctx.name.to_s)
               return nil if category.nil?
 
               external(category, const_fq)
@@ -73,10 +71,10 @@ module Archbuddy
             # :http / :queue / :gem for a provably out-of-tree literal constant.
             # :gem is the catch-all — the constant is literal and absent from
             # the table, which IS the "call into a gem" evidence (L18).
-            def classify(const_fq, verb)
-              if Vocab.egress_http_constant?(const_fq) && Vocab.egress_http_verb?(verb)
+            def classify(profile, const_fq, verb)
+              if profile.egress_root?(const_fq) && profile.egress_verb?(verb)
                 :http
-              elsif DispatchProbe::DISPATCH_METHODS.include?(verb)
+              elsif profile.job_dispatch_verb?(verb)
                 :queue
               else
                 :gem

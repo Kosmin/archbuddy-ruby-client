@@ -15,7 +15,8 @@ module Archbuddy
       # Entrypoint strategies (D4 / K-4).
       ENTRYPOINT_STRATEGIES = %i[default controllers all_public none].freeze
 
-      attr_reader :language, :ignore, :entrypoint_strategy, :entrypoint_patterns, :probes, :root_types
+      attr_reader :language, :ignore, :entrypoint_strategy, :entrypoint_patterns, :probes, :root_types,
+                  :profile_id
 
       def initialize(
         language: "ruby",
@@ -23,7 +24,8 @@ module Archbuddy
         entrypoint_strategy: :default,
         entrypoint_patterns: [],
         probes: :all,
-        root_types: :all
+        root_types: :all,
+        profile_id: nil
       )
         @language            = language
         @ignore              = Array(ignore)
@@ -31,6 +33,11 @@ module Archbuddy
         @entrypoint_patterns = Array(entrypoint_patterns).map { |p| p.is_a?(Regexp) ? p : Regexp.new(p.to_s) }
         @probes              = normalize_probes(probes)
         @root_types          = normalize_root_types(root_types)
+        # The engine-shipped framework profile to collect against
+        # (configurator W2). nil = the adapter's shipped default; the id is
+        # NOT defaulted to a literal here because the set of valid ids is the
+        # ENGINE's to declare, not this value object's.
+        @profile_id          = profile_id
       end
 
       private

@@ -3,6 +3,7 @@
 require "dry/cli"
 require "fileutils"
 require_relative "../collect"
+require_relative "../collect/engine_preflight"
 require_relative "../cache/checker"
 require_relative "../cache/collect_manifest"
 
@@ -45,6 +46,8 @@ module Archbuddy
         # workspace belong under the TARGET, not Dir.pwd — so `collect <target>`
         # from a different CWD writes into the target repo. Default to CWD when
         # the target IS the current directory (the existing behavior).
+        Archbuddy::Collect::EnginePreflight.check!
+
         target_root = File.expand_path(path)
 
         # R3-1: `--check` is the CI staleness gate. It regenerates the committed

@@ -1,0 +1,102 @@
+---
+ids:
+  cls_24f4956112ee:
+    class_id:
+    file: app/jobs/legacy_worker.rb
+    kind: class_rollup
+    line: 1
+    symbol: LegacyWorker
+  cls_2f1beb79b252:
+    class_id:
+    file: app/services/enqueuer.rb
+    kind: class_rollup
+    line: 1
+    symbol: Enqueuer
+  cls_4f0f9a8d9ebc:
+    class_id:
+    file: app/jobs/report_job.rb
+    kind: class_rollup
+    line: 1
+    symbol: ReportJob
+  cls_698107bafce7:
+    class_id:
+    file: app/jobs/mailer_worker.rb
+    kind: class_rollup
+    line: 1
+    symbol: MailerWorker
+  cls_b56d3b78d69f:
+    class_id:
+    file: app/jobs/base_job.rb
+    kind: class_rollup
+    line: 4
+    symbol: NestedJob
+  ext_57580a4d52e7:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external>"
+    terminal_kind:
+  n_00a3f5985cdf:
+    class_id:
+    entrypoint_kind: rake
+    escapes: false
+    file: lib/tasks/reports.rake
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: rake:db:backup[0]
+    terminal_kind:
+  n_7877ceb3b214:
+    class_id: cls_24f4956112ee
+    entrypoint_kind: jobs
+    escapes: false
+    file: app/jobs/legacy_worker.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: LegacyWorker#perform
+    terminal_kind:
+  n_93b1ac109eaa:
+    class_id: cls_b56d3b78d69f
+    entrypoint_kind: jobs
+    escapes: false
+    file: app/jobs/base_job.rb
+    kind: function
+    line: 5
+    outcome_arity: 1
+    symbol: NestedJob#perform
+    terminal_kind:
+  n_b4b437660fdf:
+    class_id: cls_698107bafce7
+    entrypoint_kind: jobs
+    escapes: false
+    file: app/jobs/mailer_worker.rb
+    kind: function
+    line: 4
+    outcome_arity: 1
+    symbol: MailerWorker#perform
+    terminal_kind:
+  n_edf9d4997e6e:
+    class_id: cls_2f1beb79b252
+    entrypoint_kind:
+    escapes: false
+    file: app/services/enqueuer.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: Enqueuer#call
+    terminal_kind:
+  n_f7141eb9e4ff:
+    class_id: cls_4f0f9a8d9ebc
+    entrypoint_kind: jobs
+    escapes: false
+    file: app/jobs/report_job.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: ReportJob#perform
+    terminal_kind:

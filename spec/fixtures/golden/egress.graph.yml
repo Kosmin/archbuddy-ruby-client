@@ -1,0 +1,298 @@
+---
+edges:
+- calls: 1
+  count:
+  from: n_80a0edd5dd2e
+  self_time_ms:
+  to: ext_c91e3de8820d
+- calls: 1
+  count:
+  from: n_80a0edd5dd2e
+  self_time_ms:
+  to: ext_f47e99e7da54
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_f15d6dbed897
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_595364040ea0
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_89b789443609
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_b4c7d579ed85
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_6e7d822caee2
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_14daca451cee
+- calls: 1
+  count:
+  from: n_44ba00ccaa8e
+  self_time_ms:
+  to: ext_35f2ec8cfd4e
+- calls: 1
+  count:
+  from: n_b55f711e52a0
+  self_time_ms:
+  to: ext_dd670f52f8d6
+- calls: 1
+  count:
+  from: n_b55f711e52a0
+  self_time_ms:
+  to: ext_3a97d7dcadf5
+- calls: 1
+  count:
+  from: n_5eadac733a44
+  self_time_ms:
+  to: ext_48a81d423203
+- calls: 1
+  count:
+  from: n_5eadac733a44
+  self_time_ms:
+  to: ext_49512ef6b264
+- calls: 1
+  count:
+  from: n_06a4d04650f5
+  self_time_ms:
+  to: ext_57580a4d52e7
+- calls: 1
+  count:
+  from: n_06a4d04650f5
+  self_time_ms:
+  to: ext_77ffc0c48ade
+- calls: 1
+  count:
+  from: n_06a4d04650f5
+  self_time_ms:
+  to: ext_d2b3af422828
+entrypoints: []
+generator:
+  adapter: ruby
+  capture: static
+  tool: archbuddy golden
+nodes:
+- branches: 1
+  class_id: cls_906255fc968a
+  count:
+  decisions: 0
+  id: n_80a0edd5dd2e
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_d1ccb8a2741b
+  count:
+  decisions: 0
+  id: n_44ba00ccaa8e
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_d1ccb8a2741b
+  count:
+  decisions: 0
+  id: n_b55f711e52a0
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_fd41d928fdd9
+  count:
+  decisions: 0
+  id: n_5eadac733a44
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_85ff61844bdd
+  count:
+  decisions: 0
+  id: n_06a4d04650f5
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_57580a4d52e7
+  kind: external
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_f47e99e7da54
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: gem
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_3a97d7dcadf5
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: gem
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_dd670f52f8d6
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: gem
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_c91e3de8820d
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: gem
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_77ffc0c48ade
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_d2b3af422828
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_14daca451cee
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_f15d6dbed897
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_35f2ec8cfd4e
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_89b789443609
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_595364040ea0
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_b4c7d579ed85
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_6e7d822caee2
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: http
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_49512ef6b264
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: queue
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_48a81d423203
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: queue
+  total_time_ms:
+schema_version: '1.5'

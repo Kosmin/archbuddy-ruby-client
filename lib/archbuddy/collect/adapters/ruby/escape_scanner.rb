@@ -2,6 +2,7 @@
 
 require "prism"
 require_relative "vocab"
+require_relative "profile"
 
 module Archbuddy
   module Collect
@@ -22,7 +23,7 @@ module Archbuddy
         #   4. a caller-supplied callable invoked: `cb.call` where `cb` names
         #      a positional/optional/keyword parameter of THIS def.
         #   5. a dynamic meta-send — the resolver's `dynamic_meta?` shape
-        #      re-expressed over the SHARED Vocab predicates: flagged
+        #      re-expressed over the SHARED profile predicates: flagged
         #      metaprogramming UNLESS it is a resolvable dispatch verb with a
         #      literal Symbol/String arg (`send(:m)` is NOT an escape — the
         #      MetaSendProbe resolves it to a real edge).
@@ -43,21 +44,27 @@ module Archbuddy
 
           # `node` is a DefNode (plain defs: parameters + body) or a bare
           # body node (the endpoint/rake block-mint seams). Nil-safe.
-          def self.escapes?(node)
+          # `profile` carries the engine-shipped dispatch vocabulary the
+          # dynamic-meta rule needs (configurator W2). It defaults to the same
+          # shipped reference profile SymbolTable defaults to, so the ONE
+          # production caller (DefinitionPass, which passes its table's
+          # profile explicitly) and a bare direct call cannot disagree.
+          def self.escapes?(node, profile: nil)
             return false if node.nil?
 
             if node.is_a?(Prism::DefNode)
-              scanner = new(parameters: node.parameters)
+              scanner = new(parameters: node.parameters, profile: profile)
               scanner.visit(node.body) if node.body
               scanner.escapes?
             else
-              scanner = new(parameters: nil)
+              scanner = new(parameters: nil, profile: profile)
               scanner.visit(node)
               scanner.escapes?
             end
           end
 
-          def initialize(parameters:)
+          def initialize(parameters:, profile: nil)
+            @profile          = profile || Profile.reference
             @param_names      = callable_param_names(parameters)
             @block_param      = parameters&.block
             @block_param_name = @block_param&.name
@@ -122,8 +129,8 @@ module Archbuddy
           # predicates — literal-arg resolvable dispatch is NOT an escape.
           def dynamic_meta_send?(node)
             name = node.name
-            return false unless Vocab.metaprogramming?(name)
-            return false if Vocab.meta_resolvable?(name) && Vocab.literal_dispatch_arg?(node)
+            return false unless @profile.dynamic_dispatch_verb?(name)
+            return false if @profile.resolvable_dispatch_verb?(name) && Vocab.literal_dispatch_arg?(node)
 
             true
           end

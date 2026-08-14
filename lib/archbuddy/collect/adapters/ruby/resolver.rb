@@ -67,11 +67,11 @@ module Archbuddy
             name = ctx.name.to_s
 
             # R0: operator deny-list — drop entirely (D36).
-            return drop(:operator) if Vocab.operator?(name)
+            return drop(:operator) if profile.operator?(name)
 
             # R1: metaprogramming — flag, emit NO edge (we can't know the target).
             # NARROWED (v0.10 W1-D, L21): flag ONLY when the meta call is
-            # DYNAMIC. A META_RESOLVABLE verb (`send`/`public_send`/`__send__`)
+            # DYNAMIC. A resolvable-dispatch verb (`send`/`public_send`/`__send__`)
             # with a literal Symbol/String first arg is statically resolvable —
             # it falls through the tiers to R5 where MetaSendProbe rewrites it
             # to the direct call (gated on table.method?), else R9 <external>.
@@ -79,13 +79,14 @@ module Archbuddy
             # class's OWN `def send`/`try` invoked with a literal arg now
             # resolves via the normal machinery instead of being mis-flagged.
             # `define_method`/`method_missing`/`*_eval`/`instance_exec`/
-            # `const_get`... stay ALWAYS-flagged (not in META_RESOLVABLE).
+            # `const_get`... stay ALWAYS-flagged (they are dynamic-dispatch
+            # verbs the profile does NOT also list as resolvable).
             return meta(:metaprogramming) if dynamic_meta?(ctx, name)
 
             # R2: db_op via CLASS CONTEXT. The verified gotcha: `where` inside
             # `def self.x` of an AR subclass has receiver = nil (implicit self),
             # so we must consult the enclosing class, not the receiver shape.
-            if active_record_context?(ctx) && Vocab.active_record_method?(name)
+            if active_record_context?(ctx) && profile.orm_method?(name)
               return Resolution.new(
                 tier: :db_op_class_context, action: :external, # synthesized sink-like node
                 target_fq: db_op_symbol(ctx, name), kind: "db_op"
@@ -110,7 +111,7 @@ module Archbuddy
               instance_fq  = "#{const_fq}##{name}"
 
               # db_op when the constant is a known AR class (e.g. User.where).
-              if @table.active_record_class?(const_fq) && Vocab.active_record_method?(name)
+              if @table.active_record_class?(const_fq) && profile.orm_method?(name)
                 return Resolution.new(
                   tier: :db_op_const_receiver, action: :external,
                   target_fq: "#{const_fq}.#{name}", kind: "db_op"
@@ -133,7 +134,7 @@ module Archbuddy
             if (const_fq = typed_receiver_fq(ctx))
               # db_op when the inferred type is a known AR class (mirror of R4:
               # 89-94): `x = User.new; x.where` -> db_op, NOT a fabricated edge.
-              if @table.active_record_class?(const_fq) && Vocab.active_record_method?(name)
+              if @table.active_record_class?(const_fq) && profile.orm_method?(name)
                 return Resolution.new(
                   tier: :db_op_typed_receiver, action: :external,
                   target_fq: "#{const_fq}.#{name}", kind: "db_op"
@@ -170,15 +171,23 @@ module Archbuddy
 
           private
 
+          # The engine-shipped ecosystem vocabulary, reached through the ONE
+          # seam (configurator W2). Read off the table rather than held as a
+          # second ivar so the resolver and the table can never disagree about
+          # which profile is in force.
+          def profile
+            @table.profile
+          end
+
           # R1 gate (v0.10 W1-D): a meta call is a DYNAMIC blind spot unless it
           # is a resolvable dispatch verb carrying a literal Symbol/String first
-          # argument (MetaSendProbe territory). Verbs in META_RESOLVABLE but NOT
-          # in METAPROGRAMMING (`try`/`try!`) are never flagged here at all.
+          # argument (MetaSendProbe territory). Verbs the profile lists as
+          # RESOLVABLE but not as DYNAMIC (`try`/`try!`) are never flagged here.
           def dynamic_meta?(ctx, name)
-            return false unless Vocab.metaprogramming?(name)
+            return false unless profile.dynamic_dispatch_verb?(name)
             # send/public_send/__send__ with a leading literal Symbol/String arg
             # are RESOLVABLE (MetaSendProbe handles them at R5) — not a blind spot.
-            return false if Vocab.meta_resolvable?(name) && literal_dispatch_arg?(ctx.node)
+            return false if profile.resolvable_dispatch_verb?(name) && literal_dispatch_arg?(ctx.node)
 
             true # eval/*_eval/method_missing/const_get/define_method/computed send → dynamic
           end

@@ -45,6 +45,7 @@ module Archbuddy
         doc = {
           "collector_version" => Reader::COLLECTOR_VERSION,
           "serializer_version" => Writer::SERIALIZER_VERSION,
+          "profile" => profile_stamp,
           "files" => hashes
         }
 
@@ -65,6 +66,15 @@ module Archbuddy
         return false if doc.nil?
         return false unless doc["collector_version"] == Reader::COLLECTOR_VERSION
         return false unless doc["serializer_version"] == Writer::SERIALIZER_VERSION
+        # The PROFILE is a producer version too (configurator W2). Without this
+        # line, editing the vocabulary and leaving the sources untouched serves
+        # a stale cache under "manifest-verified fresh" — the .tsbuildinfo
+        # failure mode. Compared as a WHOLE STAMP so a manifest with NO profile
+        # key reads STALE: `doc.dig("profile","digest") == current_digest`
+        # would compare nil to nil for both a legacy manifest and a broken
+        # producer, i.e. fail open in exactly the direction that reintroduces
+        # the bug.
+        return false unless doc["profile"] == profile_stamp
 
         recorded = doc["files"]
         return false unless recorded.is_a?(Hash)
@@ -87,6 +97,14 @@ module Archbuddy
         JSON.parse(File.read(target))
       rescue JSON::ParserError, SystemCallError, IOError
         nil
+      end
+
+      # The identity of the vocabulary this collect ran against: the profile's
+      # own declared id plus the SHA-256 of its shipped bytes, both read from
+      # the producer (never recomputed, never retyped here).
+      def profile_stamp
+        profile = Archbuddy::Collect::Adapters::Ruby::Profile.reference
+        { "id" => profile.id, "digest" => profile.digest }
       end
 
       # The same default-config enumeration the collect pipeline uses.

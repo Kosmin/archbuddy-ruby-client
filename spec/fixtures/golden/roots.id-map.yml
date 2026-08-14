@@ -1,0 +1,172 @@
+---
+ids:
+  cls_08656082abd8:
+    class_id:
+    file: app/api/admin_api.rb
+    kind: class_rollup
+    line: 1
+    symbol: AdminApi
+  cls_0ab4d24116af:
+    class_id:
+    file: app/middleware/request_timer.rb
+    kind: class_rollup
+    line: 1
+    symbol: RequestTimer
+  cls_23e2081bb67a:
+    class_id:
+    file: app/api/users_api.rb
+    kind: class_rollup
+    line: 1
+    symbol: UsersApi
+  cls_7c3b142246ad:
+    class_id:
+    file: app/middleware/unregistered_timer.rb
+    kind: class_rollup
+    line: 1
+    symbol: UnregisteredTimer
+  cls_fd9dff2c5c3d:
+    class_id:
+    file: config/application.rb
+    kind: class_rollup
+    line: 2
+    symbol: Sample::Application
+  ext_57580a4d52e7:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external>"
+    terminal_kind:
+  n_0aa96b7ad3fc:
+    class_id:
+    entrypoint_kind: script
+    escapes: false
+    file: script/import.rb
+    kind: function
+    line: 3
+    outcome_arity: 1
+    symbol: import_everything
+    terminal_kind:
+  n_3010dd42d76f:
+    class_id: cls_23e2081bb67a
+    entrypoint_kind: grape
+    escapes: false
+    file: app/api/users_api.rb
+    kind: endpoint
+    line: 6
+    outcome_arity: 1
+    symbol: UsersApi#POST[0]
+    terminal_kind:
+  n_4bb49bbe2243:
+    class_id: cls_0ab4d24116af
+    entrypoint_kind: middleware
+    escapes: false
+    file: app/middleware/request_timer.rb
+    kind: function
+    line: 6
+    outcome_arity: 1
+    symbol: RequestTimer#call
+    terminal_kind:
+  n_4dd310d48dad:
+    class_id: cls_fd9dff2c5c3d
+    entrypoint_kind:
+    escapes: false
+    file: config/application.rb
+    kind: function
+    line: 3
+    outcome_arity: 1
+    symbol: Sample::Application#configure
+    terminal_kind:
+  n_58b68f839b6b:
+    class_id: cls_08656082abd8
+    entrypoint_kind: grape
+    escapes: false
+    file: app/api/admin_api.rb
+    kind: endpoint
+    line: 4
+    outcome_arity: 1
+    symbol: AdminApi#DELETE[0]
+    terminal_kind:
+  n_6c8511115ff2:
+    class_id: cls_23e2081bb67a
+    entrypoint_kind:
+    escapes: false
+    file: app/api/users_api.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.create!
+    terminal_kind:
+  n_76d73aad4ead:
+    class_id: cls_7c3b142246ad
+    entrypoint_kind:
+    escapes: false
+    file: app/middleware/unregistered_timer.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: UnregisteredTimer#initialize
+    terminal_kind:
+  n_7ff7bef1e0a6:
+    class_id: cls_0ab4d24116af
+    entrypoint_kind:
+    escapes: false
+    file: app/middleware/request_timer.rb
+    kind: function
+    line: 2
+    outcome_arity: 1
+    symbol: RequestTimer#initialize
+    terminal_kind:
+  n_998afcdd8d06:
+    class_id:
+    entrypoint_kind: script
+    escapes: false
+    file: scripts/backfill.rb
+    kind: function
+    line: 3
+    outcome_arity: 1
+    symbol: backfill
+    terminal_kind:
+  n_b67fd83e64f3:
+    class_id: cls_7c3b142246ad
+    entrypoint_kind:
+    escapes: false
+    file: app/middleware/unregistered_timer.rb
+    kind: function
+    line: 6
+    outcome_arity: 1
+    symbol: UnregisteredTimer#call
+    terminal_kind:
+  n_cc05f2cd1b15:
+    class_id: cls_23e2081bb67a
+    entrypoint_kind:
+    escapes: false
+    file: app/api/users_api.rb
+    kind: db_op
+    line: 1
+    outcome_arity:
+    symbol: Widget.all
+    terminal_kind:
+  n_d84d6e2eb6aa:
+    class_id: cls_23e2081bb67a
+    entrypoint_kind: grape
+    escapes: false
+    file: app/api/users_api.rb
+    kind: endpoint
+    line: 2
+    outcome_arity: 1
+    symbol: UsersApi#GET[0]
+    terminal_kind:
+  n_f14839693d81:
+    class_id:
+    entrypoint_kind: rake
+    escapes: false
+    file: lib/tasks/maintenance.rake
+    kind: function
+    line: 1
+    outcome_arity: 1
+    symbol: rake:vacuum[0]
+    terminal_kind:

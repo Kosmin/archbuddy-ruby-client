@@ -1,0 +1,10 @@
+---
+confirmed:
+- MailerWorker#perform
+- ReportJob#perform
+- ReportJob#perform
+- rake:db:backup[0]
+declined:
+- class:MissingJob
+- command
+- runner:ReportJob.deliver

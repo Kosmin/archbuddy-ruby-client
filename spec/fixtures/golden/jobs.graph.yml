@@ -1,0 +1,118 @@
+---
+edges:
+- calls: 1
+  count:
+  from: n_edf9d4997e6e
+  self_time_ms:
+  to: n_b4b437660fdf
+- calls: 1
+  count:
+  from: n_edf9d4997e6e
+  self_time_ms:
+  to: n_f7141eb9e4ff
+- calls: 1
+  count:
+  from: n_edf9d4997e6e
+  self_time_ms:
+  to: n_7877ceb3b214
+- calls: 1
+  count:
+  from: n_edf9d4997e6e
+  self_time_ms:
+  to: n_93b1ac109eaa
+- calls: 2
+  count:
+  from: n_edf9d4997e6e
+  self_time_ms:
+  to: ext_57580a4d52e7
+- calls: 1
+  count:
+  from: n_00a3f5985cdf
+  self_time_ms:
+  to: n_f7141eb9e4ff
+entrypoints:
+- n_00a3f5985cdf
+- n_93b1ac109eaa
+- n_7877ceb3b214
+- n_b4b437660fdf
+- n_f7141eb9e4ff
+generator:
+  adapter: ruby
+  capture: static
+  tool: archbuddy golden
+nodes:
+- branches: 1
+  class_id: cls_b56d3b78d69f
+  count:
+  decisions: 0
+  entrypoint_kind: jobs
+  id: n_93b1ac109eaa
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_24f4956112ee
+  count:
+  decisions: 0
+  entrypoint_kind: jobs
+  id: n_7877ceb3b214
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_698107bafce7
+  count:
+  decisions: 0
+  entrypoint_kind: jobs
+  id: n_b4b437660fdf
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4f0f9a8d9ebc
+  count:
+  decisions: 0
+  entrypoint_kind: jobs
+  id: n_f7141eb9e4ff
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_2f1beb79b252
+  count:
+  decisions: 0
+  id: n_edf9d4997e6e
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  entrypoint_kind: rake
+  id: n_00a3f5985cdf
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_57580a4d52e7
+  kind: external
+  loc:
+  self_time_ms:
+  total_time_ms:
+schema_version: '1.5'

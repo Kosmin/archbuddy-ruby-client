@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "set"
 require "prism"
 require_relative "../probe"
 require_relative "../resolver"
@@ -26,8 +25,6 @@ module Archbuddy
           # direct calls the base R4 tier already handles when `#perform`
           # exists — matching them would risk double-handling.
           class DispatchProbe < Probe
-            DISPATCH_METHODS = %w[perform_async perform_later perform_in perform_at].to_set.freeze
-
             def self.probe_name
               :sidekiq_dispatch
             end
@@ -39,7 +36,7 @@ module Archbuddy
             # @param ctx [RubyResolver::CallContext]
             # @return [RubyResolver::Resolution, nil]
             def resolve(ctx)
-              return nil unless DISPATCH_METHODS.include?(ctx.name.to_s)
+              return nil unless ctx.table.profile.job_dispatch_verb?(ctx.name)
 
               const_fq = dispatch_constant_fq(ctx.receiver)
               return nil if const_fq.nil?

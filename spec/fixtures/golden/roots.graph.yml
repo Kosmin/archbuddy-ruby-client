@@ -1,0 +1,195 @@
+---
+edges:
+- calls: 1
+  count:
+  from: n_d84d6e2eb6aa
+  self_time_ms:
+  to: n_cc05f2cd1b15
+- calls: 1
+  count:
+  from: n_3010dd42d76f
+  self_time_ms:
+  to: n_6c8511115ff2
+- calls: 1
+  count:
+  from: n_4bb49bbe2243
+  self_time_ms:
+  to: ext_57580a4d52e7
+- calls: 1
+  count:
+  from: n_b67fd83e64f3
+  self_time_ms:
+  to: ext_57580a4d52e7
+- calls: 2
+  count:
+  from: n_4dd310d48dad
+  self_time_ms:
+  to: ext_57580a4d52e7
+- calls: 1
+  count:
+  from: n_f14839693d81
+  self_time_ms:
+  to: n_cc05f2cd1b15
+- calls: 1
+  count:
+  from: n_0aa96b7ad3fc
+  self_time_ms:
+  to: n_cc05f2cd1b15
+entrypoints:
+- n_58b68f839b6b
+- n_d84d6e2eb6aa
+- n_3010dd42d76f
+- n_f14839693d81
+- n_0aa96b7ad3fc
+- n_998afcdd8d06
+- n_4bb49bbe2243
+generator:
+  adapter: ruby
+  capture: static
+  tool: archbuddy golden
+nodes:
+- branches: 1
+  class_id: cls_08656082abd8
+  count:
+  decisions: 0
+  entrypoint_kind: grape
+  id: n_58b68f839b6b
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_23e2081bb67a
+  count:
+  decisions: 0
+  entrypoint_kind: grape
+  id: n_d84d6e2eb6aa
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_23e2081bb67a
+  count:
+  decisions: 0
+  entrypoint_kind: grape
+  id: n_3010dd42d76f
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_0ab4d24116af
+  count:
+  decisions: 0
+  id: n_7ff7bef1e0a6
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_0ab4d24116af
+  count:
+  decisions: 0
+  entrypoint_kind: middleware
+  id: n_4bb49bbe2243
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_7c3b142246ad
+  count:
+  decisions: 0
+  id: n_76d73aad4ead
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_7c3b142246ad
+  count:
+  decisions: 0
+  id: n_b67fd83e64f3
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_fd9dff2c5c3d
+  count:
+  decisions: 0
+  id: n_4dd310d48dad
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  entrypoint_kind: rake
+  id: n_f14839693d81
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  entrypoint_kind: script
+  id: n_0aa96b7ad3fc
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  entrypoint_kind: script
+  id: n_998afcdd8d06
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_23e2081bb67a
+  count:
+  decisions: 0
+  id: n_cc05f2cd1b15
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_23e2081bb67a
+  count:
+  decisions: 0
+  id: n_6c8511115ff2
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_57580a4d52e7
+  kind: external
+  loc:
+  self_time_ms:
+  total_time_ms:
+schema_version: '1.5'

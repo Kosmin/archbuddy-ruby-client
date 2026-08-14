@@ -39,21 +39,25 @@ RSpec.describe "Metaprogramming resolution (W1-D: narrowed R1 + coverage)" do
     result.graph["edges"].any? { |e| e["from"] == from_id && e["to"] == to_id }
   end
 
-  describe "Vocab.meta_resolvable? (the resolvable-literal bucket)" do
-    let(:vocab) { Archbuddy::Collect::Adapters::Ruby::Vocab }
+  # The two dispatch buckets moved from `Vocab` constants into the
+  # engine-shipped profile (configurator W2). Same two questions, same answers,
+  # asked of the profile — the RULE these examples pin (try/try! are resolvable
+  # but never always-dynamic) is what matters, not where the words are stored.
+  describe "the resolvable-literal dispatch bucket" do
+    let(:profile) { Archbuddy::Collect::Adapters::Ruby::Profile.reference }
 
     it "holds the literal-dispatch verbs incl. try/try!" do
       %w[send public_send __send__ try try!].each do |verb|
-        expect(vocab.meta_resolvable?(verb)).to be(true)
+        expect(profile.resolvable_dispatch_verb?(verb)).to be(true)
       end
-      expect(vocab.meta_resolvable?("foo")).to be(false)
+      expect(profile.resolvable_dispatch_verb?("foo")).to be(false)
     end
 
-    it "keeps try/try! OUT of the always-dynamic METAPROGRAMMING set" do
-      expect(vocab.metaprogramming?("try")).to be(false)
-      expect(vocab.metaprogramming?("try!")).to be(false)
-      expect(vocab.metaprogramming?("eval")).to be(true)   # unchanged
-      expect(vocab.metaprogramming?("send")).to be(true)   # still meta when dynamic
+    it "keeps try/try! OUT of the always-dynamic dispatch set" do
+      expect(profile.dynamic_dispatch_verb?("try")).to be(false)
+      expect(profile.dynamic_dispatch_verb?("try!")).to be(false)
+      expect(profile.dynamic_dispatch_verb?("eval")).to be(true)   # unchanged
+      expect(profile.dynamic_dispatch_verb?("send")).to be(true)   # still meta when dynamic
     end
   end
 

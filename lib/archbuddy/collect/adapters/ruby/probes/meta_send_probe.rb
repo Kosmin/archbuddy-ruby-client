@@ -3,7 +3,6 @@
 require "prism"
 require_relative "../probe"
 require_relative "../resolver"
-require_relative "../vocab"
 
 module Archbuddy
   module Collect
@@ -45,7 +44,7 @@ module Archbuddy
             # @param ctx [RubyResolver::CallContext]
             # @return [RubyResolver::Resolution, nil]
             def resolve(ctx)
-              return nil unless Vocab.meta_resolvable?(ctx.name)
+              return nil unless ctx.table.profile.resolvable_dispatch_verb?(ctx.name)
 
               method_name = literal_method_name(ctx.node)
               return nil if method_name.nil? # dynamic arg → decline

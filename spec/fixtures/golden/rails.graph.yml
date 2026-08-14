@@ -1,0 +1,404 @@
+---
+edges:
+- calls: 1
+  count:
+  from: n_e938613055cd
+  self_time_ms:
+  to: n_09953fe269a9
+- calls: 1
+  count:
+  from: n_f713410ddeb3
+  self_time_ms:
+  to: n_121ec42f1a44
+- calls: 1
+  count:
+  from: n_56774c5c24df
+  self_time_ms:
+  to: ext_57580a4d52e7
+- calls: 1
+  count:
+  from: n_56774c5c24df
+  self_time_ms:
+  to: n_6c6e9032da2d
+- calls: 1
+  count:
+  from: n_a6c38e33fac4
+  self_time_ms:
+  to: n_95520b4897f3
+- calls: 1
+  count:
+  from: n_f569c7480cfe
+  self_time_ms:
+  to: n_b6d11079dca5
+- calls: 1
+  count:
+  from: n_384d58f7a1db
+  self_time_ms:
+  to: n_10e95f794356
+- calls: 1
+  count:
+  from: n_a971307170cb
+  self_time_ms:
+  to: n_7381c0004fbb
+- calls: 1
+  count:
+  from: n_c08a5f722f9c
+  self_time_ms:
+  to: n_0e602c7b3507
+- calls: 1
+  count:
+  from: n_7381c0004fbb
+  self_time_ms:
+  to: n_342c3e2234ce
+- calls: 1
+  count:
+  from: n_7381c0004fbb
+  self_time_ms:
+  to: n_fd412e8fa2d3
+- calls: 1
+  count:
+  from: n_e8c2a8230d89
+  self_time_ms:
+  to: n_06d035d5386f
+- calls: 1
+  count:
+  from: n_e8c2a8230d89
+  self_time_ms:
+  to: n_7974bcc8bfe4
+- calls: 1
+  count:
+  from: n_e8c2a8230d89
+  self_time_ms:
+  to: n_6c6e9032da2d
+- calls: 1
+  count:
+  from: n_98000830acb1
+  self_time_ms:
+  to: n_ec1933459b81
+- calls: 1
+  count:
+  from: n_98000830acb1
+  self_time_ms:
+  to: n_4435499a2563
+- calls: 1
+  count:
+  from: n_98000830acb1
+  self_time_ms:
+  to: n_3be31f21eb30
+- calls: 2
+  count:
+  from: n_d9f7752fef95
+  self_time_ms:
+  to: n_e8c2a8230d89
+- calls: 1
+  count:
+  from: n_3c52427729a3
+  self_time_ms:
+  to: ext_57580a4d52e7
+entrypoints:
+- n_e938613055cd
+- n_f713410ddeb3
+- n_56774c5c24df
+- n_a6c38e33fac4
+- n_f569c7480cfe
+- n_384d58f7a1db
+- n_a971307170cb
+generator:
+  adapter: ruby
+  capture: static
+  tool: archbuddy golden
+nodes:
+- branches: 1
+  class_id: cls_3e505a2a2cff
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_e938613055cd
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_9b13959c6d6f
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_f713410ddeb3
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ecb69d79f7b
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_56774c5c24df
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ecb69d79f7b
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_a6c38e33fac4
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_5fa41f88e054
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_f569c7480cfe
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_d26b7de68148
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_384d58f7a1db
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4b91f971e1ee
+  count:
+  decisions: 0
+  entrypoint_kind: controllers
+  id: n_a971307170cb
+  kind: endpoint
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_8ceb00190035
+  count:
+  decisions: 0
+  id: n_c08a5f722f9c
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_cd6c878421f9
+  count:
+  decisions: 0
+  id: n_7381c0004fbb
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_e8c2a8230d89
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_98000830acb1
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ee2def00062
+  count:
+  decisions: 0
+  id: n_2558b413c8c9
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ee2def00062
+  count:
+  decisions: 0
+  id: n_d9f7752fef95
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ee2def00062
+  count:
+  decisions: 0
+  escapes: true
+  id: n_f1073464a268
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ee2def00062
+  count:
+  decisions: 0
+  id: n_3c52427729a3
+  kind: function
+  loc:
+  outcome_arity: 1
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_3e505a2a2cff
+  count:
+  decisions: 0
+  id: n_09953fe269a9
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_9b13959c6d6f
+  count:
+  decisions: 0
+  id: n_121ec42f1a44
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ecb69d79f7b
+  count:
+  decisions: 0
+  id: n_6c6e9032da2d
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_4ecb69d79f7b
+  count:
+  decisions: 0
+  id: n_95520b4897f3
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_5fa41f88e054
+  count:
+  decisions: 0
+  id: n_b6d11079dca5
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_d26b7de68148
+  count:
+  decisions: 0
+  id: n_10e95f794356
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_8ceb00190035
+  count:
+  decisions: 0
+  id: n_0e602c7b3507
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_cd6c878421f9
+  count:
+  decisions: 0
+  id: n_342c3e2234ce
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_cd6c878421f9
+  count:
+  decisions: 0
+  id: n_fd412e8fa2d3
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_06d035d5386f
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_7974bcc8bfe4
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_ec1933459b81
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_4435499a2563
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id: cls_b2d6abee639e
+  count:
+  decisions: 0
+  id: n_3be31f21eb30
+  kind: db_op
+  loc:
+  self_time_ms:
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_57580a4d52e7
+  kind: external
+  loc:
+  self_time_ms:
+  total_time_ms:
+schema_version: '1.5'

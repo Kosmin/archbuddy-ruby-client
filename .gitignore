@@ -51,3 +51,8 @@ Gemfile.lock
 !spec/fixtures/**/.archbuddy/**
 !spec/fixtures/**/archbuddy-findings.json
 !spec/fixtures/backtest_corpus/snapshots/*/id-map.yml
+# configurator W2 purity-gate goldens: graph.yml + id-map.yml captured from the
+# SYNTHETIC inline corpora in spec/support/golden_corpus.rb. No real repo, no
+# real symbols — and the gate is worthless unless these are committed.
+!spec/fixtures/golden/*.graph.yml
+!spec/fixtures/golden/*.id-map.yml

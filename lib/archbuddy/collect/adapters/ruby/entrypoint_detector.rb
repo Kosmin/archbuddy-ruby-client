@@ -17,16 +17,12 @@ module Archbuddy
         class EntrypointDetector
           # v0.10 (A1, Reconciliation 2): the deterministic ingress-category
           # precedence — most-specific evidence first, FIRST MATCH WINS, one
-          # category per fq. Seeded categories (jobs/rake/middleware/script)
-          # come from SymbolTable#entrypoint_category (written once per fq by
-          # the root seeders, L4-gated) and slot between the framework-explicit
-          # surfaces and the loose top_level/pattern buckets.
-          CATEGORY_PRECEDENCE = %w[
-            grape routed controllers jobs rake middleware script top_level pattern
-          ].freeze
-
-          # The seeded (root-seeder-written) subset of the precedence vocab.
-          SEEDED_CATEGORIES = %w[jobs rake middleware script].freeze
+          # category per fq — and its seeded subset both live in the
+          # engine-shipped profile now (`entrypoints.category_precedence` /
+          # `entrypoints.seeded_categories`), reached via SymbolTable#profile.
+          # The precedence itself is EXPRESSED BY THE ORDER OF THE RETURNS in
+          # #category_for below; the profile lists it as the readable
+          # declaration of that order.
 
           def initialize(config)
             @strategy = config.entrypoint_strategy
@@ -43,7 +39,7 @@ module Archbuddy
 
           # v0.10 (A1): the categorized selection — an ORDERED {fq => category}
           # map over exactly the set #detect returns. `category` is a string
-          # from CATEGORY_PRECEDENCE chosen by first-match-wins, or nil when no
+          # from the profile's category precedence chosen by first-match-wins, or nil when no
           # category source matches (unknown is declared, never guessed — L4).
           # Seeded categories are read NIL-TOLERANTLY from the table so this
           # works before/without Deliverable-B seeders.
@@ -78,7 +74,7 @@ module Archbuddy
             return "controllers" if controller_action?(table, entry)
 
             seeded = seeded_category(table, fq)
-            return seeded if seeded && SEEDED_CATEGORIES.include?(seeded)
+            return seeded if seeded && table.profile.seeded_category?(seeded)
 
             return "top_level"   if entry && entry.owner_fq.nil?
             return "pattern"     if pattern_fqs.include?(fq)

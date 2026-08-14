@@ -1,0 +1,134 @@
+---
+ids:
+  cls_9433393e115d:
+    class_id:
+    file: app/controllers/orders_controller.rb
+    kind: class_rollup
+    line: 3
+    symbol: OrdersController
+  cls_b2e951fcb50b:
+    class_id:
+    file: app/models/invoice.rb
+    kind: class_rollup
+    line: 7
+    symbol: Billing::Invoice
+  ext_1917c66ce540:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external:gem:ExternalTaxApi>"
+    terminal_kind: gem
+  ext_57580a4d52e7:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<external>"
+    terminal_kind:
+  n_08bb59686a0d:
+    class_id: cls_9433393e115d
+    entrypoint_kind: controllers
+    escapes: false
+    file: app/controllers/orders_controller.rb
+    kind: endpoint
+    line: 4
+    outcome_arity: 1
+    symbol: OrdersController#index
+    terminal_kind:
+  n_203f7cbbf624:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: function
+    line: 16
+    outcome_arity: 1
+    symbol: Billing::Invoice.mark_paid!
+    terminal_kind:
+  n_2915376b0e45:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: function
+    line: 8
+    outcome_arity: 1
+    symbol: Billing::Invoice.overdue
+    terminal_kind:
+  n_2c5fb0268163:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: function
+    line: 20
+    outcome_arity: 1
+    symbol: Billing::Invoice.bulk_update
+    terminal_kind:
+  n_3a36e57a3991:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: db_op
+    line: 7
+    outcome_arity:
+    symbol: Billing::Invoice.update
+    terminal_kind:
+  n_636138555468:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: db_op
+    line: 7
+    outcome_arity:
+    symbol: Billing::Invoice.update_all
+    terminal_kind:
+  n_b12661b4b862:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: function
+    line: 32
+    outcome_arity: 1
+    symbol: Billing::Invoice#tax
+    terminal_kind:
+  n_b4d223161dcd:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: db_op
+    line: 7
+    outcome_arity:
+    symbol: Billing::Invoice.where
+    terminal_kind:
+  n_bb9d4823332c:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: function
+    line: 24
+    outcome_arity: 1
+    symbol: Billing::Invoice#total
+    terminal_kind:
+  n_e348f0cf638f:
+    class_id: cls_b2e951fcb50b
+    entrypoint_kind:
+    escapes: false
+    file: app/models/invoice.rb
+    kind: function
+    line: 28
+    outcome_arity: 1
+    symbol: Billing::Invoice#subtotal
+    terminal_kind:
