@@ -62,6 +62,22 @@ module Archbuddy
 
           attr_reader :id, :category_precedence, :cron_config_paths, :cron_whenever_path
 
+          # configurator W4 (C9): the OPTIONAL `boundary` section, handed back as
+          # the deep-frozen sub-document the engine validated — NOT as predicates.
+          #
+          # This is the one field the Profile deliberately does NOT digest into
+          # `Set`s: the boundary grammar is three granularities with a precedence
+          # order between them, i.e. LOGIC, and logic belongs in `BoundaryRules`,
+          # not in this value object. Everything the collector asks of a boundary
+          # is asked of that class.
+          #
+          # nil when the profile declares no boundary section at all (every
+          # pre-W4 document). "No section" and "a section with every list empty"
+          # are DIFFERENT states and are never collapsed into a fabricated `{}` —
+          # `BoundaryRules` short-circuits on the first and compiles an
+          # empty-but-real index for the second.
+          attr_reader :boundary
+
           def initialize(document)
             @document = document
             @id       = document.fetch("profile_id")
@@ -79,6 +95,7 @@ module Archbuddy
             load_scripts(framework["scripts"])
             load_cron(framework["cron"])
             load_egress(document["library"])
+            @boundary = document["boundary"]
 
             freeze
           end

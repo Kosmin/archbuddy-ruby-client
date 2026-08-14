@@ -3,6 +3,7 @@
 require "prism"
 require_relative "vocab"
 require_relative "probe"
+require_relative "boundary_rules"
 
 module Archbuddy
   module Collect
@@ -90,6 +91,20 @@ module Archbuddy
             # `const_get`... stay ALWAYS-flagged (they are dynamic-dispatch
             # verbs the profile does NOT also list as resolvable).
             return meta(:metaprogramming) if dynamic_meta?(ctx, name)
+
+            # R1.5: DECLARED BOUNDARY (configurator W4 / C9). ABOVE R2..R4.5,
+            # unlike an R5 probe, because a declaration must beat an inference or
+            # it is not a declaration. The tier's ENTIRE body — three
+            # granularities, their precedence, the closed-category gate and the
+            # kind:/egress_category: pairing — lives in BoundaryRules; this file
+            # learns nothing about crossings.
+            #
+            # TWO lines, not one, for a PARSE-ORDER reason and no other:
+            # `return x if (x = …)` is a NameError in Ruby (the modifier's local
+            # is not yet declared when the `return` is parsed). Both lines are
+            # pure delegation — no branch on category, kind or role lives here.
+            declared = BoundaryRules.resolve(ctx, profile)
+            return declared if declared
 
             # R2: db_op via CLASS CONTEXT. The verified gotcha: `where` inside
             # `def self.x` of an AR subclass has receiver = nil (implicit self),
