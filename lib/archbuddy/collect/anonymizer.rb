@@ -249,6 +249,24 @@ module Archbuddy
             node_hash["escapes"] = true
           end
 
+          # configurator W3 (C6/C7): the INERT crossing-role tag, emitted ONLY
+          # when the profile actually declared one for this node — nil stays
+          # ABSENT (undeclared), never "unknown" and never a default.
+          #
+          # NO SCHEMA PROBE, deliberately unlike the four gates above (C-13).
+          # Those shipped while the engine floor still admitted a build whose
+          # node schema rejected the key; from W2 on the client REFUSES to run
+          # below engine 0.12 (Collect::EnginePreflight), and graph 1.5 — the
+          # revision that declares `cco_role` — is inside that floor. One
+          # precondition, checked once and loudly, beats a per-emission probe
+          # that can only re-answer a question the preflight already settled.
+          #
+          # The property NAME is read from its ONE producer (L12) so a rename in
+          # the contract can never leave the client emitting a stale key.
+          if raw.cco_role
+            node_hash[ArchitectureAuditor::Contract::NODE_ROLE_KEY] = raw.cco_role
+          end
+
           graph_nodes << node_hash
 
           @id_map_ids[node_id] = {

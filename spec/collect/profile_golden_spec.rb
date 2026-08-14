@@ -18,6 +18,16 @@ require "support/golden_corpus"
 # Discriminating power (verified by mutation): removing a single ORM verb from
 # the profile, or folding the `Aws::` egress prefix into the exact-root list,
 # changes these bytes.
+#
+# RE-BASELINED ONCE, BY configurator W3. The inert `cco_role` tag adds a KEY to
+# db_op and per-target egress nodes, so the graph goldens were regenerated. The
+# whole delta was 24 added lines, every one of them a `cco_role:` key, with ZERO
+# removed lines and all five id-map goldens plus the cron ledger byte-untouched
+# — i.e. no node, edge or entrypoint moved. That was a one-time observation;
+# what makes it a STANDING claim is spec/collect/cco_role_inertness_spec.rb,
+# which re-derives "the only delta is the cco_role key" on every run by
+# capturing each corpus twice, through the shipped profile and through the same
+# profile with its roles stripped.
 RSpec.describe "profile migration golden" do
   Archbuddy::GoldenCorpus.corpora.each_key do |corpus|
     describe "corpus #{corpus.inspect}" do

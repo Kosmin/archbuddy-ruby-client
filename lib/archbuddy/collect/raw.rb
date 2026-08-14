@@ -47,6 +47,16 @@ module Archbuddy
       #              never guessed. db_op/external SINKS are NEVER stamped
       #              (arity-1 terminals; the ENGINE reads absent-on-external
       #              as lenient a=1 — the L17 kind split).
+      # - cco_role:  configurator W3 (C6/C7) OPTIONAL INERT crossing-role tag —
+      #              one of action|configuration|no_io, read from the ENGINE
+      #              profile's `role` field (ORM verb table / egress verb
+      #              table). nil = UNDECLARED (the profile carries no role for
+      #              this verb, or an egress sink's merged call sites disagree)
+      #              and the key stays ABSENT downstream — never defaulted,
+      #              never mapped onto a value. NOTHING reads it: it is emitted
+      #              and carried, and no scoring or ranking path on either side
+      #              of the contract consumes it (asserted by the engine's
+      #              back-door lock and the client's inertness gate).
       # - escapes:   v0.12 (L18, default false) callee-definition escape flag
       #              from the EscapeScanner (yield / used-&blk / block_given?
       #              / callable-param.call / dynamic meta-send). Emitted on
@@ -55,7 +65,7 @@ module Archbuddy
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
         :branches, :decisions, :entrypoint_kind, :terminal_kind,
-        :outcome_arity, :escapes,
+        :outcome_arity, :escapes, :cco_role,
         keyword_init: true
       ) do
         def initialize(*)

@@ -114,6 +114,7 @@ nodes:
   self_time_ms:
   total_time_ms:
 - branches: 1
+  cco_role: configuration
   class_id: cls_b2e951fcb50b
   count:
   decisions: 0
@@ -123,6 +124,7 @@ nodes:
   self_time_ms:
   total_time_ms:
 - branches: 1
+  cco_role: action
   class_id: cls_b2e951fcb50b
   count:
   decisions: 0
@@ -132,6 +134,7 @@ nodes:
   self_time_ms:
   total_time_ms:
 - branches: 1
+  cco_role: action
   class_id: cls_b2e951fcb50b
   count:
   decisions: 0

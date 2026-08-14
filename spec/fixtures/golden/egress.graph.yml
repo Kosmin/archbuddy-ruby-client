@@ -216,6 +216,7 @@ nodes:
   terminal_kind: http
   total_time_ms:
 - branches: 1
+  cco_role: configuration
   class_id:
   count:
   decisions: 0
@@ -226,6 +227,7 @@ nodes:
   terminal_kind: http
   total_time_ms:
 - branches: 1
+  cco_role: action
   class_id:
   count:
   decisions: 0
@@ -236,6 +238,7 @@ nodes:
   terminal_kind: http
   total_time_ms:
 - branches: 1
+  cco_role: action
   class_id:
   count:
   decisions: 0
@@ -256,6 +259,7 @@ nodes:
   terminal_kind: http
   total_time_ms:
 - branches: 1
+  cco_role: action
   class_id:
   count:
   decisions: 0
@@ -266,6 +270,7 @@ nodes:
   terminal_kind: http
   total_time_ms:
 - branches: 1
+  cco_role: configuration
   class_id:
   count:
   decisions: 0

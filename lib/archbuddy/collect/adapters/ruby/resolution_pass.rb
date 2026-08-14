@@ -4,6 +4,7 @@ require "prism"
 require_relative "resolver"
 require_relative "grape_dsl"
 require_relative "root_dsl/rake_dsl"
+require_relative "probes/dispatch_probe"
 
 module Archbuddy
   module Collect
@@ -25,7 +26,8 @@ module Archbuddy
           #              the adapter mints one sink per distinct pair, plus
           #              the generic <external> for target-less records.
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges,
-                      :total_call_sites, :meta_resolved, :egress_counts
+                      :total_call_sites, :meta_resolved, :egress_counts,
+                      :cco_role_unattachable
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
@@ -42,6 +44,29 @@ module Archbuddy
             # is :generic (NOT :unknown — CR-3 vocab lock; :unknown is reserved
             # for "no category data" on the ingress side).
             @egress_counts = Hash.new(0)
+            # configurator W3 (C8) — THE DECLARED GAP, COUNTED. A call site
+            # whose crossing role cannot ride a node, tallied by REASON:
+            #   :queue_dispatch_in_tree — an in-tree enqueue. The DispatchProbe
+            #     recovers a real `caller -> Const#perform` EDGE, so there is no
+            #     sink node for a role to sit on. The edge is UNCHANGED; this
+            #     counter is the honest declaration that the tag cannot reach
+            #     it, instead of silently reporting full role coverage.
+            # {} when nothing was skipped. Diagnostics-only — never graph.yml.
+            #
+            # HONESTY NOTE: today this counter is numerically equal to
+            # `probe_edges[:sidekiq_dispatch]`, because the in-tree enqueue is
+            # the only fork in the family. It is kept as its OWN, reason-keyed
+            # tally rather than aliased onto that one because the two answer
+            # different questions ("how many edges did this probe recover" vs
+            # "how many crossings could the role not reach"), and the second
+            # will gain reasons the first never will.
+            @cco_role_unattachable = Hash.new(0)
+          end
+
+          # configurator W3 (C8): one tally per call site whose role has nowhere
+          # to attach. `reason` is a Symbol naming the fork, never a free string.
+          def tally_cco_role_unattachable(reason)
+            @cco_role_unattachable[reason] += 1
           end
 
           def tally_probe_edge(probe_name)
@@ -69,8 +94,14 @@ module Archbuddy
           # db_ops collapse by Class.method (resolver db_op_symbol), so one node
           # fields many call sites. A db_op is a plain COST-1 terminal (L3) — no
           # write-specificity / sink_open is derived or carried.
-          def add_db_op_edge(from_fq, symbol, class_fq)
-            @db_ops[symbol] ||= { class_fq: class_fq }
+          #
+          # `cco_role` (configurator W3 / C6, optional): the profile's INERT
+          # role for the ORM verb. HOMOGENEOUS BY CONSTRUCTION — the db_op
+          # symbol already embeds the method (`Class.method`), so every call
+          # site collapsing onto one node carries the same verb and therefore
+          # the same role. No aggregation is needed or performed here.
+          def add_db_op_edge(from_fq, symbol, class_fq, cco_role: nil)
+            @db_ops[symbol] ||= { class_fq: class_fq, cco_role: cco_role }
             @calls << { from_fq: from_fq, to: { type: :db_op, fq: symbol } }
           end
 
@@ -81,8 +112,15 @@ module Archbuddy
           # record so the adapter can route the edge to the matching
           # per-target external sink: { type: :external, category: Symbol|nil,
           # target: String|nil }.
-          def add_external_edge(from_fq, category: nil, target: nil)
-            @calls << { from_fq: from_fq, to: { type: :external, category: category, target: target } }
+          # `cco_role` (configurator W3 / C7, optional): the PER-CALL-SITE role.
+          # Many call sites merge into one per-target sink, so unlike db_ops
+          # this one is NOT homogeneous by construction — it rides the call
+          # record and EgressRoleAggregate decides what (if anything) the sink
+          # may be stamped with.
+          def add_external_edge(from_fq, category: nil, target: nil, cco_role: nil)
+            @calls << { from_fq: from_fq,
+                        to: { type: :external, category: category, target: target,
+                              cco_role: cco_role } }
           end
 
           def flag_metaprogramming(from_fq, name, line)
@@ -392,17 +430,31 @@ module Archbuddy
             when :metaprogramming
               @acc.flag_metaprogramming(from_fq, node.name.to_s, node.location.start_line)
             when :edge
+              # configurator W3 (C8) — THE A10 QUEUE FORK, DECLARED AND COUNTED.
+              # An in-tree enqueue is RECOVERED as a real edge by the
+              # DispatchProbe, so it mints no sink and there is no node for a
+              # crossing role to ride. The edge is untouched; we only record
+              # that the tag could not attach. The probe name is read from its
+              # producer, never re-typed.
+              if resolution.provenance == Probes::DispatchProbe.probe_name
+                @acc.tally_cco_role_unattachable(:queue_dispatch_in_tree)
+              end
               @acc.add_method_edge(from_fq, resolution.target_fq)
             when :external
               if resolution.kind == "db_op"
                 # L3: a db_op is a plain COST-1 terminal — no sink spec derived.
-                @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq)
+                # W3 (C6): the ORM verb's INERT role rides along.
+                @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq,
+                                    cco_role: resolution.cco_role)
               else
                 # v0.10 W2-C: carry the EgressProbe's category (nil for the
                 # generic R9 fallthrough) and tally it (nil → :generic, CR-3).
                 # v0.11 E1: also carry the probe's normalized target constant.
+                # v0.17 W3 (C7): the per-call-site role rides too; the sink's
+                # value is AGGREGATED later (EgressRoleAggregate).
                 @acc.add_external_edge(from_fq, category: resolution.egress_category,
-                                                target: resolution.target_fq)
+                                                target: resolution.target_fq,
+                                                cco_role: resolution.cco_role)
                 @acc.tally_egress(resolution.egress_category)
               end
             end

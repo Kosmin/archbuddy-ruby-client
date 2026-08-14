@@ -63,7 +63,7 @@ module Archbuddy
               category = classify(ctx.table.profile, const_fq, ctx.name.to_s)
               return nil if category.nil?
 
-              external(category, const_fq)
+              external(ctx.table.profile, category, const_fq, ctx.name.to_s)
             end
 
             private
@@ -102,11 +102,32 @@ module Archbuddy
             # v0.11 E1 (L13): carry the literal constant FQ on the existing
             # Resolution#target_fq member (db_op precedent) so the adapter can
             # mint one sink per distinct [category, target].
-            def external(category, const_fq)
+            def external(profile, category, const_fq, verb)
               RubyResolver::Resolution.new(
                 tier: :egress, action: :external, target_fq: normalize_target(const_fq),
-                kind: "external", egress_category: category
+                kind: "external", egress_category: category,
+                cco_role: role_for(profile, category, verb)
               )
+            end
+
+            # configurator W3 (C7): the INERT per-call-site crossing role.
+            #
+            # SCOPED TO :http ON PURPOSE. The role table lives on
+            # `library.egress[].verbs` — it describes what an HTTP-CLIENT verb
+            # does. `:gem` is the catch-all for any literal out-of-tree constant,
+            # so a `SomeGem.get` lands there while still carrying a name that
+            # appears in the egress verb table; reading the role for it would
+            # attribute an HTTP client's semantics to an unrelated library. Only
+            # the branch that actually matched the table may read from it.
+            #
+            # `:queue` gets nil: the enqueue verbs live in
+            # `framework.jobs.dispatch_verbs`, a plain name list with no role
+            # column, so this build has NO declared role for them. Absent, not
+            # fabricated (see the W3 report's plan-vs-source note).
+            def role_for(profile, category, verb)
+              return nil unless category == :http
+
+              profile.egress_verb_role(verb)
             end
 
             # Sink-identity normalization, applied at MINT time only —

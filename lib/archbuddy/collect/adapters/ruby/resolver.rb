@@ -51,8 +51,16 @@ module Archbuddy
           #                 literal-constant receiver; nil everywhere else
           #                 (base tiers never set it — the call stays the
           #                 generic <external> bucket).
+          #   cco_role   => configurator W3 (C6/C7): OPTIONAL INERT crossing-role
+          #                 tag ("action"/"configuration"/"no_io") read from the
+          #                 PROFILE's per-verb `role` field. Set on db_op
+          #                 resolutions (from the ORM verb table) and by the
+          #                 EgressProbe on an :http crossing (from the egress
+          #                 verb table). nil = the profile declares no role for
+          #                 this verb — never defaulted, never guessed. Nothing
+          #                 in either repo reads it to decide anything.
           Resolution = Struct.new(
-            :tier, :action, :target_fq, :kind, :provenance, :egress_category,
+            :tier, :action, :target_fq, :kind, :provenance, :egress_category, :cco_role,
             keyword_init: true
           )
 
@@ -89,7 +97,8 @@ module Archbuddy
             if active_record_context?(ctx) && profile.orm_method?(name)
               return Resolution.new(
                 tier: :db_op_class_context, action: :external, # synthesized sink-like node
-                target_fq: db_op_symbol(ctx, name), kind: "db_op"
+                target_fq: db_op_symbol(ctx, name), kind: "db_op",
+                cco_role: profile.orm_role(name)
               )
             end
 
@@ -114,7 +123,8 @@ module Archbuddy
               if @table.active_record_class?(const_fq) && profile.orm_method?(name)
                 return Resolution.new(
                   tier: :db_op_const_receiver, action: :external,
-                  target_fq: "#{const_fq}.#{name}", kind: "db_op"
+                  target_fq: "#{const_fq}.#{name}", kind: "db_op",
+                  cco_role: profile.orm_role(name)
                 )
               end
 
@@ -137,7 +147,8 @@ module Archbuddy
               if @table.active_record_class?(const_fq) && profile.orm_method?(name)
                 return Resolution.new(
                   tier: :db_op_typed_receiver, action: :external,
-                  target_fq: "#{const_fq}.#{name}", kind: "db_op"
+                  target_fq: "#{const_fq}.#{name}", kind: "db_op",
+                  cco_role: profile.orm_role(name)
                 )
               end
 

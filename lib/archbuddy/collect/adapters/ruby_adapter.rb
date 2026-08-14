@@ -16,6 +16,7 @@ require_relative "ruby/probe_registry"
 require_relative "ruby/root_seeder_registry"
 require_relative "ruby/route_catalogue"
 require_relative "ruby/arity_resolver"
+require_relative "ruby/egress_role_aggregate"
 
 module Archbuddy
   module Collect
@@ -125,7 +126,10 @@ module Archbuddy
 
           add_method_nodes(table, nodes, key_for_fq, ep_categories, arity_by_fq)
           add_db_op_nodes(table, acc, nodes, key_for_fq)
-          external_keys = add_external_sinks(nodes, acc)
+          # configurator W3 (C7): the ONE delegation — per-sink role unanimity
+          # and its suppression tally are decided entirely inside this class.
+          egress_roles  = Ruby::EgressRoleAggregate.new(acc.calls)
+          external_keys = add_external_sinks(nodes, acc, egress_roles)
 
           edges       = build_edges(acc, key_for_fq, external_keys)
           entrypoints = build_entrypoints(ep_categories.keys, key_for_fq)
@@ -163,7 +167,17 @@ module Archbuddy
               # (field omitted everywhere — the L17 honest blind-spot count);
               # escaping_defs = defs the EscapeScanner flagged.
               arity_unresolved: arity_by_fq.values.count(&:nil?),
-              escaping_defs: table.methods.values.count { |m| m.escapes }
+              escaping_defs: table.methods.values.count { |m| m.escapes },
+              # configurator W3 (C7/C8): the two INERT-role honesty counters.
+              # CLI/diagnostics-only — NEVER graph.yml content.
+              # cco_role_suppressed  = per-target egress sinks whose merged call
+              #   sites DISAGREED on the role, so the key was omitted rather
+              #   than fabricated ({} when none did).
+              # cco_role_unattachable = call sites whose role has no node to
+              #   ride at all — today only the in-tree enqueue, which the
+              #   DispatchProbe recovers as an edge ({} when none occurred).
+              cco_role_suppressed: egress_roles.suppressed,
+              cco_role_unattachable: acc.cco_role_unattachable
             }
           )
         end
@@ -286,8 +300,11 @@ module Archbuddy
               kind:           "db_op",
               class_rel_file: class_ref&.rel_file,
               class_line:     class_ref&.line,
-              class_symbol:   class_ref&.fq_name
+              class_symbol:   class_ref&.fq_name,
               # L3 (v0.6): no sink_open — a db_op is a plain COST-1 terminal.
+              # W3 (C6): the profile's INERT role for this node's ORM verb; nil
+              # (an unroled verb, or a rev-1.0 profile) leaves the key ABSENT.
+              cco_role:       meta[:cco_role]
             )
             nodes << node
             key_for_fq[symbol] = node.real_key
@@ -309,7 +326,7 @@ module Archbuddy
         # function of the pair set, never discovery order. All sinks stay
         # kind:"external" (I6).
         # Returns { nil => generic_real_key, [category, target] => real_key }.
-        def add_external_sinks(nodes, acc)
+        def add_external_sinks(nodes, acc, egress_roles)
           keys    = {}
           generic = Raw::RawNode.new(
             rel_file: nil, line: nil, symbol: EXTERNAL_SINK_SYMBOL, kind: "external"
@@ -327,7 +344,10 @@ module Archbuddy
           pairs.each do |category, target|
             node = Raw::RawNode.new(
               rel_file: nil, line: nil, symbol: external_sink_symbol(category, target),
-              kind: "external", terminal_kind: category.to_s
+              kind: "external", terminal_kind: category.to_s,
+              # W3 (C7): the AGGREGATED role — nil when this sink's merged call
+              # sites disagree (counted as a suppression) or declare nothing.
+              cco_role: egress_roles.role_for(category, target)
             )
             nodes << node
             keys[[category, target]] = node.real_key

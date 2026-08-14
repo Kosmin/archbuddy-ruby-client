@@ -136,11 +136,30 @@ module Archbuddy
 
           def egress_verb?(name) = @egress_verbs.include?(name.to_s)
 
+          # --- roles (configurator W3 / E13) ------------------------------------
+          #
+          # The INERT crossing-role tag the profile declares per VERB. Both
+          # readers return nil for a verb the profile leaves unroled — and a
+          # rev-1.0 (role-free) profile therefore yields nil for EVERY verb.
+          # nil is UNDECLARED and must never be defaulted to a value: the key
+          # simply does not appear on the emitted node.
+          #
+          # `Hash#[]` (not `fetch`) is deliberate — an unknown verb and an
+          # unroled verb are the same answer here ("this profile declares no
+          # role"), and the callers already gate on the verb being known.
+
+          # @return [String, nil] role for an ORM method name.
+          def orm_role(name) = @orm_roles[name.to_s]
+
+          # @return [String, nil] role for an egress (HTTP-client) verb name.
+          def egress_verb_role(name) = @egress_verb_roles[name.to_s]
+
           private
 
           def load_orm(orm)
             @orm_methods = set_of((orm["methods"] || []).map { |entry| entry["name"] })
             @orm_bases   = set_of(orm["base_classes"])
+            @orm_roles   = role_table(orm["methods"])
           end
 
           def load_controllers(controllers)
@@ -178,6 +197,18 @@ module Archbuddy
             @egress_roots         = set_of(entries.flat_map { |e| e["roots"] || [] })
             @egress_root_prefixes = frozen_list(entries.flat_map { |e| e["root_prefixes"] || [] })
             @egress_verbs         = set_of(entries.flat_map { |e| (e["verbs"] || []).map { |v| v["name"] } })
+            @egress_verb_roles    = role_table(entries.flat_map { |e| e["verbs"] || [] })
+          end
+
+          # {verb_name => role} over a profile verb table, carrying ONLY the
+          # entries that actually declare a role. An unroled entry is OMITTED
+          # rather than mapped to nil, so `Hash#key?` and `Hash#[]` agree that
+          # the profile declares nothing for it.
+          def role_table(entries)
+            Array(entries).each_with_object({}) do |entry, table|
+              role = entry["role"]
+              table[entry["name"].to_s] = role.to_s if role
+            end.freeze
           end
 
           def set_of(values)
