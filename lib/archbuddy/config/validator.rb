@@ -2,6 +2,7 @@
 
 require "did_you_mean"
 require_relative "schema"
+require_relative "boundary_section"
 require_relative "../version"
 
 module Archbuddy
@@ -36,6 +37,11 @@ module Archbuddy
         check_rules_block(@doc["rules"], "rules", overrides: false)
         check_overrides
         check_calibration
+        # configurator W4 (C10): the ONE delegation. Everything about the
+        # `boundary:` key — the envelope, the engine's schema call, the L17
+        # refusal — belongs to Config::BoundarySection; this file deliberately
+        # learns none of its key names (see that class's acceptance anchor).
+        @errors.concat(BoundarySection.errors(@doc[BoundarySection::KEY]))
         @errors
       end
 

@@ -310,6 +310,45 @@ fires fresh; ratchet `entrypoints:` budgets on the old symbol report
 their lines), `none` (all advisory lines suppressed). Advisory copy only —
 calibration NEVER gates. Recipe: docs/RECALIBRATION.md.
 
+## Boundary (`boundary:` — collect-time, opt-in)
+
+Declares that a call crosses OUT of your tree, at three granularities
+(most-specific wins: `calls` > `classes` > `paths`). Consumed by `collect`,
+merged over the engine-shipped profile's own boundary section; absent means
+today's behaviour, unchanged.
+
+```yaml
+boundary:
+  paths:
+    - glob: "vendor/**/*.rb"
+      category: gem
+  classes:
+    - kind: ancestor_of        # constant_exact | constant_prefix | ancestor_of
+      values: ["Vendor::Base"]
+      category: gem
+  calls:
+    - receiver: { kind: constant_exact, values: ["Payments::Gateway"] }
+      verbs: ["charge"]
+      category: http
+      role: action             # action | configuration | no_io — CALL RULES ONLY
+```
+
+This key is **not described by this repo**. It is validated against the
+`boundary` sub-schema of the engine's framework-profile contract, so a project
+cannot invent grammar the profile does not have: an unknown key anywhere under
+`boundary:` — including `role:` on a `paths`/`classes` rule — is rejected by
+that schema's `additionalProperties`, naming the offending key path.
+
+`category` must be one of the engine's terminal kinds; that membership is
+checked when the rules are compiled, with the allowed set named in the error.
+A rule with no `category` still severs the call, but stamps no category
+(absent, never defaulted).
+
+**One boundary per repo root.** Declaring a *sequence* of boundaries for one
+root is refused with an error naming the supported shape: separate roots
+already get separate `.archbuddy/` workspaces, so audit each component by
+running archbuddy at that component's root.
+
 ## Worked example: linting a real committed cache
 
 ```sh

@@ -133,7 +133,12 @@ RSpec.describe Archbuddy::Config::Schema do
     expect(described_class::SEVERITIES).to eq(info: 1, warn: 2, error: 3)
     expect(described_class::FAIL_LEVELS).to eq(%w[none info warn error])
     expect(described_class::FORMATS).to eq(%w[terminal markdown json])
-    expect(described_class::TOP_LEVEL_KEYS).to eq(%w[version todo_file all rules overrides calibration])
+    # configurator W4 (C10): `boundary` APPENDED. It is the only key of the six
+    # whose grammar is NOT described in this module — it is registered so the
+    # generic unknown-key check passes it through to Config::BoundarySection,
+    # which validates it against the engine's profile schema.
+    expect(described_class::TOP_LEVEL_KEYS)
+      .to eq(%w[version todo_file all rules overrides calibration boundary])
     expect(described_class::ALL_KEYS).to eq(%w[exclude include fail_level format])
   end
 end

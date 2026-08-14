@@ -124,7 +124,14 @@ module Archbuddy
         "FirewallBreaches" => %w[escapes].freeze
       }.freeze
 
-      TOP_LEVEL_KEYS = %w[version todo_file all rules overrides calibration].freeze
+      # configurator W4 (C10): `boundary` is REGISTERED here but is NOT
+      # described here. Its grammar has exactly one producer — the `boundary`
+      # sub-schema of the engine's profile contract — and Config::BoundarySection
+      # validates against that producer directly. Listing the key merely stops
+      # the generic unknown-key check from claiming it, so the ONLY thing that
+      # can reject a key under `boundary:` is the schema's own
+      # additionalProperties.
+      TOP_LEVEL_KEYS = %w[version todo_file all rules overrides calibration boundary].freeze
       ALL_KEYS = %w[exclude include fail_level format].freeze
       CALIBRATION_KEYS = %w[
         source provenance latency_multiplier_per_log2_unit latency_multiplier_ci95
