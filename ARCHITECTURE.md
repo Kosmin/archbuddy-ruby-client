@@ -468,7 +468,7 @@ same format/gate/todo flags as `diff`.
 | `spec/fixtures/sample/` | Tiny Rails-shaped fixture (`OrdersController`, `Billing::Invoice < ApplicationRecord`) exercising each resolver tier. |
 | `spec/fixtures/report/` | `findings_fixture.yml` (1.0, no scores; deliberately-absurd `fan_in=42` to prove no-recompute) + `id_map_fixture.yml` (with a deliberately-absent `ext_` id to prove graceful de-anon) + `findings_v11_fixture.yml` (1.1 with both dimensions scored + hotspots) + `findings_v11_forward_na_fixture.yml` (1.1 with forward N/A) + `graph_fixture.yml` (opaque graph.yml edge list — nodes/edges incl. the absent `ext_` sink — for the dot/html graph render; the `db_op` node carries **no `sink_open`** — L3/v0.6 revert, a db_op is a plain COST-1 terminal, the field stays DECLARED-but-optional in the schema) + `findings_v13_connectivity_fixture.yml` (1.3, four-field `scores.connectivity` block — forward/reverse 0.003, scored_nodes 5, total_nodes 1672; no `verdict`) + `findings_v14_multiplexer_fixture.yml` (1.4 with a `scores.multiplexer_proxies` worst-first list) + `findings_v14_empty_smell_fixture.yml` (1.4 with an empty proxy list → the honest `(none)` note). |
 
-Run all: `bundle exec rspec` (1441 examples, 11 pending/env-gated, across the collect/cache/report/config/review/cli/backtest/docs suites; prefix with
+Run all: `bundle exec rspec` (1751 examples, 11 pending/env-gated, across the collect/cache/report/config/review/cli/backtest/docs suites; prefix with
 `RBENV_VERSION=ruby-3.4.2` if your shell doesn't auto-switch from `.ruby-version`). Requires the engine
 gem installed (`bundle install` — see the cross-repo doc; the metric-kernel spec loads the live engine
 `METRIC_KEYS`).

@@ -163,6 +163,11 @@ release. Two waves, both committed on the `feat/sink-concentrated-cost` branch:
 `DbOpSpec` write-specificity (symbol-keyed literal = specific; variable/splat/string-SQL = open_ended,
 the SAFE default), aggregated least-specific-wins, emitting ONLY `sink_open: bool` on `db_op` graph
 nodes (graph 1.2). No `sink_op`/`sink_fields` field; engine derives U from topology (`in_degree`).
+> **SUPERSEDED — historical record, not current behaviour.** `sink_open` capture was removed in
+> v0.6 ("a db_op is a plain COST-1 terminal"), so the client has not emitted it since. The named
+> constants no longer exist either: the AR vocabulary moved into the engine-shipped profile at
+> 0.12.0 and is now reached through `Ruby::Profile`, not `Vocab::`. Kept because it records what
+> that wave actually did.
 
 **W5 (reporter):** Adds `Scores::Connectivity` struct (CR-1 four-field shape: `forward`/`reverse`/
 `scored_nodes`/`total_nodes`, no `verdict`) parsed from findings 1.3 `scores.connectivity`. Threads
