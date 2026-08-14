@@ -98,7 +98,9 @@ module Archbuddy
         # for the same fragment set (the C1-1 parity contract). `#collect`'s public
         # return type (AdapterResult) is unchanged so `cli/collect.rb` keeps working.
         def assemble(fragments)
-          table = Ruby::SymbolTable.new(profile: Ruby::Profile.for(config.profile_id))
+          table = Ruby::SymbolTable.new(
+            profile: Ruby::Profile.for(config.profile_id, boundary_override: config.boundary_override)
+          )
           run_definition_pass(fragments, table)
           run_route_catalogue(fragments, table)   # W4: seed routed actions before entrypoints
           run_root_seeders(table, fragments, root) # v0.10 W1-B/W2-B: categorize ingress roots

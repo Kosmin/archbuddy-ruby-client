@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "set"
+require_relative "../../boundary_override"
 
 module Archbuddy
   module Collect
@@ -43,8 +44,14 @@ module Archbuddy
             end
 
             # @param id [String, nil] profile id; nil selects {DEFAULT_ID}
-            def for(id = nil)
-              memo[(id || DEFAULT_ID).to_s] ||= new(Profiles.load((id || DEFAULT_ID).to_s))
+            # @param boundary_override [Hash, nil] configurator W4 (C11): the
+            #   project's validated `boundary:` section. Part of the MEMO KEY, not
+            #   just an argument — two Profiles built from the same document under
+            #   different overrides are different vocabularies and must never
+            #   share a memo slot.
+            def for(id = nil, boundary_override: nil)
+              key = [(id || DEFAULT_ID).to_s, boundary_override]
+              memo[key] ||= new(Profiles.load(key.first), boundary_override: boundary_override)
             end
 
             # @api private — test seam; the shipped documents cannot change
@@ -78,7 +85,7 @@ module Archbuddy
           # empty-but-real index for the second.
           attr_reader :boundary
 
-          def initialize(document)
+          def initialize(document, boundary_override: nil)
             @document = document
             @id       = document.fetch("profile_id")
 
@@ -95,7 +102,10 @@ module Archbuddy
             load_scripts(framework["scripts"])
             load_cron(framework["cron"])
             load_egress(document["library"])
-            @boundary = document["boundary"]
+            # configurator W4 (C11): PURE DELEGATION. The merge rule (section-level
+            # merge, list-level replace) is BoundaryOverride's; this value object
+            # neither knows it nor branches on it.
+            @boundary = BoundaryOverride.merge(document["boundary"], boundary_override)
 
             freeze
           end

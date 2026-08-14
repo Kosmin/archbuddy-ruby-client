@@ -349,6 +349,13 @@ root is refused with an error naming the supported shape: separate roots
 already get separate `.archbuddy/` workspaces, so audit each component by
 running archbuddy at that component's root.
 
+A malformed `boundary:` **fails the `collect` run** (exit 1) with the offending
+key named — it is never ignored, because a silently dropped declaration emits a
+graph indistinguishable from a correct one. `collect` reads the `.archbuddy.yml`
+at the target root only (no ancestor walk), and records the override's digest in
+the machine-local collect manifest, so a cache built under one boundary is never
+served for a run under another.
+
 ## Worked example: linting a real committed cache
 
 ```sh

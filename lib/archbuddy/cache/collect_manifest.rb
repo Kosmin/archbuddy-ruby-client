@@ -8,6 +8,7 @@ require_relative "writer"
 require_relative "change_detector"
 require_relative "canonical_json"
 require_relative "../collect"
+require_relative "../collect/boundary_override"
 
 module Archbuddy
   module Cache
@@ -45,7 +46,7 @@ module Archbuddy
         doc = {
           "collector_version" => Reader::COLLECTOR_VERSION,
           "serializer_version" => Writer::SERIALIZER_VERSION,
-          "profile" => profile_stamp,
+          "profile" => profile_stamp(project_root),
           "files" => hashes
         }
 
@@ -74,7 +75,7 @@ module Archbuddy
         # would compare nil to nil for both a legacy manifest and a broken
         # producer, i.e. fail open in exactly the direction that reintroduces
         # the bug.
-        return false unless doc["profile"] == profile_stamp
+        return false unless doc["profile"] == profile_stamp(project_root)
 
         recorded = doc["files"]
         return false unless recorded.is_a?(Hash)
@@ -102,9 +103,24 @@ module Archbuddy
       # The identity of the vocabulary this collect ran against: the profile's
       # own declared id plus the SHA-256 of its shipped bytes, both read from
       # the producer (never recomputed, never retyped here).
-      def profile_stamp
+      #
+      # configurator W4 (C11) — THE CACHE-COLLISION GUARD. A project
+      # `boundary:` override IS vocabulary: it changes the emitted bytes while
+      # leaving the SHIPPED profile's digest untouched. Without this key, a run
+      # with an override and a run without would produce the same stamp and
+      # collide silently in the one `.archbuddy/` workspace a root has — the
+      # exact `.tsbuildinfo` failure mode the profile key above was added to
+      # close, one level up. The digest is BoundaryOverride's to compute; this
+      # method only asks for it.
+      #
+      # ABSENT STAYS ABSENT: the key is omitted entirely when there is no
+      # override, so a repo that never writes a `boundary:` key keeps producing
+      # a byte-identical manifest and is not force-invalidated once.
+      def profile_stamp(project_root)
         profile = Archbuddy::Collect::Adapters::Ruby::Profile.reference
-        { "id" => profile.id, "digest" => profile.digest }
+        stamp   = { "id" => profile.id, "digest" => profile.digest }
+        override = Archbuddy::Collect::BoundaryOverride.stamp(project_root)
+        override.nil? ? stamp : stamp.merge("boundary_override" => override)
       end
 
       # The same default-config enumeration the collect pipeline uses.

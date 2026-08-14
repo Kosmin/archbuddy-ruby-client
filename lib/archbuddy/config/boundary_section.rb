@@ -14,7 +14,7 @@ module Archbuddy
     # of the same canon, and the two would drift the first time the engine adds
     # a granularity. So this class does not describe the grammar at all — it
     # WRAPS the project's section in a minimal, schema-derived profile envelope
-    # and hands the whole document to `Contract::Validator`.
+    # and hands the whole document to the engine's `Contract::Validator`.
     #
     # THE STRUCTURAL CONSEQUENCE, WHICH IS THE POINT. Because validation is the
     # engine's JSON Schema and not this repo's `check_unknown_keys`, a project
@@ -89,10 +89,6 @@ module Archbuddy
       # user-facing config error.
       SCHEMA_SUFFIX = / in schema \S+\z/
 
-      # The engine's contract hub, reached through the one seam the collector
-      # already uses. Bound once here rather than spelled at each call site.
-      Contract = ArchitectureAuditor::Contract
-
       class << self
         # @param section [Object, nil] the raw value of the `boundary:` key
         # @return [Array<String>] zero or more errors, one string each. `nil`
@@ -103,12 +99,19 @@ module Archbuddy
           return [] if section.nil?
           return [MULTI_INSTANCE_ERROR] if section.is_a?(Array)
 
-          Contract::Validator.fully_validate(:profile, envelope(section)).map do |message|
+          contract::Validator.fully_validate(:profile, envelope(section)).map do |message|
             rewrite(message)
           end
         end
 
         private
+
+        # The engine's contract hub. Resolved LAZILY, not bound to a constant at
+        # load time: `archbuddy/config` is requirable on its own, and a load-time
+        # reference would make that require order-dependent on the engine.
+        def contract
+          ArchitectureAuditor::Contract
+        end
 
         # The minimal document that carries `section` to the profile schema.
         #
@@ -120,14 +123,14 @@ module Archbuddy
         # explicitly permits ("May carry all-empty (or absent) lists").
         def envelope(section)
           base = required_keys.to_h { |key| [key, {}] }
-          base["profile_schema_version"] = Contract::PROFILE_SCHEMA_VERSION
+          base["profile_schema_version"] = contract::PROFILE_SCHEMA_VERSION
           base["profile_id"]             = ENVELOPE_PROFILE_ID
           base.merge(KEY => section)
         end
 
         def required_keys
           @required_keys ||= JSON.parse(
-            File.read(Contract::Validator.schema_path(:profile))
+            File.read(contract::Validator.schema_path(:profile))
           ).fetch("required").freeze
         end
 

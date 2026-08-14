@@ -3,6 +3,7 @@
 require "dry/cli"
 require "fileutils"
 require_relative "../collect"
+require_relative "../collect/boundary_override"
 require_relative "../collect/engine_preflight"
 require_relative "../cache/checker"
 require_relative "../cache/collect_manifest"
@@ -77,7 +78,13 @@ module Archbuddy
           entrypoint_strategy: entrypoints,
           entrypoint_patterns: entrypoint_pattern,
           probes:              probes,
-          root_types:          root_types
+          root_types:          root_types,
+          # configurator W4 (C11): the ONE delegation. Discovery, validation,
+          # merge and the FAILURE POLICY all belong to BoundaryOverride (which
+          # mirrors EnginePreflight above: a malformed override fails the run
+          # naming the offending key, and never degrades to "ignore the file
+          # and carry on"). This command owns no part of that.
+          boundary_override:   Archbuddy::Collect::BoundaryOverride.load!(target_root)
         )
 
         adapter        = Archbuddy::Collect::Registry.for(language).new(path, config)

@@ -16,7 +16,7 @@ module Archbuddy
       ENTRYPOINT_STRATEGIES = %i[default controllers all_public none].freeze
 
       attr_reader :language, :ignore, :entrypoint_strategy, :entrypoint_patterns, :probes, :root_types,
-                  :profile_id
+                  :profile_id, :boundary_override
 
       def initialize(
         language: "ruby",
@@ -25,7 +25,8 @@ module Archbuddy
         entrypoint_patterns: [],
         probes: :all,
         root_types: :all,
-        profile_id: nil
+        profile_id: nil,
+        boundary_override: nil
       )
         @language            = language
         @ignore              = Array(ignore)
@@ -38,6 +39,12 @@ module Archbuddy
         # NOT defaulted to a literal here because the set of valid ids is the
         # ENGINE's to declare, not this value object's.
         @profile_id          = profile_id
+        # configurator W4 (C11): the PROJECT's validated `boundary:` section, or
+        # nil. Carried as OPAQUE DATA — this value object never reads inside it.
+        # Discovery, validation, merge and failure policy all belong to
+        # Collect::BoundaryOverride; the Config only ferries the result to the
+        # adapter, exactly as it ferries `profile_id`.
+        @boundary_override   = boundary_override
       end
 
       private
