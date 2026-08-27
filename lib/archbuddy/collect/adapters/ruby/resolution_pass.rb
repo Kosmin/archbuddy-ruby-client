@@ -238,10 +238,12 @@ module Archbuddy
           # path. Only consulted by the rake mirror push (RakeDsl.rake_file?
           # guard) — nil (the historical construction) simply never
           # recognizes rake, leaving all prior behavior untouched.
-          def initialize(symbol_table, accumulator, probes: [], rel_file: nil)
+          def initialize(symbol_table, accumulator, probes: [], rel_file: nil, reflection: nil)
             @table     = symbol_table
             @acc       = accumulator
-            @resolver  = RubyResolver.new(symbol_table, probes: probes)
+            # OPTIONAL boot-reflection table, forwarded to the resolver's R3.5
+            # tier. nil (the historical construction) leaves every rule untouched.
+            @resolver  = RubyResolver.new(symbol_table, probes: probes, reflection: reflection)
             @rel_file  = rel_file
             @namespace = []
             @method_stack = [] # fq symbols of enclosing methods

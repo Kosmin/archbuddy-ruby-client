@@ -16,6 +16,7 @@ require_relative "ruby/probe_registry"
 require_relative "ruby/root_seeder_registry"
 require_relative "ruby/route_catalogue"
 require_relative "ruby/arity_resolver"
+require_relative "../../reflect"
 require_relative "ruby/egress_role_aggregate"
 
 module Archbuddy
@@ -56,6 +57,40 @@ module Archbuddy
         #
         # @param mode [Symbol] :full | :incremental
         # @param base_ref [String, nil] optional git base ref (fast-path pre-filter)
+        # The boot-reflection table, or nil when reflection did not run.
+        #
+        # Loaded from `.archbuddy/reflection.json` under the project root (the
+        # path the standalone probe writes to), or from an explicit
+        # `reflection_path` in config. Memoised, and DELIBERATELY forgiving: a
+        # missing or malformed manifest yields nil rather than raising, because
+        # reflection ENRICHES the static graph and must never be able to fail a
+        # collection that would otherwise succeed.
+        def reflection_table
+          return @reflection_table if defined?(@reflection_table)
+
+          @reflection_table = build_reflection_table
+        end
+
+        def build_reflection_table
+          path = (config.respond_to?(:reflection_path) && config.reflection_path) ||
+                 File.join(root, ".archbuddy", "reflection.json")
+          return nil unless File.file?(path)
+
+          require "json"
+          manifest = JSON.parse(File.read(path))
+          return nil unless manifest.is_a?(Hash) && manifest["methods"].is_a?(Array)
+
+          macros = Archbuddy::Reflect::MacroScan.scan(Dir.glob(File.join(root, "**", "*.rb")))
+          table = Archbuddy::Reflect::MethodTable.from_manifest(manifest, macro_calls: macros)
+          warn "note: reflection loaded — #{table.stats[:methods]} methods, " \
+               "#{table.stats[:proven_crossings]} proven crossings, #{table.stats[:relations]} relations"
+          table
+        rescue StandardError => e
+          warn "note: reflection manifest at #{path} could not be used (#{e.class}); " \
+               "continuing with static collection only"
+          nil
+        end
+
         def collect(mode: :full, base_ref: nil)
           files = Ruby::FileEnumerator.new(root, config).files
 
@@ -259,7 +294,8 @@ module Archbuddy
           probes = Ruby::ProbeRegistry.for(config)
           fragments.each do |fragment|
             fragment.parsed_value.accept(
-              Ruby::ResolutionPass.new(table, acc, probes: probes, rel_file: fragment.rel_file)
+              Ruby::ResolutionPass.new(table, acc, probes: probes, rel_file: fragment.rel_file,
+                                       reflection: reflection_table)
             )
           end
         end

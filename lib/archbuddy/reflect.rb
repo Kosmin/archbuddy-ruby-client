@@ -6,6 +6,7 @@ require_relative "reflect/registry"
 require_relative "reflect/runner"
 require_relative "reflect/merge"
 require_relative "reflect/method_table"
+require_relative "reflect/macro_scan"
 
 module Archbuddy
   # BOOT REFLECTION (v0.13-reflect).

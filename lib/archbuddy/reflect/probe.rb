@@ -28,7 +28,16 @@ module ArchbuddyReflectProbe
   #   would dwarf the app).
   # @return [Hash] the manifest
   def capture(root)
-    root = File.expand_path(root)
+    # realpath, NOT expand_path. `source_location` reports the REAL path, so a
+    # project reached through a symlink (macOS /tmp -> /private/tmp, symlinked
+    # home or code dirs, network mounts) would compare false against an
+    # expand_path root and reflect ZERO methods — silently, since an empty
+    # manifest is indistinguishable from "this app has no classes".
+    root = begin
+      File.realpath(root)
+    rescue StandardError
+      File.expand_path(root)
+    end
     classes = each_named_module.select { |m| touches?(m, root) }
     entries = classes.flat_map { |mod| methods_for(mod, root) }.compact
     {
@@ -65,19 +74,53 @@ module ArchbuddyReflectProbe
     false
   end
 
+  # Methods the class OWNS, including those supplied by generated ancestor
+  # modules.
+  #
+  # `instance_methods(false)` alone is not enough. Rails does not define an
+  # association on the model — it defines it on a `GeneratedAssociationMethods`
+  # module that it includes, and the same for schema-derived attribute methods.
+  # Those are exactly the methods boot reflection exists to find, so a
+  # false-only walk would miss the entire point on the framework that motivates
+  # this feature.
+  #
+  # We therefore also sweep ancestor modules that are ANONYMOUS or whose name
+  # marks them as generated. That targets the metaprogramming case without
+  # sweeping in every gem mixin a class happens to include.
   def own_methods(mod)
-    inst = (mod.instance_methods(false) +
-            mod.private_instance_methods(false) +
-            mod.protected_instance_methods(false)).map { |n| [:instance, n] }
+    sources = [mod] + generated_ancestors(mod)
+    inst = sources.flat_map do |m|
+      m.instance_methods(false) + m.private_instance_methods(false) +
+        m.protected_instance_methods(false)
+    end.uniq.map { |n| [:instance, n] }
     sing = mod.singleton_methods(false).map { |n| [:singleton, n] }
     inst + sing
   rescue StandardError
     []
   end
 
+  GENERATED_MODULE = /Generated|_methods\z/i.freeze
+
+  def generated_ancestors(mod)
+    mod.ancestors.reject { |a| a.equal?(mod) }.select do |a|
+      next false unless a.is_a?(Module) && !a.is_a?(Class)
+
+      nm = safe_name(a)
+      nm.nil? || nm.match?(GENERATED_MODULE)
+    end
+  rescue StandardError
+    []
+  end
+
   def location_for(mod, kind, name)
-    um = kind == :instance ? mod.instance_method(name) : mod.singleton_class.instance_method(name)
-    um.source_location
+    um = unbound(mod, kind, name)
+    um&.source_location
+  rescue StandardError
+    nil
+  end
+
+  def unbound(mod, kind, name)
+    kind == :instance ? mod.instance_method(name) : mod.singleton_class.instance_method(name)
   rescue StandardError
     nil
   end
@@ -94,7 +137,9 @@ module ArchbuddyReflectProbe
       # precisely the methods this whole feature exists to capture. Ownership is
       # the correct test; the site is recorded as data (and may legitimately be
       # outside the root, which the consumer uses to spot gem-generated methods).
-      um = kind == :instance ? mod.instance_method(name) : mod.singleton_class.instance_method(name)
+      um = unbound(mod, kind, name)
+      next if um.nil?
+
       {
         "class"      => cls,
         "name"       => name.to_s,
@@ -103,6 +148,7 @@ module ArchbuddyReflectProbe
         "external_site" => loc ? !loc[0].to_s.start_with?(root) : nil,
         "line"       => loc ? loc[1] : nil,
         "arity"      => safe_arity(um),
+        "owner"      => safe_name(um.owner),
         "visibility" => visibility_of(mod, kind, name)
       }
     end

@@ -29,18 +29,33 @@ module Archbuddy
         def trivial? = kind == :generated_trivial
       end
 
-      def self.from(manifest, entries)
-        by_kind = entries.to_h { |e| [[e.cls, e.name], e] }
+      # Built from the manifest ALONE. `proven_crossing?` needs only
+      # `external_site`, which the probe records directly, so the primary use —
+      # upgrading an unresolved call into a proven one — has no dependency on
+      # the static pass. `macro_calls` is OPTIONAL enrichment: supplying it lets
+      # a has_many product be typed as a DATABASE crossing rather than a generic
+      # one. Absent, the method is still a proven crossing, just untyped — which
+      # is exactly what the generic "exit" category is for.
+      def self.from_manifest(manifest, macro_calls: {})
         table = Hash.new { |h, k| h[k] = {} }
         (manifest["methods"] || []).each do |m|
-          e = by_kind[[m["class"], m["name"]]]
+          macro = macro_calls.dig(m["class"], m["name"])
           table[m["class"]][m["name"]] = Fact.new(
             cls: m["class"], name: m["name"], scope: m["scope"],
             file: m["file"], line: m["line"], external_site: m["external_site"],
-            kind: e&.kind, macro: e&.macro
+            kind: kind_for(macro), macro: macro
           )
         end
         new(table)
+      end
+
+      def self.kind_for(macro)
+        return nil if macro.nil?
+        return :generated_relation if Merge::RELATION_MACROS.include?(macro)
+        return :generated_trivial if Merge::TRIVIAL_MACROS.include?(macro)
+        return :generated_delegation if Merge::DELEGATION_MACROS.include?(macro)
+
+        :generated_other
       end
 
       def initialize(table = {})
