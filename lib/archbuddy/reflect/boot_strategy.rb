@@ -58,8 +58,28 @@ module Archbuddy
       end
 
       def spec(_root)
+        # eager_load! is attempted first, then a per-file sweep with an
+        # INDIVIDUAL rescue.
+        #
+        # Rails' own eager_load! aborts the entire sweep on the first constant
+        # that raises — and on a real application that happens routinely for
+        # reasons unrelated to the code being analysed: a model whose table is
+        # absent from the local database, a class-body `scope` that touches the
+        # schema, an initializer needing a service that is not running. Losing
+        # every remaining class to one such failure would make reflection useless
+        # exactly where it is most valuable. Sweeping per file keeps everything
+        # that CAN load, and the probe reports what could not.
         { requires: ["config/environment"],
-          eager: "Rails.application.eager_load! if defined?(Rails)",
+          eager: <<~RUBY.strip,
+            (Rails.application.eager_load! if defined?(Rails)) rescue nil
+            Dir.glob(File.join(root, "app", "**", "*.rb")).sort.each do |f|
+              begin
+                require f
+              rescue Exception
+                nil
+              end
+            end
+          RUBY
           command: nil }
       end
     end

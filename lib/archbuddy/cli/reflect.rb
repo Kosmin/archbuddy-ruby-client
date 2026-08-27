@@ -28,14 +28,17 @@ module Archbuddy
       option :require, type: :array, default: [], desc: "Explicit file(s) to require before reflecting"
       option :eager, desc: "Ruby expression evaluated after the requires (e.g. an eager-load hook)"
       option :timeout, default: "300", desc: "Seconds to allow the app to boot"
+      option :exec_prefix, desc: "Wrap the boot (e.g. 'devbox run --', 'nix develop -c'); auto-detected"
 
-      def call(path:, boot: nil, command: nil, require: [], eager: nil, timeout: "300", **)
+      def call(path:, boot: nil, command: nil, require: [], eager: nil, timeout: "300",
+               exec_prefix: nil, **)
         root = File.expand_path(path)
         abort "archbuddy reflect: #{root} is not a directory" unless File.directory?(root)
 
         config = { "boot" => boot, "command" => command, "requires" => require, "eager" => eager }.compact
         strategy = Archbuddy::Reflect::Registry.for(root, config: config)
-        result = Archbuddy::Reflect::Runner.new(root, strategy, timeout: timeout.to_i).run
+        result = Archbuddy::Reflect::Runner.new(root, strategy, timeout: timeout.to_i,
+                                                exec_prefix: exec_prefix).run
 
         # A boot failure is NOT fatal to the tool, but it IS fatal to this
         # command: there is nothing to write. Exit non-zero so a CI step fails

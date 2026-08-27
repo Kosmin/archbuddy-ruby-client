@@ -23,17 +23,34 @@ module Archbuddy
 
       PROBE = File.expand_path("probe.rb", __dir__)
 
-      def initialize(root, strategy, timeout: 300, logger: nil)
+      # @param exec_prefix [String, nil] a command that wraps the boot, for
+      #   projects whose toolchain is not on the ambient PATH — `devbox run --`,
+      #   `nix develop -c`, `asdf exec`, `docker compose run --rm app`. The probe
+      #   must execute in the TARGET's Ruby (a Rails app may be on 2.7 while
+      #   archbuddy runs on 3.4), and that Ruby frequently only exists inside such
+      #   an environment. Auto-detected from the project when not given.
+      def initialize(root, strategy, timeout: 300, logger: nil, exec_prefix: nil)
         @root = File.expand_path(root)
         @strategy = strategy
         @timeout = timeout
         @logger = logger || ->(msg) { warn msg }
+        @exec_prefix = exec_prefix || self.class.detect_prefix(@root)
+      end
+
+      # Detection is a convenience only — an explicit prefix always wins, and a
+      # project with none simply runs bare, exactly as before.
+      def self.detect_prefix(root)
+        return "devbox run --" if File.file?(File.join(root, "devbox.json"))
+        return "nix develop -c" if File.file?(File.join(root, "flake.nix"))
+
+        nil
       end
 
       def run
         out = File.join(Dir.mktmpdir("archbuddy-reflect"), "reflection.json")
         cmd = command_for(out)
-        @logger.call("reflect: booting via #{@strategy.key} (#{@strategy.describe(@root)})")
+        via = @exec_prefix ? "#{@strategy.key} inside `#{@exec_prefix}`" : @strategy.key.to_s
+        @logger.call("reflect: booting via #{via} (#{@strategy.describe(@root)})")
         # stderr is CAPTURED, not discarded: a skip that cannot say WHY is only
         # half-loud, and the boot error is the single most useful thing a user
         # needs in order to fix their reflect config.
@@ -59,7 +76,8 @@ module Archbuddy
       # failure would look like "the app does not boot" when the real cause is
       # our own assumption.
       def ruby_prefix
-        File.file?(File.join(@root, "Gemfile.lock")) ? "bundle exec ruby" : "ruby"
+        base = File.file?(File.join(@root, "Gemfile.lock")) ? "bundle exec ruby" : "ruby"
+        @exec_prefix ? "#{@exec_prefix} #{base}" : base
       end
 
       def command_for(out)
@@ -73,7 +91,16 @@ module Archbuddy
         script << "ENV['ARCHBUDDY_REFLECT_ROOT'] = root\n"
         script << "ENV['ARCHBUDDY_REFLECT_OUT'] = #{out.dump}\n"
         script << "require #{PROBE.dump}\n"
-        "#{ruby_prefix} -e #{Shellwords.escape(script)}"
+
+        # Written to a FILE rather than passed via `ruby -e`.
+        # An exec wrapper re-splits its arguments, so a multi-line -e script is
+        # mangled before Ruby ever sees it — observed with `devbox run --`, which
+        # broke the script at the first newline and reported only a syntax caret.
+        # A file has no quoting surface at all and behaves identically under every
+        # wrapper.
+        path = "#{out}.boot.rb"
+        File.write(path, script)
+        "#{ruby_prefix} #{Shellwords.escape(path)}"
       end
     end
   end
