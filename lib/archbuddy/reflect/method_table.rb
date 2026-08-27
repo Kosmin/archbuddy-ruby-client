@@ -62,6 +62,30 @@ module Archbuddy
         @table = table
       end
 
+      # name => the single class declaring it as a RELATION, when exactly one does.
+      #
+      # WHY THIS IS SAFE HERE AND NOT IN GENERAL. Bare name lookup across all
+      # methods is hopeless — `call` is declared by 129 classes on a real service,
+      # so the name carries no information. RELATION names are different in kind:
+      # they are domain nouns (`loyalty_programs`, `rpush_android_app`), and 85%
+      # of them (51 of 60, measured) are declared by exactly ONE class. The
+      # uniqueness test is applied per-name, so the 15% that collide are EXCLUDED
+      # rather than guessed at — an ambiguous name simply stays unresolved.
+      def unambiguous_relations
+        @unambiguous_relations ||= begin
+          by_name = Hash.new { |h, k| h[k] = [] }
+          @table.each do |cls, methods|
+            methods.each { |name, fact| by_name[name] << cls if fact.relation? }
+          end
+          by_name.filter_map { |name, classes| [name, classes.first] if classes.uniq.size == 1 }.to_h
+        end
+      end
+
+      # The owning class when `name` is a relation on exactly one class, else nil.
+      def sole_relation_owner(name)
+        unambiguous_relations[name]
+      end
+
       def empty? = @table.empty?
 
       # Exact lookup: does THIS class expose THIS method, and what do we know?

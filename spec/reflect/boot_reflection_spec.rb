@@ -151,7 +151,7 @@ RSpec.describe "reflection-driven resolution (R3.5)" do
 
   it "types a has_many product as a DATABASE crossing" do
     r = resolve(table_with(fact(kind: :generated_relation)))
-    expect(r.tier).to eq(:reflect_proven_crossing)
+    expect(r.tier).to eq(:reflect_self)
     expect(r.kind).to eq("db_op")
   end
 
@@ -163,12 +163,32 @@ RSpec.describe "reflection-driven resolution (R3.5)" do
 
   it "does NOT claim a crossing when the method is defined inside the project" do
     r = resolve(table_with(fact(kind: :real_def, external_site: false)))
-    expect(r.tier).not_to eq(:reflect_proven_crossing)
+    expect(r.tier.to_s).not_to start_with("reflect_")
   end
 
   it "behaves exactly as before when reflection did not run (enrichment, not prerequisite)" do
     r = resolve(nil)
-    expect(r.tier).not_to eq(:reflect_proven_crossing)
+    expect(r.tier.to_s).not_to start_with("reflect_")
+  end
+
+  it "resolves an ASSOCIATION through a TYPED receiver, not just self" do
+    # `order.line_items` is a typed LOCAL receiver — the self tier can never see
+    # it, which is why 69 relations produced zero db_op nodes before R4.7.
+    table = Archbuddy::Reflect::MethodTable.new(
+      "Order" => { "line_items" => Archbuddy::Reflect::MethodTable::Fact.new(
+        cls: "Order", name: "line_items", scope: "instance", file: "gems/ar.rb",
+        line: 4, external_site: true, kind: :generated_relation, macro: "has_many") }
+    )
+    typed = Class.new do
+      define_method(:profile) { Object.new.tap { |o| def o.method_missing(n, *) = n.to_s.end_with?("?") ? false : nil
+                                                     def o.respond_to_missing?(*) = true } }
+      def method?(_) = false
+      def active_record_class?(_) = false
+    end.new
+    r = RESOLVER.new(typed, reflection: table).resolve(
+      CTX.new(name: "line_items", receiver: nil, enclosing_class: "Order",
+              table: typed, node: nil, type_scope: nil))
+    expect(r.kind).to eq("db_op")
   end
 
   it "emits only words the producer constant allows" do

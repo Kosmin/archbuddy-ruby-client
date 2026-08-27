@@ -152,20 +152,9 @@ module Archbuddy
             # by construction, a call that leaves the analysed boundary: that is
             # a PROVEN crossing, not an assumed one, which is what makes stamping
             # it honest here while the unresolved catch-all sink must stay bare.
-            if @reflection && self_receiver?(ctx.receiver) && ctx.enclosing_class
-              fact = @reflection.fact(ctx.enclosing_class, name)
-              if fact&.proven_crossing?
-                return Resolution.new(
-                  tier: :reflect_proven_crossing, action: :external,
-                  target_fq: "#{ctx.enclosing_class}##{name}",
-                  # A relation (has_many/belongs_to) crosses to the DATABASE and
-                  # is typed as such; anything else is a proven crossing whose
-                  # channel we do not know, which is exactly what the generic
-                  # "exit" category exists to say.
-                  kind: fact.relation? ? "db_op" : "external",
-                  egress_category: fact.relation? ? nil : :exit
-                )
-              end
+            if self_receiver?(ctx.receiver) && ctx.enclosing_class &&
+               (hit = reflect_crossing(ctx.enclosing_class, name, :reflect_self))
+              return hit
             end
 
             # R4: app `Const.method` / `Const::Path.method` -> known method node.
@@ -184,6 +173,14 @@ module Archbuddy
 
               return edge(:const_singleton, singleton_fq) if @table.method?(singleton_fq)
               return edge(:const_instance, instance_fq)    if @table.method?(instance_fq)
+
+              # R4.6: the constant is a known class but the method is not in the
+              # parsed table — inherited, mixed in, or macro-generated. Reflection
+              # knows the class's COMPLETE loaded table and whether the definition
+              # lives in a gem.
+              if (hit = reflect_crossing(const_fq, name, :reflect_const))
+                return hit
+              end
             end
 
             # R4.5: TYPED variable / ivar / memoized-accessor / inline-`Const.new`
@@ -213,6 +210,36 @@ module Archbuddy
               singleton_fq = "#{const_fq}.#{name}"
               return edge(:typed_instance, instance_fq)   if @table.method?(instance_fq)
               return edge(:typed_singleton, singleton_fq) if @table.method?(singleton_fq)
+
+              # R4.7: the receiver's type is PROVABLE but the method is not in the
+              # parsed table. This is the ActiveRecord ASSOCIATION path —
+              # `order.line_items` is a typed LOCAL receiver, never `self`, so the
+              # self tier could never see it. Measured on a real service: 69
+              # relations existed in the manifest and produced ZERO db_op nodes
+              # until this tier existed.
+              if (hit = reflect_crossing(const_fq, name, :reflect_typed))
+                return hit
+              end
+            end
+
+            # R4.8: an ActiveRecord ASSOCIATION reached through a receiver whose
+            # type we cannot prove — `order.line_items` where `order` came from a
+            # parameter or a query, which is the ordinary case. R4.7 cannot fire
+            # (no provable type) and the association would otherwise vanish into
+            # the unresolved sink, which is why 69 known relations produced ZERO
+            # db_op nodes.
+            #
+            # Resolved by NAME, but only under a strict uniqueness guard: the name
+            # must be declared as a relation by exactly ONE class in the whole
+            # corpus. Bare name lookup is worthless in general (`call` is declared
+            # by 129 classes), but relation names are domain nouns and 85% are
+            # unique. A colliding name is left UNRESOLVED rather than guessed.
+            if @reflection && !self_receiver?(ctx.receiver) &&
+               (owner = @reflection.sole_relation_owner(name))
+              return Resolution.new(
+                tier: :reflect_relation_by_name, action: :external,
+                target_fq: "#{owner}##{name}", kind: "db_op"
+              )
             end
 
             # R5: framework probes (P1). Recognized framework dynamic-dispatch
@@ -240,6 +267,28 @@ module Archbuddy
           # seam (configurator W2). Read off the table rather than held as a
           # second ivar so the resolver and the table can never disagree about
           # which profile is in force.
+          # Boot-reflection crossing lookup, shared by the self / const / typed
+          # tiers. Returns a Resolution ONLY for a PROVEN crossing — a method
+          # owned by `cls` whose definition lives outside the project tree. Never
+          # infers from the name, and returns nil when reflection did not run.
+          #
+          # A relation (has_many/belongs_to) crosses to the DATABASE and is typed
+          # db_op. Any other gem-defined method is a crossing whose channel is
+          # unknown, which is precisely what the generic "exit" category says.
+          def reflect_crossing(cls, name, tier)
+            return nil unless @reflection && cls
+
+            fact = @reflection.fact(cls, name)
+            return nil unless fact&.proven_crossing?
+
+            Resolution.new(
+              tier: tier, action: :external,
+              target_fq: "#{cls}##{name}",
+              kind: fact.relation? ? "db_op" : "external",
+              egress_category: fact.relation? ? nil : :exit
+            )
+          end
+
           def profile
             @table.profile
           end
