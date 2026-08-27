@@ -196,3 +196,62 @@ RSpec.describe "reflection-driven resolution (R3.5)" do
     expect(ArchitectureAuditor::Contract::TERMINAL_KINDS).to include(r.egress_category.to_s)
   end
 end
+
+RSpec.describe "reflection resolves IN-APP self-calls (the mixin case)" do
+  RES = Archbuddy::Collect::Adapters::Ruby::RubyResolver
+  C   = RES::CallContext
+
+  def null_profile
+    o = Object.new
+    def o.respond_to_missing?(*) = true
+    def o.method_missing(n, *) = n.to_s.end_with?("?") ? false : nil
+    o
+  end
+
+  # A symbol table that knows ONLY the module's method — never the class's.
+  # That is precisely the mixin situation: `Order` responds to `track!` because
+  # it includes Concerns::Trackable, and static parsing cannot see the link.
+  def table_knowing(fq)
+    p = null_profile
+    Class.new do
+      define_method(:profile) { p }
+      define_method(:known) { fq }
+      def method?(x) = x == known
+      def active_record_class?(_) = false
+    end.new
+  end
+
+  def fact(owner:, external:)
+    Archbuddy::Reflect::MethodTable::Fact.new(
+      cls: "Order", name: "track!", scope: "instance", file: "app/concerns/trackable.rb",
+      line: 3, external_site: external, kind: nil, macro: nil, owner: owner
+    )
+  end
+
+  def resolve(table, f)
+    refl = Archbuddy::Reflect::MethodTable.new("Order" => { "track!" => f })
+    RES.new(table, reflection: refl)
+       .resolve(C.new(name: "track!", receiver: nil, enclosing_class: "Order",
+                      table: table, node: nil, type_scope: nil))
+  end
+
+  it "draws the edge to the DEFINING MODULE, which static analysis cannot reach" do
+    r = resolve(table_knowing("Concerns::Trackable#track!"),
+                fact(owner: "Concerns::Trackable", external: false))
+    expect(r.action).to eq(:edge)
+    expect(r.target_fq).to eq("Concerns::Trackable#track!")
+  end
+
+  it "does NOT invent an edge when the owner's node was never parsed" do
+    r = resolve(table_knowing("something::Else#nope"),
+                fact(owner: "Concerns::Trackable", external: false))
+    expect(r.action).not_to eq(:edge)
+  end
+
+  it "still treats a gem-defined method as an exit, not an in-app edge" do
+    r = resolve(table_knowing("Concerns::Trackable#track!"),
+                fact(owner: "Concerns::Trackable", external: true))
+    expect(r.action).to eq(:external)
+    expect(r.egress_category).to eq(:exit)
+  end
+end

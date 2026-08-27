@@ -244,7 +244,7 @@ RSpec.describe "Grape mount-tree probe (W3)" do
       expect(id_for(result, "NotDefinedAnywhere#GET[0]")).to be_nil
       # The mount site resolves to <external>, not a fabricated edge.
       go_id  = id_for(result, "Api#GET[0]")
-      ext_id = id_for(result, "<external>")
+      ext_id = result.id_map["ids"].find { |_i, d| d["symbol"].to_s.start_with?("<boundary:unknown:") }&.first
       expect(result.graph["edges"].any? { |e| e["from"] == go_id && e["to"] == ext_id }).to be(true)
     end
   end

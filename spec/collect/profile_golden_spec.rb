@@ -64,9 +64,13 @@ RSpec.describe "profile migration golden" do
     end
   end
 
-  # `add_external_sinks` mints the generic sink unconditionally, so ONE
-  # external node is the honest floor for a definition-free capture — not zero.
-  it "collects a definition-free root to a single external sink, no nodes, no edges, no entrypoints" do
+  # INVERTED (v0.13-locality). The old floor was ONE, because `add_external_sinks`
+  # minted the generic sink UNCONDITIONALLY — a node emitted whether or not
+  # anything was unresolved. That node is gone: a boundary is minted only by an
+  # actual unresolved call. A file with no definitions and no calls therefore
+  # yields NOTHING, and zero is now the honest floor. The change is the point —
+  # the old floor was a fabricated node, not a finding.
+  it "collects a definition-free root to NOTHING — no sink, no nodes, no edges, no entrypoints" do
     Dir.mktmpdir("archbuddy-golden-bare") do |dir|
       File.write(File.join(dir, "bare.rb"), "# no definitions here\n")
 
@@ -77,7 +81,7 @@ RSpec.describe "profile migration golden" do
         .not_to raise_error
 
       expect(result.nodes.count { |n| n.kind.to_s == "function" }).to eq(0)
-      expect(result.nodes.count { |n| n.kind.to_s == "external" }).to eq(1)
+      expect(result.nodes.count { |n| n.kind.to_s == "external" }).to eq(0)
       expect(result.edges).to be_empty
       expect(result.entrypoints).to be_empty
     end

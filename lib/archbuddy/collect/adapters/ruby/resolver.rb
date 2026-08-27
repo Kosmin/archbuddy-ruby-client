@@ -279,8 +279,35 @@ module Archbuddy
             return nil unless @reflection && cls
 
             fact = @reflection.fact(cls, name)
-            return nil unless fact&.proven_crossing?
+            return nil unless fact
 
+            return reflect_exit(fact, cls, name, tier) if fact.proven_crossing?
+
+            reflect_internal(fact, tier)
+          end
+
+          # The method is owned by the class but DEFINED INSIDE the project: a
+          # real in-app edge, not a crossing.
+          #
+          # This is the bulk of what reflection is worth and it was previously
+          # dropped: R3 resolves a receiverless call only against the enclosing
+          # class's OWN parsed methods, so anything INHERITED or MIXED IN falls
+          # through. Measured on a real service, 8,549 self-call sites (25% of ALL
+          # call sites) are resolvable this way — more than the entire resolved
+          # edge count of the graph before it.
+          #
+          # The edge is emitted ONLY when the defining owner's method node
+          # actually exists in the symbol table. Reflection says WHERE the method
+          # lives; it never licenses inventing a node that was never parsed.
+          def reflect_internal(fact, tier)
+            target = fact.target_fq
+            return nil if target.nil?
+            return nil unless @table.method?(target)
+
+            edge(:"#{tier}_internal", target)
+          end
+
+          def reflect_exit(fact, cls, name, tier)
             Resolution.new(
               tier: tier, action: :external,
               target_fq: "#{cls}##{name}",

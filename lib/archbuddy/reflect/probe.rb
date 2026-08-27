@@ -19,7 +19,73 @@
 # a real `def customer=` and an `attr_accessor :customer` are indistinguishable
 # by name but differ by source line.
 module ArchbuddyReflectProbe
-  VERSION = "1"
+  VERSION = "2"
+
+  # CONSTANT PROVENANCE — which constants this application defines, and from
+  # which file. This is what makes "is this receiver app code or an exit?"
+  # a FACT rather than an inference, and unlike method names, constants are
+  # unique addresses so the answer is unambiguous.
+  #
+  # Four sources, all OPTIONAL and additive. None is required, because no single
+  # one is universal:
+  #   * TracePoint(:class) — the INTERPRETER reporting every class/module body it
+  #     opens, with the file. Works under Zeitwerk, the classic autoloader, bare
+  #     `require`, or no framework at all. This is the only universal source, and
+  #     the reason we do not hook a specific autoloader: a real Rails 6.1 app was
+  #     measured on `autoloader: :classic`, where a Zeitwerk hook returns NOTHING.
+  #   * Zeitwerk    — `all_expected_cpaths` additionally covers constants that
+  #     were never loaded, which execution alone cannot see.
+  #   * classic     — ActiveSupport::Dependencies.autoloaded_constants.
+  #   * $LOADED_FEATURES — the universal floor: every file actually loaded.
+  CONSTANTS = {}
+
+  # Must be enabled BEFORE the application is required, or the class bodies have
+  # already run and the events are gone.
+  def self.watch_constants!
+    @tp ||= TracePoint.new(:class) do |t|
+      name = (t.self.name rescue nil)
+      # ALL definition sites, not just the first.
+      #
+      # A Rails engine defines `User`, and the host application REOPENS it — both
+      # are real definitions of the same constant. Recording only the first made
+      # every such class look like engine code, because the engine loads first:
+      # measured, that misclassified User/Merchant/Purchase/Reward/Membership —
+      # the core domain models, 300+ call sites — as EXITS, truncating the graph
+      # at its most connected nodes. A constant is app code if ANY of its
+      # definition sites is in the app.
+      if name
+        (CONSTANTS[name] ||= []) << t.path unless CONSTANTS[name]&.include?(t.path)
+      end
+    end
+    @tp.enable
+    @tp
+  end
+
+  def self.stop_watching!
+    @tp&.disable
+  end
+
+  def self.zeitwerk_cpaths
+    return {} unless defined?(::Zeitwerk::Registry)
+
+    loaders = (::Zeitwerk::Registry.loaders rescue [])
+    loaders.each_with_object({}) do |l, acc|
+      next unless l.respond_to?(:all_expected_cpaths)
+
+      (l.all_expected_cpaths rescue {}).each { |file, cpath| acc[cpath] ||= file.to_s }
+    end
+  rescue StandardError
+    {}
+  end
+
+  def self.classic_cpaths
+    return {} unless defined?(::ActiveSupport::Dependencies)
+    return {} unless ::ActiveSupport::Dependencies.respond_to?(:autoloaded_constants)
+
+    (::ActiveSupport::Dependencies.autoloaded_constants || []).each_with_object({}) { |c, acc| acc[c] ||= nil }
+  rescue StandardError
+    {}
+  end
 
   module_function
 
@@ -46,8 +112,44 @@ module ArchbuddyReflectProbe
       "ruby"        => RUBY_VERSION,
       "captured_at" => Time.now.utc.iso8601,
       "classes"     => classes.map { |m| safe_name(m) }.compact.sort,
+      "constants"   => constant_provenance(root),
+      "loaded_files" => $LOADED_FEATURES.select { |f| app_path?(f, root) }.map { |f| relative(f, root) },
       "methods"     => entries
     }
+  end
+
+  # cpath => { "file" => path|nil, "app" => bool }. Merged from every available
+  # source; TracePoint wins because it observed the definition happen.
+  def constant_provenance(root)
+    merged = Hash.new { |h, k| h[k] = [] }
+    zeitwerk_cpaths.each { |cpath, file| merged[cpath] << file if file }
+    classic_cpaths.each  { |cpath, file| merged[cpath] << file if file }
+    CONSTANTS.each       { |cpath, files| merged[cpath].concat(Array(files)) }
+    merged.each_with_object({}) do |(cpath, files), acc|
+      files = files.compact.uniq
+      app = files.any? { |f| app_path?(f, root) }
+      acc[cpath] = {
+        # The APP definition when there is one, so provenance points at the code
+        # a reader can actually open; otherwise the first foreign site.
+        "file"  => (files.find { |f| app_path?(f, root) } || files.first)&.then { |f| relative(f, root) },
+        "app"   => app,
+        "sites" => files.size
+      }
+    end
+  end
+
+  # A path belongs to the APPLICATION only if it is under the root AND not inside
+  # a dependency directory. Bundled gems install UNDER the project root (devbox
+  # puts them in .devbox/virtenv, bundler in vendor/bundle), so a bare
+  # start_with?(root) test classifies every gem as app code — measured
+  # misclassifying Logger, and it would have poisoned the whole exit rule.
+  VENDOR = %w[/vendor/ /.bundle/ /.devbox/ /gems/ /node_modules/].freeze
+
+  def app_path?(path, root)
+    p = path.to_s
+    return false unless p.start_with?(root.to_s)
+
+    VENDOR.none? { |v| p.include?(v) }
   end
 
   def each_named_module
@@ -207,13 +309,21 @@ module ArchbuddyReflectProbe
   end
 end
 
-if $PROGRAM_NAME == __FILE__ || ENV["ARCHBUDDY_REFLECT_OUT"]
+# Required EARLY (before the app) this only arms the watcher; required late it
+# writes the manifest. One file, two phases, so a boot script can simply require
+# it first and last.
+if ENV["ARCHBUDDY_REFLECT_WATCH"]
+  ArchbuddyReflectProbe.watch_constants!
+elsif $PROGRAM_NAME == __FILE__ || ENV["ARCHBUDDY_REFLECT_OUT"]
   require "json"
   require "time"
   target = ENV.fetch("ARCHBUDDY_REFLECT_ROOT", Dir.pwd)
   out    = ENV.fetch("ARCHBUDDY_REFLECT_OUT", File.join(target, ".archbuddy", "reflection.json"))
   require "fileutils"
   FileUtils.mkdir_p(File.dirname(out))
+  ArchbuddyReflectProbe.stop_watching!
   m = ArchbuddyReflectProbe.write(target, out)
-  warn "archbuddy-reflect: #{m['methods'].size} methods across #{m['classes'].size} classes -> #{out}"
+  app_consts = (m["constants"] || {}).count { |_, v| v["app"] }
+  warn "archbuddy-reflect: #{m['methods'].size} methods across #{m['classes'].size} classes, " \
+       "#{(m['constants'] || {}).size} constants (#{app_consts} app-defined) -> #{out}"
 end

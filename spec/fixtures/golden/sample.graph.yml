@@ -147,19 +147,10 @@ nodes:
   class_id:
   count:
   decisions: 0
-  id: ext_57580a4d52e7
-  kind: external
-  loc:
-  self_time_ms:
-  total_time_ms:
-- branches: 1
-  class_id:
-  count:
-  decisions: 0
   id: ext_1917c66ce540
   kind: external
   loc:
   self_time_ms:
   terminal_kind: gem
   total_time_ms:
-schema_version: '1.5'
+schema_version: '1.6'

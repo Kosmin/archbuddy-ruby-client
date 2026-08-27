@@ -58,12 +58,27 @@ RSpec.describe "Egress category sinks (W2-C)" do
     result.id_map["ids"].find { |_i, d| d["symbol"] == sym }&.first
   end
 
+  # The shared `<external>` sink is gone (v0.13-locality). An unresolved call now
+  # mints its OWN analysis boundary per (caller, name), so a fixture yields one
+  # boundary PER unresolved call rather than a single node with a fixed symbol —
+  # assertions match the FAMILY, not a literal.
+  BOUNDARY = /\A<boundary:unknown:/.freeze
+
+  def boundaries(nodes) = nodes.select { |n| n.symbol.match?(BOUNDARY) }
+  def non_boundary_syms(nodes) = nodes.map(&:symbol).grep_v(BOUNDARY)
+  def boundary_sym(raw) = boundaries(raw.nodes).first&.symbol
+
+  def boundary_id(result)
+    result.id_map["ids"].find { |_i, d| d["symbol"].to_s.match?(BOUNDARY) }&.first
+  end
+
   it "mints one sink per [category, target] pair that appears, plus the generic sink — all kind external" do
     in_repo(MULTI_CATEGORY_SRC) do |dir|
       raw = collect(dir)
       externals = raw.nodes.select { |n| n.kind == "external" }
-      expect(externals.map(&:symbol))
-        .to contain_exactly("<external>", "<external:http:Faraday>", "<external:gem:SomeGem::Client>")
+      expect(non_boundary_syms(externals))
+        .to contain_exactly("<external:http:Faraday>", "<external:gem:SomeGem::Client>")
+      expect(boundaries(externals)).not_to be_empty # the unresolved call still terminates somewhere
       # No fabricated sink: nothing enqueued, so no queue-category symbol.
       expect(raw.nodes.map(&:symbol).grep(/\A<external:queue/)).to be_empty
     end
@@ -75,7 +90,9 @@ RSpec.describe "Egress category sinks (W2-C)" do
       by_sym = raw.nodes.to_h { |n| [n.symbol, n] }
       expect(by_sym.fetch("<external:http:Faraday>").terminal_kind).to eq("http")
       expect(by_sym.fetch("<external:gem:SomeGem::Client>").terminal_kind).to eq("gem")
-      expect(by_sym.fetch("<external>").terminal_kind).to be_nil
+      # The boundary DOES carry a word now — "unknown" — because it is a terminal
+      # we classified; what it must never carry is a proven-channel word.
+      expect(boundaries(raw.nodes).map(&:terminal_kind).uniq).to eq(["unknown"])
       # Non-sink nodes never carry a terminal_kind.
       expect(by_sym.fetch("Caller#go").terminal_kind).to be_nil
     end
@@ -84,8 +101,8 @@ RSpec.describe "Egress category sinks (W2-C)" do
   it "mints DISTINCT ext_ opaque ids per per-target sink" do
     in_repo(MULTI_CATEGORY_SRC) do |dir|
       result = anonymize(dir)
-      ids = ["<external>", "<external:http:Faraday>", "<external:gem:SomeGem::Client>"]
-            .map { |s| id_for(result, s) }
+      ids = ["<external:http:Faraday>", "<external:gem:SomeGem::Client>"].map { |s| id_for(result, s) }
+      ids << boundary_id(result)
       expect(ids).to all(start_with("ext_"))
       expect(ids.uniq.length).to eq(3)
     end
@@ -95,10 +112,11 @@ RSpec.describe "Egress category sinks (W2-C)" do
     in_repo(MULTI_CATEGORY_SRC) do |dir|
       result = anonymize(dir)
       go_id = id_for(result, "Caller#go")
-      ["<external:http:Faraday>", "<external:gem:SomeGem::Client>", "<external>"].each do |sink_sym|
-        sink_id = id_for(result, sink_sym)
+      sink_ids = ["<external:http:Faraday>", "<external:gem:SomeGem::Client>"].map { |x| id_for(result, x) }
+      sink_ids << boundary_id(result)
+      sink_ids.each do |sink_id|
         edge = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == sink_id }
-        expect(edge).not_to be_nil, "expected an edge Caller#go -> #{sink_sym}"
+        expect(edge).not_to be_nil, "expected an edge Caller#go -> #{sink_id}"
       end
     end
   end
@@ -118,7 +136,7 @@ RSpec.describe "Egress category sinks (W2-C)" do
     in_repo(NO_EGRESS_SRC) do |dir|
       raw = collect(dir)
       externals = raw.nodes.select { |n| n.kind == "external" }
-      expect(externals.map(&:symbol)).to eq(["<external>"])
+      expect(non_boundary_syms(externals)).to eq([])
       expect(raw.diagnostics[:egress_counts]).to eq({})
     end
   end
@@ -135,13 +153,15 @@ RSpec.describe "Egress category sinks (W2-C)" do
     end
   end
 
-  it "records terminal_kind in the id-map descriptor for per-target sinks only" do
+  it "records terminal_kind in the id-map descriptor for per-target sinks AND boundaries" do
     in_repo(MULTI_CATEGORY_SRC) do |dir|
       result = anonymize(dir)
       desc = ->(sym) { result.id_map["ids"].fetch(id_for(result, sym)) }
       expect(desc.call("<external:http:Faraday>")["terminal_kind"]).to eq("http")
       expect(desc.call("<external:gem:SomeGem::Client>")["terminal_kind"]).to eq("gem")
-      expect(desc.call("<external>")["terminal_kind"]).to be_nil
+      # the analysis boundary carries its own word, and it is never a channel one
+      boundary = result.id_map["ids"].values.find { |d| d["symbol"].to_s.match?(BOUNDARY) }
+      expect(boundary["terminal_kind"]).to eq("unknown")
       expect(desc.call("Caller#go")["terminal_kind"]).to be_nil
     end
   end

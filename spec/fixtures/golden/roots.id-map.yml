@@ -30,7 +30,7 @@ ids:
     kind: class_rollup
     line: 2
     symbol: Sample::Application
-  ext_57580a4d52e7:
+  ext_2d22aa53ff36:
     class_id:
     entrypoint_kind:
     escapes: false
@@ -38,8 +38,38 @@ ids:
     kind: external
     line:
     outcome_arity:
-    symbol: "<external>"
-    terminal_kind:
+    symbol: "<boundary:unknown:app/middleware/unregistered_timer.rb\0UnregisteredTimer#call:call>"
+    terminal_kind: unknown
+  ext_4de993c31d67:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<boundary:unknown:config/application.rb\0Sample::Application#configure:middleware>"
+    terminal_kind: unknown
+  ext_922b359bb2d6:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<boundary:unknown:config/application.rb\0Sample::Application#configure:use>"
+    terminal_kind: unknown
+  ext_aee06ef39ebc:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<boundary:unknown:app/middleware/request_timer.rb\0RequestTimer#call:call>"
+    terminal_kind: unknown
   n_0aa96b7ad3fc:
     class_id:
     entrypoint_kind: script

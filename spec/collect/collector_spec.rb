@@ -4,6 +4,10 @@ require "tmpdir"
 require "fileutils"
 
 RSpec.describe "Collector end-to-end (K-1..K-8)" do
+  # v0.13-locality: the shared `<external>` sink was replaced by an analysis
+  # boundary minted per (caller, name). Lookups match the FAMILY, not a literal.
+  BOUNDARY_RE = /\A<boundary:unknown:/.freeze
+
   let(:fixture_root) { File.expand_path("../fixtures/sample", __dir__) }
   let(:config) { Archbuddy::Collect::Config.new(language: "ruby") }
 
@@ -141,18 +145,23 @@ RSpec.describe "Collector end-to-end (K-1..K-8)" do
 
   # --- single shared external sink --------------------------------------------
 
-  it "routes an unresolved call to a shared external sink (v0.11 E1 re-baseline: per-target)" do
-    # v0.11 E1 re-baseline (L13): the fixture's `ExternalTaxApi.compute` is a
-    # literal OUT-OF-TREE constant, so the EgressProbe classifies it :gem and
-    # it routes to the per-target `<external:gem:ExternalTaxApi>` sub-sink.
-    # The generic `<external>` sink is still always minted (back-compat
-    # decline bucket). Both stay kind:"external" (I6).
+  it "routes an unresolved call to its own analysis boundary (v0.13-locality re-baseline)" do
+    # v0.11 E1 (L13): `ExternalTaxApi.compute` is a literal OUT-OF-TREE constant,
+    # so the EgressProbe classifies it :gem and routes it to the per-target
+    # `<external:gem:ExternalTaxApi>` sub-sink.
+    # v0.13-locality: the always-minted generic `<external>` decline bucket is
+    # GONE. An unresolved call now mints its own boundary per (caller, name), so
+    # there is exactly ONE crossing sink plus however many boundaries the fixture
+    # earns. All stay kind:"external" (I6).
     external_nodes = graph["nodes"].select { |n| n["kind"] == "external" }
-    expect(external_nodes.length).to eq(2)
+    sym_of = ->(n) { id_map["ids"].fetch(n["id"])["symbol"].to_s }
+    expect(external_nodes.reject { |n| sym_of.call(n).match?(BOUNDARY_RE) }.length).to eq(1)
     external_nodes.each { |n| expect(n["id"]).to start_with("ext_") }
 
     symbols = external_nodes.map { |n| id_map["ids"].fetch(n["id"])["symbol"] }
-    expect(symbols).to contain_exactly("<external>", "<external:gem:ExternalTaxApi>")
+    # This fixture's only out-of-tree call IS classified, so it mints a crossing
+    # and NO boundary — the honest outcome when nothing is unresolved.
+    expect(symbols.grep_v(BOUNDARY_RE)).to contain_exactly("<external:gem:ExternalTaxApi>")
 
     # tax -> <external:gem:ExternalTaxApi> sink edge exists (routed per pair).
     tax_id, = id_map_entry_for_symbol("Billing::Invoice#tax")

@@ -74,16 +74,6 @@ ids:
     outcome_arity:
     symbol: "<external:queue:OutOfTreeJob>"
     terminal_kind: queue
-  ext_57580a4d52e7:
-    class_id:
-    entrypoint_kind:
-    escapes: false
-    file:
-    kind: external
-    line:
-    outcome_arity:
-    symbol: "<external>"
-    terminal_kind:
   ext_595364040ea0:
     class_id:
     entrypoint_kind:
@@ -94,6 +84,16 @@ ids:
     outcome_arity:
     symbol: "<external:http:Net::HTTP>"
     terminal_kind: http
+  ext_6835cf042cd4:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<boundary:unknown:app/clients/storage.rb\0Storage#put:put_object>"
+    terminal_kind: unknown
   ext_6e7d822caee2:
     class_id:
     entrypoint_kind:

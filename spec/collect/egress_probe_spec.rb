@@ -206,7 +206,7 @@ RSpec.describe "Egress probe (W2-C e2e)" do
       acc.add_external_edge("Caller#go", category: :gem, target: "X")
       expect(acc.calls).to eq(
         [{ from_fq: "Caller#go",
-           to: { type: :external, category: :gem, target: "X", cco_role: nil } }]
+           to: { type: :external, category: :gem, target: "X", cco_role: nil, name: nil } }]
       )
     end
 

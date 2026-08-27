@@ -36,6 +36,10 @@ module Archbuddy
         # minted (back-compat: exactly one <external> node when no categorized
         # egress exists); every unresolved/uncategorized call points here.
         EXTERNAL_SINK_SYMBOL = "<external>"
+        # The analysis boundary: tracking stopped here because the call could not be
+        # resolved. NOT one of the proven-crossing words — it says the opposite.
+        UNKNOWN_TERMINAL_KIND = "unknown"
+
 
         # v0.8 (C1-1/C2): the whole-project capture is a two-phase pipeline —
         # a PER-FILE fragment builder (`collect_file_fragment`, the only per-file
@@ -168,7 +172,8 @@ module Archbuddy
           egress_roles  = Ruby::EgressRoleAggregate.new(acc.calls)
           external_keys = add_external_sinks(nodes, acc, egress_roles)
 
-          edges       = build_edges(acc, key_for_fq, external_keys)
+          edges, unresolved = build_edges(acc, key_for_fq, external_keys, nodes)
+          stamp_unresolved!(nodes, unresolved)
           entrypoints = build_entrypoints(ep_categories.keys, key_for_fq)
 
           AdapterResult.new(
@@ -371,12 +376,18 @@ module Archbuddy
         # kind:"external" (I6).
         # Returns { nil => generic_real_key, [category, target] => real_key }.
         def add_external_sinks(nodes, acc, egress_roles)
-          keys    = {}
-          generic = Raw::RawNode.new(
-            rel_file: nil, line: nil, symbol: EXTERNAL_SINK_SYMBOL, kind: "external"
-          )
-          nodes << generic
-          keys[nil] = generic.real_key
+          keys = {}
+          # NO GENERIC SINK (v0.13-locality). An unresolved call is an ABSENCE of
+          # knowledge about a target, not a known terminal. Routing every one of
+          # them to a single synthetic `<external>` node fabricated two things at
+          # once: a convergence that does not exist (on a real service that one
+          # node carried 4,527 in-edges — 38.7% of the whole graph, inflating
+          # out-degree on 84% of functions and forward complexity by 19.4%), and
+          # a BOUNDARY CROSSING that usually did not happen — the unresolved
+          # population is dominated by self/chained receivers, i.e. IN-APP calls
+          # the resolver missed, not calls that leave the app.
+          # They are now counted as `unresolved_calls` on the CALLER instead, so
+          # the fact survives without inventing a target or an exit.
 
           pairs = acc.calls.filter_map do |call|
             to = call[:to]
@@ -401,6 +412,36 @@ module Archbuddy
         end
 
         # I3 canonical sink-symbol spelling (L13): `<external:{category}:{const_fq}>`.
+        # One ANALYSIS-BOUNDARY sink per (caller, called-name). Distinct per
+        # caller BY DESIGN so unrelated callers never converge on one node.
+        # `terminal_kind` is "unknown": it IS a measurement boundary, and the word
+        # says the channel was never established — as distinct from `exit`, which
+        # asserts a crossing PROVEN by reflection.
+        def mint_unknown_sink(nodes, from_key, name)
+          return nil if nodes.nil?
+
+          node = Raw::RawNode.new(
+            rel_file: nil, line: nil,
+            symbol: "<boundary:unknown:#{from_key}:#{name}>",
+            kind: "external", terminal_kind: UNKNOWN_TERMINAL_KIND
+          )
+          nodes << node
+          node.real_key
+        end
+
+        # Threads the per-caller unresolved count onto its node, so the
+        # measurement can state its own COVERAGE rather than silently scoring a
+        # graph with a hole in it.
+        def stamp_unresolved!(nodes, unresolved)
+          return if unresolved.empty?
+
+          by_key = nodes.to_h { |n| [n.real_key, n] }
+          unresolved.each do |key, count|
+            node = by_key[key]
+            node.unresolved_calls = count if node
+          end
+        end
+
         def external_sink_symbol(category, target)
           "<external:#{category}:#{target}>"
         end
@@ -410,8 +451,10 @@ module Archbuddy
         # from add_external_sinks; an external edge routes to its pair's sink,
         # falling back to the generic sink for a nil/unminted pair (variable
         # receivers, base-tier R9 fallthrough).
-        def build_edges(acc, key_for_fq, external_keys)
+        def build_edges(acc, key_for_fq, external_keys, nodes_ref = nil)
           counts = Hash.new(0)
+          unresolved = Hash.new(0)
+          unknown_keys = {}
 
           acc.calls.each do |call|
             from_key = key_for_fq[call[:from_fq]]
@@ -421,16 +464,40 @@ module Archbuddy
               case call[:to][:type]
               when :method   then key_for_fq[call[:to][:fq]]
               when :db_op    then key_for_fq[call[:to][:fq]]
-              when :external then external_keys[[call[:to][:category], call[:to][:target]]] || external_keys[nil]
+              when :external then external_keys[[call[:to][:category], call[:to][:target]]]
               end
-            next if to_key.nil?
+
+            # An external call with no minted sink is UNRESOLVED. It still gets a
+            # BOUNDARY node — one PER CALLER+NAME, never a shared one.
+            #
+            # An exit is not a claim that execution leaves the application; it is
+            # the point at which our tracking stops, and an unresolved call is
+            # exactly that: the last node we can see. Discounting the unknown
+            # subtree to cost 1 is the honest default for COMPLEXITY, and it
+            # keeps the caller scoreable — omitting the node entirely left 863
+            # nodes with no route to any sink, so their cost became undefined and
+            # they fell out of the score, which is a measurement hole rather than
+            # caution.
+            #
+            # The original generic sink's actual defect was being ONE SHARED node
+            # (4,527 callers converging on a single target, inflating out-degree
+            # and inventing convergence). Per caller+name has neither problem.
+            if to_key.nil?
+              if call[:to][:type] == :external
+                unresolved[from_key] += 1
+                to_key = unknown_keys[[from_key, call[:to][:name]]] ||=
+                  mint_unknown_sink(nodes_ref, from_key, call[:to][:name])
+              end
+              next if to_key.nil?
+            end
 
             counts[[from_key, to_key]] += 1
           end
 
-          counts.map do |(from_key, to_key), calls|
+          edges = counts.map do |(from_key, to_key), calls|
             Raw::RawEdge.new(from_key: from_key, to_key: to_key, calls: calls)
           end
+          [edges, unresolved]
         end
 
         # v0.10 W1-A1: consumes the fq list from the ONE categorized detection

@@ -88,6 +88,20 @@ module Archbuddy
 
       # True when the installed engine's graph schema accepts a
       # `terminal_kind` node property (memoized once per process).
+      # Probe: does the INSTALLED engine graph schema declare `unresolved_calls`?
+      # Memoized once per process, same shape as the two probes below.
+      def self.graph_schema_accepts_unresolved_calls?
+        return @graph_schema_accepts_unresolved_calls unless @graph_schema_accepts_unresolved_calls.nil?
+
+        @graph_schema_accepts_unresolved_calls =
+          begin
+            schema = JSON.parse(File.read(ArchitectureAuditor::Contract::Validator.schema_path(:graph)))
+            schema.dig("definitions", "node", "properties").key?("unresolved_calls")
+          rescue StandardError
+            false
+          end
+      end
+
       def self.graph_schema_accepts_terminal_kind?
         return @graph_schema_accepts_terminal_kind unless @graph_schema_accepts_terminal_kind.nil?
 
@@ -231,6 +245,15 @@ module Archbuddy
           # never a real symbol — SECRET-safe on the opaque graph (I8).
           if raw.terminal_kind && self.class.graph_schema_accepts_terminal_kind?
             node_hash["terminal_kind"] = raw.terminal_kind
+          end
+
+          # v0.13-locality: how many call sites in this node's body the collector
+          # could not resolve. Emitted ONLY when non-zero AND the installed engine
+          # schema declares the field (same gate discipline as the two above — a
+          # 1.5 engine REJECTS unknown node keys, it does not ignore them). A bare
+          # integer, no app semantics, so it is SECRET-safe on the opaque graph.
+          if raw.unresolved_calls.to_i.positive? && self.class.graph_schema_accepts_unresolved_calls?
+            node_hash["unresolved_calls"] = raw.unresolved_calls
           end
 
           # v0.12 CL-C (L16/L17/L19): outcome_arity rides the shareable graph

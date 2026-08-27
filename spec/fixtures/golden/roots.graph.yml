@@ -14,17 +14,22 @@ edges:
   count:
   from: n_4bb49bbe2243
   self_time_ms:
-  to: ext_57580a4d52e7
+  to: ext_aee06ef39ebc
 - calls: 1
   count:
   from: n_b67fd83e64f3
   self_time_ms:
-  to: ext_57580a4d52e7
-- calls: 2
+  to: ext_2d22aa53ff36
+- calls: 1
   count:
   from: n_4dd310d48dad
   self_time_ms:
-  to: ext_57580a4d52e7
+  to: ext_922b359bb2d6
+- calls: 1
+  count:
+  from: n_4dd310d48dad
+  self_time_ms:
+  to: ext_4de993c31d67
 - calls: 1
   count:
   from: n_f14839693d81
@@ -102,6 +107,7 @@ nodes:
   outcome_arity: 1
   self_time_ms:
   total_time_ms:
+  unresolved_calls: 1
 - branches: 1
   class_id: cls_7c3b142246ad
   count:
@@ -122,6 +128,7 @@ nodes:
   outcome_arity: 1
   self_time_ms:
   total_time_ms:
+  unresolved_calls: 1
 - branches: 1
   class_id: cls_fd9dff2c5c3d
   count:
@@ -132,6 +139,7 @@ nodes:
   outcome_arity: 1
   self_time_ms:
   total_time_ms:
+  unresolved_calls: 2
 - branches: 1
   class_id:
   count:
@@ -189,9 +197,40 @@ nodes:
   class_id:
   count:
   decisions: 0
-  id: ext_57580a4d52e7
+  id: ext_aee06ef39ebc
   kind: external
   loc:
   self_time_ms:
+  terminal_kind: unknown
   total_time_ms:
-schema_version: '1.5'
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_2d22aa53ff36
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: unknown
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_922b359bb2d6
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: unknown
+  total_time_ms:
+- branches: 1
+  class_id:
+  count:
+  decisions: 0
+  id: ext_4de993c31d67
+  kind: external
+  loc:
+  self_time_ms:
+  terminal_kind: unknown
+  total_time_ms:
+schema_version: '1.6'

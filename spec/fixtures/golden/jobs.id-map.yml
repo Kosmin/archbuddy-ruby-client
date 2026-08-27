@@ -30,7 +30,7 @@ ids:
     kind: class_rollup
     line: 4
     symbol: NestedJob
-  ext_57580a4d52e7:
+  ext_bdf94d645d27:
     class_id:
     entrypoint_kind:
     escapes: false
@@ -38,8 +38,18 @@ ids:
     kind: external
     line:
     outcome_arity:
-    symbol: "<external>"
-    terminal_kind:
+    symbol: "<boundary:unknown:app/services/enqueuer.rb\0Enqueuer#call:set>"
+    terminal_kind: unknown
+  ext_c8d490cb8b9d:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<boundary:unknown:app/services/enqueuer.rb\0Enqueuer#call:perform_now>"
+    terminal_kind: unknown
   n_00a3f5985cdf:
     class_id:
     entrypoint_kind: rake

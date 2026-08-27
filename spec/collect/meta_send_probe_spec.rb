@@ -12,6 +12,10 @@ require "tmpdir"
 # try falls to `<external>` unflagged (pre-v0.10 parity). Provenance rides
 # diagnostics[:probe_edges][:meta_send] only, never the serialized graph.
 RSpec.describe "MetaSend probe (W1-D e2e)" do
+  # v0.13-locality: the shared `<external>` sink was replaced by an analysis
+  # boundary minted per (caller, name). Lookups match the FAMILY, not a literal.
+  BOUNDARY_RE = /\A<boundary:unknown:/.freeze
+
   let(:config) { Archbuddy::Collect::Config.new(language: "ruby") }
 
   def in_repo(source, filename: "app.rb")
@@ -81,7 +85,7 @@ RSpec.describe "MetaSend probe (W1-D e2e)" do
 
         # REPLACE-not-stack (P6): the resolved site is NOT also an <external> edge.
         go_id  = id_for(result, "Caller#go")
-        ext_id = id_for(result, "<external>")
+        ext_id = result.id_map["ids"].find { |_i, d| d["symbol"].to_s.match?(BOUNDARY_RE) }&.first
         ext_edge = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == ext_id }
         expect(ext_edge).to be_nil
       end
@@ -137,7 +141,7 @@ RSpec.describe "MetaSend probe (W1-D e2e)" do
       expect(id_for(result, "Target#absent_method")).to be_nil
       expect(id_for(result, "Target.absent_method")).to be_nil
       go_id  = id_for(result, "Caller#go")
-      ext_id = id_for(result, "<external>")
+      ext_id = result.id_map["ids"].find { |_i, d| d["symbol"].to_s.match?(BOUNDARY_RE) }&.first
       expect(ext_id).not_to be_nil
       ext_edge = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == ext_id }
       expect(ext_edge).not_to be_nil
@@ -167,7 +171,7 @@ RSpec.describe "MetaSend probe (W1-D e2e)" do
       expect(result.diagnostics[:meta_sites_skipped]).to eq(0)
       expect(result.diagnostics[:probe_edges].fetch(:meta_send, 0)).to eq(0)
       anon = anonymize(dir)
-      expect(id_for(anon, "<external>")).not_to be_nil
+      expect(anon.id_map["ids"].any? { |_i, d| d["symbol"].to_s.match?(BOUNDARY_RE) }).to be(true)
     end
   end
 

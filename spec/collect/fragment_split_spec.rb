@@ -68,7 +68,13 @@ RSpec.describe "RubyAdapter fragment split (C1-1 byte parity)" do
 
   it "assembling an empty fragment set yields a valid graph with only the external sink" do
     result = adapter.assemble([])
-    expect(result.nodes.map(&:kind)).to eq(["external"])
+    # v0.13-locality: with NO fragments there is nothing to call, so nothing is
+
+    # unresolved and NO sink is minted. The old shared `<external>` node was
+
+    # emitted unconditionally, which is precisely the fabrication that was removed.
+
+    expect(result.nodes.map(&:kind)).to eq([])
     expect(result.edges).to eq([])
     expect(result.entrypoints).to eq([])
   end

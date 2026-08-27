@@ -43,6 +43,12 @@ RSpec.describe "the A6 back doors are locked (client half)" do
   # A crossing sink's real-space symbol. The ONE spelling of "this node is a
   # proven crossing", and the discriminator invariant 1 is stated against.
   CROSSING_SYMBOL = /\A<external:[^:]+:/
+  # The ANALYSIS BOUNDARY minted for an unresolved call: one per (caller, name),
+  # never shared. It is a TERMINAL but explicitly NOT a proven crossing.
+  BOUNDARY_SYMBOL = /\A<boundary:unknown:/
+  # Either kind of terminal — the population that legitimately carries a
+  # terminal_kind at all.
+  TERMINAL_SYMBOL = /\A<(external:[^:]+|boundary:unknown):/
 
   # ONE fixture carrying EVERY state at once, because each invariant is an "iff"
   # and an iff over a single-state population is satisfied vacuously on one side.
@@ -137,6 +143,7 @@ RSpec.describe "the A6 back doors are locked (client half)" do
     it "carries crossings, a categoryless sink, db_ops, plain functions and entrypoints — all at once" do
       states = nodes_with(graph, id_map).group_by do |node, symbol|
         if symbol.match?(CROSSING_SYMBOL) then :crossing
+        elsif symbol.match?(BOUNDARY_SYMBOL) then :boundary
         elsif node.fetch("kind") == "external" then :generic_sink
         elsif node.fetch("kind") == "db_op" then :db_op
         elsif node.fetch("kind") == "endpoint" then :endpoint
@@ -144,7 +151,10 @@ RSpec.describe "the A6 back doors are locked (client half)" do
         end
       end
 
-      %i[crossing generic_sink db_op endpoint function].each do |state|
+      # `generic_sink` is GONE by design — the single shared node it named was
+      # replaced by per-(caller,name) boundaries, so the state it guarded no
+      # longer exists and demanding it would be unsatisfiable.
+      %i[crossing boundary db_op endpoint function].each do |state|
         expect(states.fetch(state, []).size).to be >= 1, "fixture has NO #{state} node — the iff below is vacuous"
       end
 
@@ -157,8 +167,13 @@ RSpec.describe "the A6 back doors are locked (client half)" do
       # static capture. A static-only fixture cannot produce it, so demanding it
       # here would be unsatisfiable rather than protective. Its production is
       # asserted in spec/reflect/, so the vocabulary stays fully covered.
+      # `exit` alone stays excluded: it is emitted ONLY by the boot-reflection
+      # tier, which a pure static fixture cannot reach. `unknown` IS reachable
+      # statically — it is the analysis boundary an unresolved call mints — so it
+      # belongs in the population this guard demands.
       static_vocabulary = CONTRACT::TERMINAL_KINDS - %w[exit]
-      categories = states.fetch(:crossing).map { |node, _| node.fetch("terminal_kind") }
+      categories = (states.fetch(:crossing, []) + states.fetch(:boundary, []))
+                   .map { |node, _| node.fetch("terminal_kind") }
       expect(categories.uniq.sort).to eq(static_vocabulary.sort)
       expect(states.fetch(:crossing).map { |_, symbol| symbol }).to include("<external:http:Payments::Gateway>")
     end
@@ -179,13 +194,38 @@ RSpec.describe "the A6 back doors are locked (client half)" do
   describe "invariant 1: terminal_kind presence ⟺ a proven crossing" do
     # @return [Array<String>] one message per node whose presence disagrees with
     #   its symbol. Empty == locked.
+    # REFORMULATED (v0.13-locality). The invariant was "presence <=> a proven
+    # crossing". That was correct while the only stamped nodes were crossings.
+    # It is now "presence <=> the node is a TERMINAL WE CLASSIFIED", because an
+    # unresolved call also mints a terminal — the analysis boundary — and it too
+    # must carry a word. The guard is not weakened: the epistemic distinction it
+    # used to carry by PRESENCE is now carried by VALUE, and locked separately
+    # (and more sharply) in #value_violations below.
     def presence_violations(doc, id_map)
       nodes_with(doc, id_map).filter_map do |node, symbol|
-        crossing = symbol.match?(CROSSING_SYMBOL)
+        terminal = symbol.match?(TERMINAL_SYMBOL)
         stamped  = node.key?("terminal_kind")
-        next if crossing == stamped
+        next if terminal == stamped
 
-        "#{symbol}: crossing=#{crossing} but terminal_kind #{stamped ? "PRESENT" : "ABSENT"}"
+        "#{symbol}: terminal=#{terminal} but terminal_kind #{stamped ? "PRESENT" : "ABSENT"}"
+      end
+    end
+
+    # The NEW half of the guard: the WORD must match what the node actually is.
+    # A proven crossing may never be labelled "unknown", and an analysis boundary
+    # may never claim one of the proven-channel words — that would assert a
+    # crossing we never established, which is the exact fabrication this file
+    # exists to prevent.
+    def value_violations(doc, id_map)
+      nodes_with(doc, id_map).filter_map do |node, symbol|
+        tk = node["terminal_kind"]
+        next if tk.nil?
+
+        if symbol.match?(BOUNDARY_SYMBOL) && tk != "unknown"
+          "#{symbol}: an analysis boundary claims the proven word #{tk.inspect}"
+        elsif symbol.match?(CROSSING_SYMBOL) && tk == "unknown"
+          "#{symbol}: a proven crossing is labelled unknown"
+        end
       end
     end
 
@@ -211,6 +251,8 @@ RSpec.describe "the A6 back doors are locked (client half)" do
 
     it "LOCKED: every crossing is stamped and NOTHING else is" do
       expect(presence_violations(graph, id_map)).to eq([])
+      # and the word must match what the node IS (v0.13-locality)
+      expect(value_violations(graph, id_map)).to eq([])
     end
 
     it "LOCKED: one sink per distinct [category, target] pair, each with a real inbound edge" do
@@ -219,11 +261,16 @@ RSpec.describe "the A6 back doors are locked (client half)" do
 
     it "M-26 CONTROL — stamping a NON-CROSSING sink makes the iff FIRE" do
       # The mutation A6 door 1 describes, applied to the emitted document.
+      # RE-TARGETED (v0.13-locality). This used to stamp the shared `<external>`
+      # sink, which no longer exists — and a BOUNDARY sink now legitimately
+      # carries a word, so it is no longer a valid control either. The node that
+      # must NEVER carry one is a plain in-app function: stamping it asserts a
+      # terminal where execution plainly continues.
       mutated = deep_dup(graph)
-      generic = mutated.fetch("nodes").find { |n| symbol_of(id_map, n["id"]) == "<external>" }
-      generic["terminal_kind"] = "gem"
+      fn = mutated.fetch("nodes").find { |n| n.fetch("kind") == "function" }
+      fn["terminal_kind"] = "gem"
 
-      expect(presence_violations(mutated, id_map)).to include(/<external>: crossing=false/)
+      expect(presence_violations(mutated, id_map)).to include(/terminal=false but terminal_kind PRESENT/)
     end
 
     it "M-26 CONTROL — un-stamping a REAL crossing also makes it FIRE (both directions)" do
@@ -243,11 +290,18 @@ RSpec.describe "the A6 back doors are locked (client half)" do
       expect(pair_violations(mutated, phantom_map)).to include(/NeverCalled>: minted but no inbound edge/)
     end
 
-    it "THE DOOR IS REAL: terminal_kind PRESENCE genuinely moves a published number" do
-      # This is why invariant 1 exists. If stamping a non-crossing sink moved
-      # nothing, the lock would be guarding a door that does not open.
+    it "THE DOOR IS REAL: the terminal_kind VALUE genuinely moves a published number" do
+      # RESTATED (v0.13-locality). This proved that PRESENCE opens a door, which
+      # was the right claim while only crossings were stamped. Now every terminal
+      # carries a word, so presence no longer discriminates — and stamping a
+      # non-terminal moves nothing, because the engine seeds egress only from
+      # out-degree-0 nodes. The door that now matters is the VALUE: relabelling an
+      # analysis boundary as a proven channel must move a number, or invariant 2
+      # would be guarding a door that does not open.
       mutated = deep_dup(graph)
-      mutated.fetch("nodes").find { |n| symbol_of(id_map, n["id"]) == "<external>" }["terminal_kind"] = "gem"
+      boundary = mutated.fetch("nodes").find { |n| n["terminal_kind"] == "unknown" }
+      expect(boundary).not_to be_nil # non-vacuity: the fixture really mints one
+      boundary["terminal_kind"] = "gem"
 
       expect(CONTRACT::Validator.valid?(:graph, mutated)).to be(true) # the SCHEMA permits it
       expect(findings_bytes(mutated)).not_to eq(findings_bytes(graph)) # the SPEC is the guard
@@ -286,7 +340,7 @@ RSpec.describe "the A6 back doors are locked (client half)" do
       # "presence <=> a proven crossing" is UNCHANGED — "exit" remains forbidden
       # on the unresolved catch-all sink, which is "could not RESOLVE", not
       # "could not TYPE".
-      expect(CONTRACT::TERMINAL_KINDS).to eq(%w[http queue gem exit])
+      expect(CONTRACT::TERMINAL_KINDS).to eq(%w[http queue gem exit unknown])
     end
 
     it "M-27 CONTROL — a category outside the constant makes it FIRE, naming the value" do
@@ -295,7 +349,7 @@ RSpec.describe "the A6 back doors are locked (client half)" do
 
       expect(CONTRACT::Validator.valid?(:graph, mutated)).to be(true) # the schema accepts it
       expect(vocabulary_violations(mutated))
-        .to eq(['terminal_kind "database" is outside ["http", "queue", "gem", "exit"]'])
+        .to eq(['terminal_kind "database" is outside ["http", "queue", "gem", "exit", "unknown"]'])
     end
 
     it "the CLIENT cannot emit one either — the boundary loader refuses at load" do
@@ -314,15 +368,19 @@ RSpec.describe "the A6 back doors are locked (client half)" do
   describe "invariant 3: every minted sink is kind == \"external\", unconditionally" do
     def kind_violations(doc, id_map)
       nodes_with(doc, id_map).filter_map do |node, symbol|
-        next unless symbol.start_with?("<external")
+        # BOTH minted terminal families: proven crossings (<external:...>) and
+        # analysis boundaries (<boundary:unknown:...>). Both are kind "external";
+        # the family is carried by the SYMBOL and the epistemics by terminal_kind,
+        # never by inventing a kind.
+        next unless symbol.start_with?("<external", "<boundary")
         next if node.fetch("kind") == "external"
 
         "#{symbol}: kind #{node.fetch("kind").inspect} — derived from a category or a role"
       end
     end
 
-    it "LOCKED across http, gem, queue, a DECLARED crossing and the generic sink, in ONE run" do
-      sinks = nodes_with(graph, id_map).select { |_, symbol| symbol.start_with?("<external") }
+    it "LOCKED across http, gem, queue, a DECLARED crossing and an analysis boundary, in ONE run" do
+      sinks = nodes_with(graph, id_map).select { |_, symbol| symbol.start_with?("<external", "<boundary") }
 
       expect(sinks.size).to be >= 5 # non-vacuity: all five states present
       expect(kind_violations(graph, id_map)).to eq([])

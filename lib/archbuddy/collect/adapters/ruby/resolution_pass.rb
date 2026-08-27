@@ -125,10 +125,13 @@ module Archbuddy
           # this one is NOT homogeneous by construction — it rides the call
           # record and EgressRoleAggregate decides what (if anything) the sink
           # may be stamped with.
-          def add_external_edge(from_fq, category: nil, target: nil, cco_role: nil)
+          # `name` (v0.13-locality, optional): the CALLED method name. Carried so
+          # an UNRESOLVED external can mint its own analysis-boundary sink per
+          # (caller, name) rather than sharing one global node.
+          def add_external_edge(from_fq, category: nil, target: nil, cco_role: nil, name: nil)
             @calls << { from_fq: from_fq,
                         to: { type: :external, category: category, target: target,
-                              cco_role: cco_role } }
+                              cco_role: cco_role, name: name } }
           end
 
           def flag_metaprogramming(from_fq, name, line)
@@ -469,7 +472,8 @@ module Archbuddy
                 # value is AGGREGATED later (EgressRoleAggregate).
                 @acc.add_external_edge(from_fq, category: resolution.egress_category,
                                                 target: resolution.target_fq,
-                                                cco_role: resolution.cco_role)
+                                                cco_role: resolution.cco_role,
+                                                name: node.name.to_s)
                 @acc.tally_egress(resolution.egress_category)
               end
             end

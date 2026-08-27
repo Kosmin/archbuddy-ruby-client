@@ -22,16 +22,6 @@ ids:
     outcome_arity:
     symbol: "<external:gem:ExternalTaxApi>"
     terminal_kind: gem
-  ext_57580a4d52e7:
-    class_id:
-    entrypoint_kind:
-    escapes: false
-    file:
-    kind: external
-    line:
-    outcome_arity:
-    symbol: "<external>"
-    terminal_kind:
   n_08bb59686a0d:
     class_id: cls_9433393e115d
     entrypoint_kind: controllers

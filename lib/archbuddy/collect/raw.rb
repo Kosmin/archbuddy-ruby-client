@@ -65,7 +65,7 @@ module Archbuddy
         :rel_file, :line, :symbol, :kind,
         :class_rel_file, :class_line, :class_symbol,
         :branches, :decisions, :entrypoint_kind, :terminal_kind,
-        :outcome_arity, :escapes, :cco_role,
+        :outcome_arity, :escapes, :cco_role, :unresolved_calls,
         keyword_init: true
       ) do
         def initialize(*)
@@ -73,6 +73,7 @@ module Archbuddy
           self.branches  ||= 1
           self.decisions ||= 0
           self.escapes   = false if escapes.nil?
+          self.unresolved_calls ||= 0
         end
 
         def class_rollup?

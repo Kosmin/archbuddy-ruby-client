@@ -136,8 +136,19 @@ RSpec.describe "declared boundary (R1.5)" do
     end
   end
 
+  # CROSSING sinks only. v0.13-locality also mints an analysis boundary per
+  # (caller, name) for every UNRESOLVED call — those are `<boundary:unknown:...>`
+  # and are not what these rules are about, so they are excluded here and
+  # asserted separately where a spec cares.
+  BOUNDARY = /\A<boundary:unknown:/.freeze
+
   def sinks(result)
-    result.nodes.select { |node| node.kind.to_s == "external" }.map(&:symbol).sort
+    result.nodes.select { |node| node.kind.to_s == "external" }
+          .map(&:symbol).grep_v(BOUNDARY).sort
+  end
+
+  def boundary_sinks(result)
+    result.nodes.map(&:symbol).grep(BOUNDARY)
   end
 
   def edge_pairs(result)
@@ -191,7 +202,7 @@ RSpec.describe "declared boundary (R1.5)" do
 
     it "THE TWO DIRECTIONS DISAGREE ON ONE FIXTURE — both crossings exist, with DIFFERENT categories" do
       expect(sinks(result)).to eq(
-        ["<external:gem:Payments::Gateway>", "<external:http:Payments::Gateway>", "<external>"]
+        ["<external:gem:Payments::Gateway>", "<external:http:Payments::Gateway>"]
       )
       expect(edge_pairs(result)).to eq(
         [["Checkout#call", "<external:gem:Payments::Gateway>"],
@@ -419,7 +430,13 @@ RSpec.describe "declared boundary (R1.5)" do
 
       expect(sinks(empty)).to eq(sinks(absent))
       expect(edge_pairs(empty)).to eq(edge_pairs(absent))
-      expect(sinks(empty)).to eq(["<external>"]) # non-vacuity: the arms are not both junk
+      # No RULES => no external node of ANY kind. Note this fixture defines
+      # Payments::Gateway.charge/.refund as REAL in-corpus methods, so without a
+      # rule those calls resolve INTERNALLY — they are not unresolved, so no
+      # analysis boundary is minted either. Non-vacuity is carried by the shared
+      # edge_pairs assertion above, which shows the arm emits real edges.
+      expect(sinks(empty)).to eq([])
+      expect(boundary_sinks(empty)).to eq([])
     end
 
     it "rules present, ZERO matching call sites ⇒ ZERO sinks minted (never-fabricate)" do
@@ -427,7 +444,8 @@ RSpec.describe "declared boundary (R1.5)" do
       unmatched = collect({ "classes" => [{ "kind" => "constant_exact", "values" => ["Nope::Missing"], "category" => "gem" }] },
                           GATEWAY_FILES)
 
-      expect(sinks(unmatched)).to eq(["<external>"])
+      expect(sinks(unmatched)).to eq([])
+      expect(boundary_sinks(unmatched)).to eq([]) # resolve internally; see the note above
       expect(unmatched.diagnostics[:egress_counts]).to eq({})
     end
 
@@ -458,10 +476,22 @@ RSpec.describe "declared boundary (R1.5)" do
       boundary = { "classes" => [{ "kind" => "constant_exact", "values" => ["Payments::Gateway"] }] }
       result   = collect(boundary, GATEWAY_FILES)
 
-      expect(sinks(result)).to eq(["<external>"])
-      expect(sink_named(result, "<external>").terminal_kind).to be_nil
+      # A rule with NO category mints NO crossing. The calls still terminate, at
+      # analysis boundaries — which carry "unknown", never a channel word, so the
+      # original claim (no plausible default category is invented) still holds.
+      expect(sinks(result)).to eq([])
+      expect(boundary_sinks(result)).not_to be_empty
+      expect(result.nodes.select { |n| n.symbol.match?(BOUNDARY) }.map(&:terminal_kind).uniq).to eq(["unknown"])
       # It still SEVERED — the crossing is real, only its category is undeclared.
-      expect(edge_pairs(result)).to eq([%w[Checkout#call <external>]])
+      # The severing now lands on ONE boundary PER CALL (charge, refund) rather
+      # than a single shared node, so the claim is asserted on the SHAPE: every
+      # edge leaves Checkout#call for a boundary, and none reaches the in-app
+      # Payments::Gateway methods the rule cut off.
+      pairs = edge_pairs(result)
+      expect(pairs).not_to be_empty
+      expect(pairs.map(&:first).uniq).to eq(["Checkout#call"])
+      expect(pairs.map(&:last)).to all(match(BOUNDARY))
+      expect(pairs.map(&:last).grep(/Payments::Gateway/)).to be_empty
     end
   end
 end

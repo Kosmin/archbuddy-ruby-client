@@ -18,8 +18,18 @@ module Archbuddy
     # analysed boundary. That distinction is the whole reason the generic exit
     # stamp is honest here and dishonest on the unresolved sink.
     class MethodTable
-      Fact = Struct.new(:cls, :name, :scope, :file, :line, :external_site, :kind, :macro,
+      Fact = Struct.new(:cls, :name, :scope, :file, :line, :external_site, :kind, :macro, :owner,
                         keyword_init: true) do
+        # The fq symbol of the DEFINING method — which is not necessarily on the
+        # calling class. A method reached via `include Concerns::Trackable` is
+        # owned by that module, and its graph node lives under the module's name.
+        # Static analysis cannot follow include chains; reflection reports the
+        # owner directly, which is what makes mixin calls resolvable at all.
+        def target_fq
+          return nil if owner.nil? || owner.empty?
+
+          scope == "singleton" ? "#{owner}.#{name}" : "#{owner}##{name}"
+        end
         # A crossing is PROVEN when the owner is an application class but the
         # definition lives outside the project tree — i.e. gem code supplies the
         # behaviour. Never inferred from the name.
@@ -43,7 +53,7 @@ module Archbuddy
           table[m["class"]][m["name"]] = Fact.new(
             cls: m["class"], name: m["name"], scope: m["scope"],
             file: m["file"], line: m["line"], external_site: m["external_site"],
-            kind: kind_for(macro), macro: macro
+            kind: kind_for(macro), macro: macro, owner: m["owner"]
           )
         end
         new(table)

@@ -16,6 +16,10 @@ require "yaml"
 #   e. generic fallback (variable receivers / computed chains never mint)
 #   f. live engine graph-1.3 validation with many per-target sinks
 RSpec.describe "Egress per-target sub-sinks (E1)" do
+  # v0.13-locality: the shared `<external>` sink was replaced by per-(caller,name)
+  # analysis boundaries, so assertions match the FAMILY rather than a literal.
+  BOUNDARY = /\A<boundary:unknown:/.freeze
+
   let(:config) { Archbuddy::Collect::Config.new(language: "ruby") }
 
   def in_repo(files)
@@ -79,7 +83,7 @@ RSpec.describe "Egress per-target sub-sinks (E1)" do
     order_a = in_repo(repo_a) { |dir| external_symbols(collect(dir)) }
     order_b = in_repo(repo_b) { |dir| external_symbols(collect(dir)) }
     expect(order_a).to eq(order_b)
-    expect(order_a).to eq(["<external>", "<external:gem:AaaGem>", "<external:gem:ZzzGem>"])
+    expect(order_a.grep_v(BOUNDARY)).to eq(["<external:gem:AaaGem>", "<external:gem:ZzzGem>"])
   end
 
   # --- b. distinct-target counting + calls-collapse (I8 trace) -----------------
@@ -108,12 +112,14 @@ RSpec.describe "Egress per-target sub-sinks (E1)" do
       result = anonymize(dir)
       raw_symbols = result.id_map["ids"].map { |_i, d| d["symbol"] }
       expect(raw_symbols).to include(
-        "<external>",
         "<external:http:Aws::S3::Client>", "<external:http:Faraday>",
         "<external:gem:GemA>", "<external:gem:GemB>"
       )
-      # Exactly 2 http + 2 gem pair sinks + the generic — never one-per-call-site.
-      expect(raw_symbols.grep(/\A<external/).length).to eq(5)
+      # Exactly 2 http + 2 gem PAIR sinks — never one-per-call-site. The claim
+      # under test is that CROSSINGS collapse per [category, target]; that is
+      # unchanged. (Analysis boundaries are deliberately one-per-(caller,name)
+      # and carry the `<boundary:` prefix, so they are outside this count.)
+      expect(raw_symbols.grep(/\A<external:/).length).to eq(4)
 
       gem_a = id_for(result, "<external:gem:GemA>")
       one   = id_for(result, "CallerOne#go")
@@ -156,7 +162,7 @@ RSpec.describe "Egress per-target sub-sinks (E1)" do
     }
     in_repo(files) do |dir|
       raw = collect(dir)
-      expect(external_symbols(raw)).to contain_exactly("<external>", "<external:gem:SomeGem::Client>")
+      expect(external_symbols(raw).grep_v(BOUNDARY)).to contain_exactly("<external:gem:SomeGem::Client>")
     end
   end
 
@@ -209,13 +215,17 @@ RSpec.describe "Egress per-target sub-sinks (E1)" do
       # The inner literal `Faraday.new` is provable; the outer `.get` and the
       # variable receiver are NOT — they land on generic, minting nothing.
       expect(raw_symbols.grep(/\A<external/))
-        .to contain_exactly("<external>", "<external:http:Faraday>")
+        .to contain_exactly("<external:http:Faraday>")
 
-      generic = id_for(result, "<external>")
-      go_id   = id_for(result, "Caller#go")
-      edge    = result.graph["edges"].find { |e| e["from"] == go_id && e["to"] == generic }
-      expect(edge).not_to be_nil
-      expect(edge["calls"]).to be >= 2 # build_client + client.get + chained .get
+      # The unresolved calls no longer collapse onto ONE shared node, so the
+      # count lives across the caller's boundary edges rather than in a single
+      # edge's `calls`. The claim is unchanged: every unresolved call is still
+      # accounted for, none silently dropped.
+      boundary_ids = result.id_map["ids"].select { |_i, d| d["symbol"].to_s.match?(BOUNDARY) }.keys.to_set
+      go_id = id_for(result, "Caller#go")
+      edges = result.graph["edges"].select { |e| e["from"] == go_id && boundary_ids.include?(e["to"]) }
+      expect(edges).not_to be_empty
+      expect(edges.sum { |e| e["calls"] }).to be >= 2 # build_client + client.get + chained .get
     end
   end
 

@@ -109,11 +109,23 @@ module Archbuddy
 
         script = +""
         script << "root = #{@root.dump}\n"
+        # Arm the constant watcher BEFORE the application loads. TracePoint(:class)
+        # observes class/module bodies as they OPEN, so requiring the probe after
+        # boot would miss every constant the app defines — the events are gone.
+        script << "ENV['ARCHBUDDY_REFLECT_WATCH'] = '1'\n"
+        script << "require #{PROBE.dump}\n"
+        script << "ENV.delete('ARCHBUDDY_REFLECT_WATCH')\n"
         spec[:requires].each { |r| script << "require File.join(root, #{r.dump})\n" }
         script << "#{spec[:eager]}\n" if spec[:eager]
         script << "ENV['ARCHBUDDY_REFLECT_ROOT'] = root\n"
         script << "ENV['ARCHBUDDY_REFLECT_OUT'] = #{out.dump}\n"
-        script << "require #{PROBE.dump}\n"
+        # Second phase: the probe is already loaded, so drive it directly rather
+        # than re-requiring (require is idempotent and would not re-run the body).
+        script << "ArchbuddyReflectProbe.stop_watching!\n"
+        script << "require 'fileutils'; FileUtils.mkdir_p(File.dirname(#{out.dump}))\n"
+        script << "m = ArchbuddyReflectProbe.write(root, #{out.dump})\n"
+        script << "warn \"archbuddy-reflect: #\{m['methods'].size} methods, #\{m['classes'].size} classes, " \
+                  "#\{(m['constants']||{}).size} constants (#\{(m['constants']||{}).count { |_,v| v['app'] }} app)\"\n"
 
         # Written to a FILE rather than passed via `ruby -e`.
         # An exec wrapper re-splits its arguments, so a multi-line -e script is

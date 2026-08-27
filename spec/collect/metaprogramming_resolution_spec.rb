@@ -11,6 +11,10 @@ require "tmpdir"
 # honesty signal to a coverage tuple {meta_sites, meta_resolved,
 # total_call_sites} surfaced via AdapterResult#diagnostics.
 RSpec.describe "Metaprogramming resolution (W1-D: narrowed R1 + coverage)" do
+  # v0.13-locality: the shared `<external>` sink was replaced by an analysis
+  # boundary minted per (caller, name). Lookups match the FAMILY, not a literal.
+  BOUNDARY_RE = /\A<boundary:unknown:/.freeze
+
   let(:config) { Archbuddy::Collect::Config.new(language: "ruby") }
 
   def in_repo(source, filename: "app.rb")
@@ -94,7 +98,7 @@ RSpec.describe "Metaprogramming resolution (W1-D: narrowed R1 + coverage)" do
       anon = anonymize(dir)
       # No fabricated target node (I1); the call routes to the shared sink.
       expect(anon.id_map["ids"].any? { |_i, d| d["symbol"] == "Dispatcher#vanished" }).to be(false)
-      expect(anon.id_map["ids"].any? { |_i, d| d["symbol"] == "<external>" }).to be(true)
+      expect(anon.id_map["ids"].any? { |_i, d| d["symbol"].to_s.match?(BOUNDARY_RE) }).to be(true)
     end
   end
 

@@ -27,6 +27,10 @@ require "json"
 # null — and the graph schema REJECTS the second. `assert_absent!` below
 # separates them and is itself pinned in both directions.
 RSpec.describe "cco_role — the inert crossing-role tag (W3)" do
+  # v0.13-locality: the shared `<external>` sink was replaced by an analysis
+  # boundary minted per (caller, name). Lookups match the FAMILY, not a literal.
+  BOUNDARY_RE = /\A<boundary:unknown:/.freeze
+
   R = Archbuddy::Collect::Adapters::Ruby
   ROLE_KEY = ArchitectureAuditor::Contract::NODE_ROLE_KEY
 
@@ -291,7 +295,7 @@ RSpec.describe "cco_role — the inert crossing-role tag (W3)" do
         end
       RUBY
       in_repo(files) do |dir|
-        generic = collect(dir).nodes.find { |n| n.symbol == "<external>" }
+        generic = collect(dir).nodes.find { |n| n.symbol.to_s.match?(BOUNDARY_RE) }
 
         expect(generic).not_to be_nil
         expect(generic.cco_role).to be_nil

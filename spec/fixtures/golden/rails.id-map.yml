@@ -60,7 +60,7 @@ ids:
     kind: class_rollup
     line: 1
     symbol: BaseActions
-  ext_57580a4d52e7:
+  ext_08483e9321af:
     class_id:
     entrypoint_kind:
     escapes: false
@@ -68,8 +68,18 @@ ids:
     kind: external
     line:
     outcome_arity:
-    symbol: "<external>"
-    terminal_kind:
+    symbol: "<boundary:unknown:app/services/dynamics.rb\0Dynamics#tried:try>"
+    terminal_kind: unknown
+  ext_b423afceb9cc:
+    class_id:
+    entrypoint_kind:
+    escapes: false
+    file:
+    kind: external
+    line:
+    outcome_arity:
+    symbol: "<boundary:unknown:app/controllers/widgets_controller.rb\0WidgetsController#index:pluck>"
+    terminal_kind: unknown
   n_06d035d5386f:
     class_id: cls_b2d6abee639e
     entrypoint_kind:

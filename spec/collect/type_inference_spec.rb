@@ -250,7 +250,14 @@ RSpec.describe "Variable-receiver type inference (v0.6 L1 / R4.5)" do
       result = anonymize(dir)
       expect(id_for(result, "Thing#absent_method")).to be_nil,
         "fabricated a node for an uncaptured method"
-      fabricated = edge_targets(result, "Caller#go").select { |s| s&.include?("absent_method") }
+      # An analysis boundary NAMES the call it could not resolve — that is a
+      # record of the failure, not a claim to have resolved it. The fabrication
+      # this guards against is a node claiming to BE Thing#absent_method, which
+      # the assertion above already pins exactly. Boundaries are excluded here so
+      # the net catches fabrication rather than honest bookkeeping.
+      fabricated = edge_targets(result, "Caller#go")
+                   .reject { |s| s.to_s.start_with?("<boundary:unknown:") }
+                   .select { |s| s&.include?("absent_method") }
       expect(fabricated).to be_empty,
         "fabricated an edge to an uncaptured method: #{fabricated.inspect}"
     end
