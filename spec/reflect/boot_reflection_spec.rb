@@ -113,3 +113,66 @@ RSpec.describe Archbuddy::Reflect do
     end
   end
 end
+
+require "archbuddy/collect/adapters/ruby/resolver"
+
+RSpec.describe "reflection-driven resolution (R3.5)" do
+  RESOLVER = Archbuddy::Collect::Adapters::Ruby::RubyResolver
+  CTX = RESOLVER::CallContext
+
+  # A table that knows NOTHING — so any resolution must come from reflection.
+  let(:empty_table) do
+    null_profile = Object.new
+    def null_profile.respond_to_missing?(*) = true
+    def null_profile.method_missing(name, *) = name.to_s.end_with?("?") ? false : nil
+    Class.new do
+      define_method(:profile) { null_profile }
+      def method?(_) = false
+      def active_record_class?(_) = false
+    end.new
+  end
+
+  def fact(kind:, external_site: true)
+    Archbuddy::Reflect::MethodTable::Fact.new(
+      cls: "Order", name: "line_items", scope: "instance",
+      file: "gems/ar.rb", line: 4, external_site: external_site, kind: kind, macro: "has_many"
+    )
+  end
+
+  def table_with(f)
+    Archbuddy::Reflect::MethodTable.new("Order" => { "line_items" => f })
+  end
+
+  def resolve(reflection)
+    RESOLVER.new(empty_table, reflection: reflection)
+            .resolve(CTX.new(name: "line_items", receiver: nil, enclosing_class: "Order",
+                             table: empty_table, node: nil, type_scope: nil))
+  end
+
+  it "types a has_many product as a DATABASE crossing" do
+    r = resolve(table_with(fact(kind: :generated_relation)))
+    expect(r.tier).to eq(:reflect_proven_crossing)
+    expect(r.kind).to eq("db_op")
+  end
+
+  it "gives a gem-defined method the GENERIC exit category when the channel is unknown" do
+    r = resolve(table_with(fact(kind: :generated_other)))
+    expect(r.kind).to eq("external")
+    expect(r.egress_category).to eq(:exit)
+  end
+
+  it "does NOT claim a crossing when the method is defined inside the project" do
+    r = resolve(table_with(fact(kind: :real_def, external_site: false)))
+    expect(r.tier).not_to eq(:reflect_proven_crossing)
+  end
+
+  it "behaves exactly as before when reflection did not run (enrichment, not prerequisite)" do
+    r = resolve(nil)
+    expect(r.tier).not_to eq(:reflect_proven_crossing)
+  end
+
+  it "emits only words the producer constant allows" do
+    r = resolve(table_with(fact(kind: :generated_other)))
+    expect(ArchitectureAuditor::Contract::TERMINAL_KINDS).to include(r.egress_category.to_s)
+  end
+end

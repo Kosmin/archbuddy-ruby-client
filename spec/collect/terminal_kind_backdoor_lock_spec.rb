@@ -148,10 +148,18 @@ RSpec.describe "the A6 back doors are locked (client half)" do
         expect(states.fetch(state, []).size).to be >= 1, "fixture has NO #{state} node — the iff below is vacuous"
       end
 
-      # …and the crossings span the WHOLE category vocabulary plus the declared
-      # one, in a single run.
+      # …and the crossings span the whole STATICALLY-PRODUCIBLE vocabulary plus
+      # the declared one, in a single run.
+      #
+      # "exit" is deliberately excluded from this expectation rather than the
+      # guard being loosened: it is emitted ONLY by the boot-reflection tier
+      # (R3.5), which requires a booted application, and this fixture is a pure
+      # static capture. A static-only fixture cannot produce it, so demanding it
+      # here would be unsatisfiable rather than protective. Its production is
+      # asserted in spec/reflect/, so the vocabulary stays fully covered.
+      static_vocabulary = CONTRACT::TERMINAL_KINDS - %w[exit]
       categories = states.fetch(:crossing).map { |node, _| node.fetch("terminal_kind") }
-      expect(categories.uniq.sort).to eq(CONTRACT::TERMINAL_KINDS.sort)
+      expect(categories.uniq.sort).to eq(static_vocabulary.sort)
       expect(states.fetch(:crossing).map { |_, symbol| symbol }).to include("<external:http:Payments::Gateway>")
     end
 
@@ -272,7 +280,13 @@ RSpec.describe "the A6 back doors are locked (client half)" do
                   .fetch("definitions").fetch("node").fetch("properties").fetch("terminal_kind")
 
       expect(field).not_to have_key("enum")
-      expect(CONTRACT::TERMINAL_KINDS).to eq(%w[http queue gem])
+      # WIDENED ONCE, DELIBERATELY (v0.13-reflect): "exit" is the GENERIC egress
+      # category for a crossing PROVEN by boot reflection (an application class's
+      # method DEFINED inside a gem) whose channel is unknown. The invariant
+      # "presence <=> a proven crossing" is UNCHANGED — "exit" remains forbidden
+      # on the unresolved catch-all sink, which is "could not RESOLVE", not
+      # "could not TYPE".
+      expect(CONTRACT::TERMINAL_KINDS).to eq(%w[http queue gem exit])
     end
 
     it "M-27 CONTROL — a category outside the constant makes it FIRE, naming the value" do
@@ -280,7 +294,8 @@ RSpec.describe "the A6 back doors are locked (client half)" do
       mutated.fetch("nodes").find { |n| n["terminal_kind"] == "gem" }["terminal_kind"] = "database"
 
       expect(CONTRACT::Validator.valid?(:graph, mutated)).to be(true) # the schema accepts it
-      expect(vocabulary_violations(mutated)).to eq(['terminal_kind "database" is outside ["http", "queue", "gem"]'])
+      expect(vocabulary_violations(mutated))
+        .to eq(['terminal_kind "database" is outside ["http", "queue", "gem", "exit"]'])
     end
 
     it "the CLIENT cannot emit one either — the boundary loader refuses at load" do

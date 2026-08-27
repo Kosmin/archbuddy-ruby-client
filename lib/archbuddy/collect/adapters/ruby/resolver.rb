@@ -73,9 +73,13 @@ module Archbuddy
           # / C13).
           UNRESOLVED_TIER = :external
 
-          def initialize(table, probes: [])
+          def initialize(table, probes: [], reflection: nil)
             @table  = table
             @probes = probes
+            # OPTIONAL boot-reflection method table. nil when reflection did not
+            # run (it is an ENRICHMENT, never a prerequisite) — every rule below
+            # behaves exactly as before in that case.
+            @reflection = reflection
           end
 
           # @param ctx [CallContext]
@@ -134,6 +138,33 @@ module Archbuddy
                 return edge(:self_instance, instance_fq)
               elsif @table.method?(singleton_fq)
                 return edge(:self_singleton, singleton_fq)
+              end
+            end
+
+            # R3.5: BOOT-REFLECTION fallback for a receiverless call the static
+            # table missed. R3 consults only the enclosing class's OWN parsed
+            # methods, so an INHERITED, MIXED-IN or MACRO-GENERATED target falls
+            # through — the largest structured unresolved bucket on a real
+            # service (4,517 `self` sites). Reflection knows the class's COMPLETE
+            # loaded method table, so it answers precisely that question.
+            #
+            # A method OWNED by an application class but DEFINED inside a gem is,
+            # by construction, a call that leaves the analysed boundary: that is
+            # a PROVEN crossing, not an assumed one, which is what makes stamping
+            # it honest here while the unresolved catch-all sink must stay bare.
+            if @reflection && self_receiver?(ctx.receiver) && ctx.enclosing_class
+              fact = @reflection.fact(ctx.enclosing_class, name)
+              if fact&.proven_crossing?
+                return Resolution.new(
+                  tier: :reflect_proven_crossing, action: :external,
+                  target_fq: "#{ctx.enclosing_class}##{name}",
+                  # A relation (has_many/belongs_to) crosses to the DATABASE and
+                  # is typed as such; anything else is a proven crossing whose
+                  # channel we do not know, which is exactly what the generic
+                  # "exit" category exists to say.
+                  kind: fact.relation? ? "db_op" : "external",
+                  egress_category: fact.relation? ? nil : :exit
+                )
               end
             end
 
