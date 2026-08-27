@@ -55,7 +55,7 @@ module Archbuddy
         # half-loud, and the boot error is the single most useful thing a user
         # needs in order to fix their reflect config.
         err_file = "#{out}.err"
-        ok = system(cmd, chdir: @root, out: File::NULL, err: err_file)
+        ok = with_clean_env { system(cmd, chdir: @root, out: File::NULL, err: err_file) }
         unless ok && File.file?(out)
           reason = File.file?(err_file) ? File.read(err_file).lines.first(3).join.strip : ""
           msg = "reflect: SKIPPED — the app did not boot under strategy '#{@strategy.key}'. " \
@@ -70,6 +70,29 @@ module Archbuddy
       end
 
       private
+
+      # Environment variables that pin the CURRENT process to ITS OWN Ruby and
+      # bundle. archbuddy normally runs under `bundle exec`, which exports these;
+      # inherited by the target's boot they force the target to load archbuddy's
+      # gemfile and Ruby. Observed failure: a Ruby 2.7 app inheriting a Ruby 3.4
+      # RUBYOPT died with `cannot load such file -- rubygems/uri`, which reads
+      # like a broken app rather than a contaminated environment.
+      #
+      # The target must boot in ITS OWN toolchain — that is the entire point of
+      # running out-of-process — so the parent's bundle context is stripped.
+      LEAKY_VARS = %w[
+        RUBYOPT RUBYLIB GEM_HOME GEM_PATH
+        BUNDLE_GEMFILE BUNDLE_BIN_PATH BUNDLE_PATH BUNDLER_VERSION BUNDLER_SETUP
+        RBENV_VERSION RBENV_DIR RBENV_HOOK_PATH
+      ].freeze
+
+      def with_clean_env
+        saved = LEAKY_VARS.to_h { |k| [k, ENV[k]] }
+        LEAKY_VARS.each { |k| ENV.delete(k) }
+        yield
+      ensure
+        saved.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+      end
 
       # Bundler is used ONLY when the project actually has a lockfile. A plain
       # Ruby project (no Gemfile.lock) would fail under `bundle exec`, and that
