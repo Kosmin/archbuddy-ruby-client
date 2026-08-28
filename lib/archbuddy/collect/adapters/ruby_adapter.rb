@@ -19,6 +19,7 @@ require_relative "ruby/arity_resolver"
 require_relative "../../reflect"
 require_relative "ruby/egress_role_aggregate"
 require_relative "ruby/generated_nodes"
+require_relative "ruby/unresolved_census"
 
 module Archbuddy
   module Collect
@@ -206,9 +207,13 @@ module Archbuddy
           egress_roles  = Ruby::EgressRoleAggregate.new(acc.calls)
           external_keys = add_external_sinks(nodes, acc, egress_roles)
 
-          edges, unresolved = build_edges(acc, key_for_fq, external_keys, nodes)
+          edges, unresolved, unresolved_names = build_edges(acc, key_for_fq, external_keys, nodes)
           edges.concat(generated_edges(minted, key_for_fq))
           stamp_unresolved!(nodes, unresolved)
+          # AFTER the edges are final: the census asks whether a call's real
+          # target would have had anything BELOW it, and out-degree is not known
+          # until every edge exists.
+          census = unresolved_census(table, key_for_fq, edges, unresolved_names)
           entrypoints = build_entrypoints(ep_categories.keys, key_for_fq)
 
           AdapterResult.new(
@@ -260,7 +265,11 @@ module Archbuddy
               # local / ivar / chained / other). Same channel and print
               # discipline as the counters above — CLI/diagnostics only, NEVER
               # graph.yml. {} when nothing went unresolved.
-              receiver_shape_counts: acc.receiver_shapes.counts
+              receiver_shape_counts: acc.receiver_shapes.counts,
+              # How much of that unresolved population could have CHANGED a
+              # score. Same channel and discipline as the counters above.
+              # nil when nothing went unresolved.
+              unresolved_census: census
             }
           )
         end
@@ -411,6 +420,30 @@ module Archbuddy
           minted
         end
 
+        # HOW MUCH OF THE UNRESOLVED POPULATION COULD EVER HAVE MATTERED.
+        #
+        # Assembles the three plain inputs the census needs and hands them over.
+        # Out-degree is read off the FINAL edge list rather than the accumulator,
+        # because the question is what a target actually reaches once generated
+        # forwarding edges are in — a forwarder with its edge is not a leaf.
+        #
+        # Reflection is OPTIONAL here, as everywhere: without it `outside_names`
+        # is empty, which collapses the tight bound onto the loose one. That
+        # reports a WIDER uncertainty, never a narrower one.
+        def unresolved_census(table, key_for_fq, edges, names)
+          return nil if names.empty?
+
+          out = Hash.new(0)
+          edges.each { |e| out[e.from_key] += 1 }
+          degree = ->(fq) { out[key_for_fq[fq]] }
+
+          Ruby::UnresolvedCensus.classify(
+            names: names,
+            leaf_by_name: Ruby::UnresolvedCensus.leaf_by_name(table.methods.values, degree),
+            outside_names: reflection_table&.non_app_method_names || Set.new
+          )
+        end
+
         # The out-edge of a forwarder: `Order#merchant` calls `purchase`.
         #
         # ONE edge, not two. The generated body also sends `merchant` to whatever
@@ -544,6 +577,10 @@ module Archbuddy
         def build_edges(acc, key_for_fq, external_keys, nodes_ref = nil)
           counts = Hash.new(0)
           unresolved = Hash.new(0)
+          # The called NAME of every unresolved site, one entry per SITE. The
+          # per-caller counts above cannot answer "how much of this could have
+          # mattered" because they have already discarded what was called.
+          unresolved_names = []
           unknown_keys = {}
 
           acc.calls.each do |call|
@@ -575,6 +612,7 @@ module Archbuddy
             if to_key.nil?
               if call[:to][:type] == :external
                 unresolved[from_key] += 1
+                unresolved_names << call[:to][:name].to_s
                 to_key = unknown_keys[[from_key, call[:to][:name]]] ||=
                   mint_unknown_sink(nodes_ref, from_key, call[:to][:name])
               end
@@ -587,7 +625,7 @@ module Archbuddy
           edges = counts.map do |(from_key, to_key), calls|
             Raw::RawEdge.new(from_key: from_key, to_key: to_key, calls: calls)
           end
-          [edges, unresolved]
+          [edges, unresolved, unresolved_names]
         end
 
         # v0.10 W1-A1: consumes the fq list from the ONE categorized detection

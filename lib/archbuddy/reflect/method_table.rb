@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 module Archbuddy
   module Reflect
     # The reflected method table, made queryable: class name => method name => facts.
@@ -109,6 +111,21 @@ module Archbuddy
       # Methods on a class that are gem-defined — the proven crossings.
       def crossings_for(cls)
         (@table[cls] || {}).values.select(&:proven_crossing?)
+      end
+
+      # Bare names of methods defined OUTSIDE application source.
+      #
+      # Used to separate a name that genuinely belongs to this codebase from one
+      # it merely shares with a gem: `id` and `call` name application methods AND
+      # hundreds of library ones, so matching an unresolved call to an app method
+      # by name alone is mostly coincidence for them and mostly real for
+      # `merge_variables`. Consumers use it to report a RANGE rather than to
+      # decide anything.
+      def non_app_method_names
+        @non_app_method_names ||=
+          @table.each_value.with_object(Set.new) do |ms, acc|
+            ms.each { |name, f| acc << name if f.app_site == false }
+          end
       end
 
       # Every method whose DEFINITION SITE is application source.

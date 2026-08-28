@@ -165,6 +165,14 @@ module Archbuddy
                "#{'s' if shape_counts.values.sum != 1} by receiver shape (#{breakdown})"
         end
 
+        # ...and immediately, how much of that could have mattered. The count
+        # above on its own reads as a two-thirds failure and is not one: an
+        # unresolved call already costs 1, so wherever the real target is a leaf
+        # the score is ALREADY what perfect resolution would produce. Printing
+        # the raw number alone overstates the blind spot by an order of
+        # magnitude — measured, 65.9% of it is provably cost-1.
+        print_unresolved_census(adapter_result.diagnostics[:unresolved_census])
+
         # M3: a run that finds NO entrypoints leaves the engine unable to
         # compute reachability (dead, path_length). Surface that as a clear
         # stderr WARNING — a diagnostic, never graph content — instead of
@@ -284,6 +292,29 @@ module Archbuddy
 
       def shell_escape(str)
         "'#{str.gsub("'", "'\\\\''")}'"
+      end
+
+      # The unresolved population, split by whether resolving it could have
+      # changed anything.
+      #
+      # Reported as a RANGE, not a number, and that is the honest shape of the
+      # answer: the loose bound counts a site whenever ANY application method of
+      # that name has a subtree, which for `id` or `call` is mostly coincidence;
+      # the tight bound keeps only names with no definition outside the
+      # application, where the match is unlikely to be accidental. The truth sits
+      # between and nearer the tight end. Collapsing that to one figure would
+      # trade a stated uncertainty for a false precision.
+      def print_unresolved_census(census)
+        return if census.nil? || census.total.zero?
+
+        warn format("note:   ...of those, %d (%.1f%%) are provably cost-1 however they resolve " \
+                    "(no in-app definition of the name, or every one is a leaf)",
+                    census.cost_1, census.cost_1_share * 100)
+        return if census.complex.zero?
+
+        hot = census.top_names.map { |n, c| "#{n}=#{c}" }.join(" ")
+        warn format("note:   ...%d could hide real complexity (%d with no gem-side namesake%s)",
+                    census.complex, census.complex_exclusive, hot.empty? ? "" : ": #{hot}")
       end
     end
   end
