@@ -8,6 +8,7 @@ require_relative "reflect/merge"
 require_relative "reflect/method_table"
 require_relative "reflect/macro_scan"
 require_relative "reflect/forwarding"
+require_relative "reflect/dynamic_interface"
 require_relative "reflect/constant_scan"
 
 module Archbuddy

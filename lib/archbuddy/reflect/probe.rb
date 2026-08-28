@@ -19,7 +19,7 @@
 # a real `def customer=` and an `attr_accessor :customer` are indistinguishable
 # by name but differ by source line.
 module ArchbuddyReflectProbe
-  VERSION = "3"
+  VERSION = "4"
 
   # CONSTANT PROVENANCE — which constants this application defines, and from
   # which file. This is what makes "is this receiver app code or an exit?"
@@ -104,7 +104,8 @@ module ArchbuddyReflectProbe
     rescue StandardError
       File.expand_path(root)
     end
-    classes = each_named_module.select { |m| touches?(m, root) }
+    named   = each_named_module
+    classes = named.select { |m| touches?(m, root) }
     entries = classes.flat_map { |mod| methods_for(mod, root) }.compact
     {
       "schema"      => VERSION,
@@ -114,8 +115,125 @@ module ArchbuddyReflectProbe
       "classes"     => classes.map { |m| safe_name(m) }.compact.sort,
       "constants"   => constant_provenance(root),
       "loaded_files" => $LOADED_FEATURES.select { |f| app_path?(f, root) }.map { |f| relative(f, root) },
+      # Swept over EVERY loaded module, not just the ones that touch the app: a
+      # receiver typed as ActiveRecord::Relation is exactly as undecidable as one
+      # typed as Interactor::Context, and the consumer has to be able to ask.
+      "dynamic_interfaces" => dynamic_interfaces(named),
       "methods"     => entries
     }
+  end
+
+  # CLASSES WHOSE METHOD TABLE IS NOT A DESCRIPTION OF THEIR INTERFACE.
+  #
+  # Every other fact in this manifest assumes the opposite — that asking a class
+  # what methods it has yields the set of calls it answers. `method_missing`
+  # breaks that assumption, and where it is in force NOTHING we can reflect will
+  # ever resolve a call: the answer is not stored in the class.
+  #
+  # OWNERSHIP IS THE WRONG TEST, and getting it wrong hides the case that
+  # motivated this. Interactor's Context declares no `method_missing` of its
+  # own — it INHERITS one from OpenStruct, and a `instance_methods(false)` sweep
+  # reports it as an ordinary class. Resolution runs the ancestor chain, so the
+  # test has to as well.
+  #
+  # Reported as two maps rather than one so the second is small: thousands of
+  # classes share a few dozen sources of dynamism, and it is the SOURCE that
+  # determines whether a call through it is recoverable.
+  def dynamic_interfaces(modules)
+    by_class = {}
+    owners   = {}
+    modules.each do |mod|
+      owner = dynamism_owner(mod)
+      next if owner.nil?
+
+      name = safe_name(mod) or next
+      oname = safe_name(owner) or next
+      by_class[name] = oname
+      owners[oname] ||= owner
+    end
+    { "classes" => by_class, "sources" => owners.transform_values { |o| classify_dynamism_of(o) } }
+  rescue StandardError
+    { "classes" => {}, "sources" => {} }
+  end
+
+  # The module supplying `method_missing`, or nil when the class answers only
+  # what its method table says. BasicObject's default is the "no" answer.
+  def dynamism_owner(mod)
+    return nil unless mod.respond_to?(:instance_method)
+
+    owner = mod.instance_method(:method_missing).owner
+    owner == ::BasicObject ? nil : owner
+  rescue StandardError
+    nil
+  end
+
+  def classify_dynamism_of(owner)
+    um = owner.instance_method(:method_missing)
+    iseq = defined?(RubyVM::InstructionSequence) ? RubyVM::InstructionSequence.of(um) : nil
+    # A C-defined method_missing tells us it is dynamic and nothing more. That
+    # is a real state, distinct from "we classified it as unrecoverable".
+    return { "kind" => "native" } if iseq.nil?
+
+    classify_dynamism(iseq.disasm)
+  rescue StandardError
+    { "kind" => "native" }
+  end
+
+  SEND_FAMILY  = /mid:(?:__send__|public_send|send),/.freeze
+  RECEIVERLESS = /FCALL/.freeze
+
+  # WHAT KIND of dynamic interface, from the bytecode of `method_missing` alone.
+  #
+  #   delegator — it re-dispatches the missing name onto another object it
+  #               fetched from itself. RECOVERABLE: type that object and the
+  #               call resolves. `via` names the method that produces it.
+  #   bag       — it never re-dispatches, and it reads instance state. The
+  #               answer was put there at runtime by whoever built the object,
+  #               so it is NOT recoverable from any class-level fact — only
+  #               from dataflow across the call sites that populated it. This
+  #               is OpenStruct, and therefore Interactor's context.
+  #   unknown   — dynamic, but neither shape. Recoverable only through
+  #               framework-specific knowledge (ActiveRecord's attribute
+  #               methods and relations both land here), so this bucket IS the
+  #               worklist: it names the gems worth writing vocabulary for.
+  #
+  # The delegator test is deliberately structural rather than a list of unwrap
+  # method names. `__getobj__` (Delegator), `target` (DeprecationProxy) and
+  # `attachment` (ActiveStorage) are the same shape and no vocabulary predicts
+  # the next one: a dynamic re-dispatch plus a receiverless call to get the
+  # thing to dispatch onto.
+  def classify_dynamism(disasm)
+    body = disasm.lines.reject { |l| l.start_with?("|") }
+    reads = body.grep(/getinstancevariable/).flat_map { |l| l.scan(/@[A-Za-z_]\w*/) }.uniq
+
+    if body.any? { |l| SEND_FAMILY.match?(l) } && (via = unwrap_call(body))
+      { "kind" => "delegator", "via" => via }
+    elsif !reads.empty?
+      { "kind" => "bag", "reads" => reads }
+    else
+      { "kind" => "unknown" }
+    end
+  end
+
+  # The first receiverless call in the body that is not itself the dynamic
+  # dispatch — i.e. how the delegator gets hold of what it forwards to.
+  def unwrap_call(body)
+    body.each do |l|
+      next unless l.include?("mid:") && RECEIVERLESS.match?(l)
+      next if SEND_FAMILY.match?(l)
+
+      name = l[/mid:([a-zA-Z_][a-zA-Z0-9_]*[?!=]?)/, 1]
+      # Predicates are guards (`target_respond_to?`), never the unwrap itself.
+      next if name.nil? || name.end_with?("?")
+      # `class` is on every object and names no WRAPPED thing, so reporting it
+      # as the unwrap would offer a type lookup that cannot exist. Observed on
+      # Barby::Barcode, whose method_missing re-dispatches after consulting
+      # `self.class`. Declining leaves it :unknown, which is the true answer.
+      next if name == "class"
+
+      return name
+    end
+    nil
   end
 
   # cpath => { "file" => path|nil, "app" => bool }. Merged from every available

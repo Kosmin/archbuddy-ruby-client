@@ -70,7 +70,30 @@ module Archbuddy
         puts "  forwarding facts: #{f[:total]}  " \
              "(agreed=#{f[:agreed].to_i} bytecode-only=#{f[:bytecode].to_i} " \
              "static-only=#{f[:static].to_i} conflicts=#{f[:conflicts]})"
+        print_dynamic_census(Archbuddy::Reflect::DynamicInterface.from_manifest(result.manifest))
         puts "run `archbuddy collect #{path}` to fold these into the graph"
+      end
+
+      private
+
+      # The dynamic-interface census. Printed with the kinds SPELLED OUT rather
+      # than as one total, because the whole point of the classification is that
+      # the three mean different things: a bag is a boundary that cannot be
+      # crossed by any amount of reflection, a delegator is one type lookup away,
+      # and `unknown` is a list of gems someone could teach the tool about.
+      def print_dynamic_census(dyn)
+        return if dyn.empty?
+
+        s = dyn.stats
+        puts "  dynamic interfaces: #{s[:classes]} classes over #{s[:sources]} sources " \
+             "(bag=#{s[:bag].to_i} delegator=#{s[:delegator].to_i} " \
+             "unknown=#{s[:unknown].to_i} native=#{s[:native].to_i})"
+        puts "    classes here answer calls their method table does not list;"
+        puts "    a `bag` receiver is UNDECIDABLE, not unresolved — nothing to find."
+        dyn.sources_by_reach.first(5).each do |r|
+          via = r[:via] ? " via ##{r[:via]}" : ""
+          puts "      #{r[:reach].to_s.rjust(5)} classes  #{r[:kind].to_s.ljust(10)} #{r[:source]}#{via}"
+        end
       end
     end
   end
