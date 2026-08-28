@@ -252,7 +252,15 @@ module ArchbuddyReflectProbe
         "line"       => loc ? loc[1] : nil,
         "arity"      => safe_arity(um),
         "owner"      => safe_name(um.owner),
-        "visibility" => visibility_of(mod, kind, name)
+        "visibility" => visibility_of(mod, kind, name),
+        # Is the DEFINITION SITE application source? Published as a fact rather
+        # than left for the consumer to re-derive from `file`, because the test
+        # is not the obvious one: bundled gems install UNDER the project root
+        # (.devbox/virtenv, vendor/bundle), so "path is relative to root" —
+        # which is what `file` looks like — answers "yes" for every gem. The
+        # vendor vocabulary belongs in ONE place, here, next to `app_path?`.
+        # nil when the method has no source location at all (C-defined).
+        "app_site"   => (loc ? app_path?(loc[0], root) : nil)
       }
       # Recorded ONLY for methods whose definition site is APPLICATION source,
       # for two independent reasons.
@@ -279,7 +287,7 @@ module ArchbuddyReflectProbe
       #
       # The key is OMITTED, not set to null, when there is nothing to say — the
       # same discipline as every other absent fact here.
-      fwd = loc && app_path?(loc[0], root) ? forwards_for(um) : nil
+      fwd = entry["app_site"] ? forwards_for(um) : nil
       entry["forwards"] = fwd if fwd
       entry
     end

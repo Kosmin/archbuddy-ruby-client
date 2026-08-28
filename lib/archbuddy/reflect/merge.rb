@@ -9,12 +9,22 @@ module Archbuddy
     # they are indistinguishable by name and trivially separable by line — the
     # generated one points at the macro call, the real one at its own `def`.
     #
-    # That distinction matters architecturally: a generated trivial accessor is
-    # data access with no branching and should NOT become a graph node (it would
-    # inflate counts and dilute every metric), whereas a generated RELATION
-    # (has_many/belongs_to) is a database exit and is one of the most significant
+    # That distinction matters architecturally: a generated RELATION
+    # (has_many/belongs_to) is a database exit and one of the most significant
     # things in the file. "Generated" is therefore not a synonym for "ignore" —
     # we classify by WHAT generated it, which is why the generator line is kept.
+    #
+    # POSITION CHANGED — trivial accessors DO become nodes now (GeneratedNodes).
+    # This comment used to say they should not, on the grounds that they would
+    # "inflate counts and dilute every metric". That was written when the
+    # alternative was the shared `<external>` sink, where omitting them cost
+    # nothing. Under the per-caller analysis boundary it is no longer true: a
+    # call to an unminted `attr_reader` does not vanish, it becomes a
+    # `<boundary:unknown:...>` node — the SAME node count, cost 1 either way,
+    # but labelled "tracking stopped here" when we know exactly what it is. The
+    # count argument survived the change in what the alternative was; the
+    # accuracy argument did not. Measured on one service: 80 trivial accessors
+    # against 787 delegations, so the count was never the deciding term anyway.
     class Merge
       # Macros whose products are pure data access — no control flow, no I/O.
       TRIVIAL_MACROS = %w[attr_accessor attr_reader attr_writer].freeze

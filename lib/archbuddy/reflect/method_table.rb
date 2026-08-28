@@ -19,7 +19,7 @@ module Archbuddy
     # stamp is honest here and dishonest on the unresolved sink.
     class MethodTable
       Fact = Struct.new(:cls, :name, :scope, :file, :line, :external_site, :kind, :macro, :owner,
-                        keyword_init: true) do
+                        :app_site, keyword_init: true) do
         # The fq symbol of the DEFINING method — which is not necessarily on the
         # calling class. A method reached via `include Concerns::Trackable` is
         # owned by that module, and its graph node lives under the module's name.
@@ -53,7 +53,8 @@ module Archbuddy
           table[m["class"]][m["name"]] = Fact.new(
             cls: m["class"], name: m["name"], scope: m["scope"],
             file: m["file"], line: m["line"], external_site: m["external_site"],
-            kind: kind_for(macro), macro: macro, owner: m["owner"]
+            kind: kind_for(macro), macro: macro, owner: m["owner"],
+            app_site: m["app_site"]
           )
         end
         new(table)
@@ -108,6 +109,22 @@ module Archbuddy
       # Methods on a class that are gem-defined — the proven crossings.
       def crossings_for(cls)
         (@table[cls] || {}).values.select(&:proven_crossing?)
+      end
+
+      # Every method whose DEFINITION SITE is application source.
+      #
+      # `app_site` is read off the manifest rather than re-derived from `file`,
+      # because the obvious derivation is wrong: bundled gems install under the
+      # project root, so a path that merely looks project-relative is as likely
+      # to be activerecord as it is to be a model. The probe owns that test.
+      #
+      # ABSENT means unknown, not false — a manifest written before the probe
+      # published the flag yields nothing here rather than silently claiming the
+      # whole application is gem code.
+      def app_methods
+        return enum_for(:app_methods) unless block_given?
+
+        @table.each_value { |ms| ms.each_value { |f| yield f if f.app_site } }
       end
 
       def stats

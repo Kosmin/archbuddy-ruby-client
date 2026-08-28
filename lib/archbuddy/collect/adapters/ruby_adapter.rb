@@ -18,6 +18,7 @@ require_relative "ruby/route_catalogue"
 require_relative "ruby/arity_resolver"
 require_relative "../../reflect"
 require_relative "ruby/egress_role_aggregate"
+require_relative "ruby/generated_nodes"
 
 module Archbuddy
   module Collect
@@ -70,29 +71,45 @@ module Archbuddy
         # reflection ENRICHES the static graph and must never be able to fail a
         # collection that would otherwise succeed.
         def reflection_table
-          return @reflection_table if defined?(@reflection_table)
-
-          @reflection_table = build_reflection_table
+          load_reflection unless defined?(@reflection_table)
+          @reflection_table
         end
 
-        def build_reflection_table
+        # The reconciled DSL forwarding facts, or nil when reflection did not
+        # run. Loaded in the SAME pass as the method table because both are
+        # derived from one manifest plus one macro scan, and that scan globs and
+        # parses every `.rb` in the project — doing it twice would double the
+        # cost of every collect to answer a second question about the same files.
+        def reflection_forwarding
+          load_reflection unless defined?(@reflection_forwarding)
+          @reflection_forwarding
+        end
+
+        def load_reflection
+          @reflection_table = nil
+          @reflection_forwarding = nil
+
           path = (config.respond_to?(:reflection_path) && config.reflection_path) ||
                  File.join(root, ".archbuddy", "reflection.json")
-          return nil unless File.file?(path)
+          return unless File.file?(path)
 
           require "json"
           manifest = JSON.parse(File.read(path))
-          return nil unless manifest.is_a?(Hash) && manifest["methods"].is_a?(Array)
+          return unless manifest.is_a?(Hash) && manifest["methods"].is_a?(Array)
 
-          macros = Archbuddy::Reflect::MacroScan.scan(Dir.glob(File.join(root, "**", "*.rb")))
-          table = Archbuddy::Reflect::MethodTable.from_manifest(manifest, macro_calls: macros)
-          warn "note: reflection loaded — #{table.stats[:methods]} methods, " \
-               "#{table.stats[:proven_crossings]} proven crossings, #{table.stats[:relations]} relations"
-          table
+          scan = Archbuddy::Reflect::MacroScan.scan_all(Dir.glob(File.join(root, "**", "*.rb")))
+          @reflection_table = Archbuddy::Reflect::MethodTable.from_manifest(manifest, macro_calls: scan.macros)
+          @reflection_forwarding = Archbuddy::Reflect::Forwarding.from(manifest, delegations: scan.delegations)
+          s = @reflection_table.stats
+          f = @reflection_forwarding.stats
+          warn "note: reflection loaded — #{s[:methods]} methods, " \
+               "#{s[:proven_crossings]} proven crossings, #{s[:relations]} relations, " \
+               "#{f[:total]} forwarding facts (#{f[:conflicts]} conflicts)"
         rescue StandardError => e
           warn "note: reflection manifest at #{path} could not be used (#{e.class}); " \
                "continuing with static collection only"
-          nil
+          @reflection_table = nil
+          @reflection_forwarding = nil
         end
 
         def collect(mode: :full, base_ref: nil)
@@ -150,6 +167,21 @@ module Archbuddy
           # boundary). {fq => Integer|nil}; threaded onto RawNodes in CL-C.
           arity_by_fq = Ruby::ArityResolver.new(table).resolve
 
+          # MACRO-GENERATED METHODS JOIN THE TABLE BEFORE RESOLUTION, and the
+          # position is the whole point. R3 answers a receiverless call by asking
+          # `table.method?("#{enclosing}##{name}")`; if `delegate :merchant` never
+          # reaches the table, every call to `merchant` falls through to the
+          # unresolved sink no matter how much reflection knows. Minting the node
+          # afterwards fixed the missing FUNCTION and left all 2,277 of its call
+          # sites unresolved — measured, on a run that reported 880 new nodes and
+          # not one new edge.
+          #
+          # AFTER the route catalogue, the root seeders and the arity resolver,
+          # though. Each of those reads `table.methods`, and a generated method
+          # is not a route target, not an ingress root, and has no parsed body to
+          # infer an outcome arity from — so it must not be visible to them.
+          minted = register_generated_methods!(table)
+
           acc = Ruby::Accumulator.new
           run_resolution_pass(fragments, table, acc)
 
@@ -165,6 +197,8 @@ module Archbuddy
           nodes      = []
           key_for_fq = {}
 
+          # Generated methods are ordinary MethodEntries by now, so they get
+          # their nodes here with everything else — no second minting path.
           add_method_nodes(table, nodes, key_for_fq, ep_categories, arity_by_fq)
           add_db_op_nodes(table, acc, nodes, key_for_fq)
           # configurator W3 (C7): the ONE delegation — per-sink role unanimity
@@ -173,6 +207,7 @@ module Archbuddy
           external_keys = add_external_sinks(nodes, acc, egress_roles)
 
           edges, unresolved = build_edges(acc, key_for_fq, external_keys, nodes)
+          edges.concat(generated_edges(minted, key_for_fq))
           stamp_unresolved!(nodes, unresolved)
           entrypoints = build_entrypoints(ep_categories.keys, key_for_fq)
 
@@ -334,6 +369,61 @@ module Archbuddy
             )
             nodes << node
             key_for_fq[m.fq_symbol] = node.real_key
+          end
+        end
+
+        # MACRO-GENERATED APPLICATION METHODS the parser could not see.
+        #
+        # `delegate :merchant, to: :purchase` puts a real method on the class and
+        # nothing in the file for Prism to read, so the graph has been missing
+        # those functions entirely — 888 of them on one service — and every call
+        # to one resolved to nothing for want of a target.
+        #
+        # No branch counts are supplied: a forwarder has no control flow, and
+        # RawNode's defaults (1 branch, 0 decisions) are exactly right. Anything
+        # else would put invented cost into the score. `escapes` is false for the
+        # same reason — a two-send body has no callable boundary to cross.
+        #
+        # `add_method` is first-wins, so this cannot displace a parsed `def`
+        # even if reflection and the parser disagree about a name.
+        #
+        # @return [Array<GeneratedNodes::Minted>]
+        def register_generated_methods!(table)
+          minted = Ruby::GeneratedNodes.build(reflection: reflection_table,
+                                              forwarding: reflection_forwarding,
+                                              table: table)
+          return minted if minted.empty?
+
+          minted.each do |m|
+            class_ref = table.class_for(m.owner)
+            table.add_method(
+              Ruby::SymbolTable::MethodEntry.new(
+                fq_symbol: m.fq, owner_fq: m.owner, name: m.name,
+                singleton: m.scope.to_s == "singleton",
+                rel_file:  m.rel_file || class_ref&.rel_file,
+                line:      m.line || class_ref&.line,
+                endpoint:  false, escapes: false
+              )
+            )
+          end
+          warn "note: #{minted.length} macro-generated methods added to the symbol table " \
+               "(#{minted.count { |m| m.forwards_to }} with a recovered forwarding edge)"
+          minted
+        end
+
+        # The out-edge of a forwarder: `Order#merchant` calls `purchase`.
+        #
+        # ONE edge, not two. The generated body also sends `merchant` to whatever
+        # `purchase` returned, but that receiver's type is the very thing we do
+        # not know — so the second hop stays unrepresented rather than pointed at
+        # a guess.
+        def generated_edges(minted, key_for_fq)
+          minted.filter_map do |m|
+            from_key = key_for_fq[m.fq]
+            to_key   = key_for_fq[m.forwards_to]
+            next if from_key.nil? || to_key.nil? || from_key == to_key
+
+            Raw::RawEdge.new(from_key: from_key, to_key: to_key, calls: 1)
           end
         end
 
