@@ -19,7 +19,7 @@
 # a real `def customer=` and an `attr_accessor :customer` are indistinguishable
 # by name but differ by source line.
 module ArchbuddyReflectProbe
-  VERSION = "2"
+  VERSION = "3"
 
   # CONSTANT PROVENANCE — which constants this application defines, and from
   # which file. This is what makes "is this receiver app code or an exit?"
@@ -242,17 +242,46 @@ module ArchbuddyReflectProbe
       um = unbound(mod, kind, name)
       next if um.nil?
 
-      {
+      external = external_site(loc, root)
+      entry = {
         "class"      => cls,
         "name"       => name.to_s,
         "scope"      => kind.to_s,
         "file"       => loc ? relative(loc[0], root) : nil,
-        "external_site" => external_site(loc, root),
+        "external_site" => external,
         "line"       => loc ? loc[1] : nil,
         "arity"      => safe_arity(um),
         "owner"      => safe_name(um.owner),
         "visibility" => visibility_of(mod, kind, name)
       }
+      # Recorded ONLY for methods whose definition site is APPLICATION source,
+      # for two independent reasons.
+      #
+      # HONESTY: ActiveRecord's association reader is a generic runtime shim —
+      # `association(:merchant).reader` — which is itself a two-send forwarder
+      # and would be read as "forwards to #association", naming AR's internals
+      # instead of the association's target. That shim lives in the gem, so
+      # gating on the definition site rules it out BY CONSTRUCTION rather than
+      # by a vocabulary of method names to distrust. An association's real
+      # target is recoverable, but only through a framework-specific reflection
+      # API, which is a different tier and does not belong in this file.
+      #
+      # SIZE: a real service reflects ~130k gem methods against ~6k of its own.
+      # Forwarding facts about gem internals are inert to every consumer, and
+      # the manifest is already the largest artifact we write.
+      #
+      # THE GATE IS `app_path?`, NOT `external_site`. Those two disagree, and
+      # the difference is the whole point: bundled gems install UNDER the
+      # project root, so `external_site` — a bare root-prefix test — reports a
+      # vendored gem as in-app. Gating on it produced 30,930 facts from
+      # .devbox/virtenv against 1,349 real ones, 25,546 of them the very AR
+      # shim this gate exists to exclude.
+      #
+      # The key is OMITTED, not set to null, when there is nothing to say — the
+      # same discipline as every other absent fact here.
+      fwd = loc && app_path?(loc[0], root) ? forwards_for(um) : nil
+      entry["forwards"] = fwd if fwd
+      entry
     end
   end
 
@@ -268,6 +297,70 @@ module ArchbuddyReflectProbe
     um.arity
   rescue StandardError
     nil
+  end
+
+  # FORWARDING RECOVERY — the framework-AGNOSTIC half of DSL decomposition.
+  #
+  # A method a DSL generated has no `def` in source, so a parser can never read
+  # its body. But the method EXISTS once the class body has run, and CRuby will
+  # hand back the bytecode it compiled for it. Disassembling that recovers what
+  # the body DOES without knowing which macro wrote it: ActiveSupport's
+  # `delegate`, Forwardable's `def_delegator` and a hand-rolled
+  # `define_method(:x) { y.z }` all compile to the same shape, so one rule reads
+  # all three and any future one.
+  #
+  # THE SHAPE. A forwarder evaluates ONE receiverless call, stores it, and sends
+  # ONE method to the result:
+  #
+  #     putself
+  #     opt_send_without_block  <calldata!mid:purchase, argc:0, FCALL|VCALL|...>
+  #     setlocal                _
+  #     getlocal                _
+  #     send                    <calldata!mid:merchant, ...>
+  #     leave
+  #
+  # so the MAIN BODY contains EXACTLY TWO sends — the target, then the forwarded
+  # name. Two is the whole test. Anything else is not a forwarder and we return
+  # nil rather than guess.
+  #
+  # ONLY THE MAIN BODY. `delegate` also compiles a rescue clause that raises
+  # DelegationError; its instructions (`nil?`, `name`, `inspect`, `raise`) appear
+  # in the disassembly indented under a catch table. Dropping the catch-table
+  # lines first is what keeps the count at two — and, deliberately, it is also
+  # what keeps this rule from depending on ActiveSupport's error TEXT, which is
+  # the sort of vocabulary this whole approach exists to avoid.
+  FORWARD_MID  = /mid:([a-zA-Z_][a-zA-Z0-9_]*[?!=]?)/.freeze
+  RECEIVERLESS = /FCALL|VCALL/.freeze
+
+  # @return [Hash, nil] {"to" =>, "via" =>}, or nil when not a forwarder
+  def forwards_for(um)
+    return nil unless defined?(RubyVM::InstructionSequence)
+
+    iseq = RubyVM::InstructionSequence.of(um)
+    return nil if iseq.nil? # C-defined (attr_* and friends) — no bytecode to read
+
+    parse_forward(iseq.disasm)
+  rescue StandardError
+    # Bytecode introspection is an ENRICHMENT. A Ruby without RubyVM, a JIT that
+    # declines, a method whose iseq was GC'd — all mean "we learned nothing
+    # here", never "the method does not forward".
+    nil
+  end
+
+  # Split out from `forwards_for` as a PURE FUNCTION of the disassembly text, so
+  # the rule above can be tested against recorded bytecode without booting an
+  # application to produce it.
+  def parse_forward(disasm)
+    body  = disasm.lines.reject { |l| l.start_with?("|") }
+    sends = body.select { |l| l.include?("mid:") }
+    return nil unless sends.length == 2
+    return nil unless RECEIVERLESS.match?(sends[0])
+
+    to  = sends[0][FORWARD_MID, 1]
+    via = sends[1][FORWARD_MID, 1]
+    return nil if to.nil? || via.nil?
+
+    { "to" => to, "via" => via }
   end
 
   def safe_name(mod)

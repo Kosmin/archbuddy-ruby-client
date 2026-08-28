@@ -52,9 +52,11 @@ module Archbuddy
         FileUtils.mkdir_p(File.dirname(out))
         File.write(out, JSON.pretty_generate(result.manifest))
 
-        macros = Archbuddy::Reflect::MacroScan.scan(Dir.glob(File.join(root, "**", "*.rb")))
-        table = Archbuddy::Reflect::MethodTable.from_manifest(result.manifest, macro_calls: macros)
+        scan = Archbuddy::Reflect::MacroScan.scan_all(Dir.glob(File.join(root, "**", "*.rb")))
+        table = Archbuddy::Reflect::MethodTable.from_manifest(result.manifest, macro_calls: scan.macros)
+        fwd = Archbuddy::Reflect::Forwarding.from(result.manifest, delegations: scan.delegations)
         s = table.stats
+        f = fwd.stats
         puts "wrote #{out}"
         puts "  strategy:         #{strategy.key}"
         puts "  classes:          #{s[:classes]}"
@@ -62,6 +64,12 @@ module Archbuddy
         puts "  proven crossings: #{s[:proven_crossings]}  (owned here, defined in a gem)"
         puts "  relations:        #{s[:relations]}  (has_many/belongs_to -> database exits)"
         puts "  trivial accessors:#{s[:trivial]}  (attr_* -> data access, not graph nodes)"
+        # Printed per DERIVATION, not as one total. A tier that silently stopped
+        # contributing (no RubyVM on this Ruby; a macro vocabulary that missed a
+        # new DSL) shows up here as a zero, where a merged total would hide it.
+        puts "  forwarding facts: #{f[:total]}  " \
+             "(agreed=#{f[:agreed].to_i} bytecode-only=#{f[:bytecode].to_i} " \
+             "static-only=#{f[:static].to_i} conflicts=#{f[:conflicts]})"
         puts "run `archbuddy collect #{path}` to fold these into the graph"
       end
     end
