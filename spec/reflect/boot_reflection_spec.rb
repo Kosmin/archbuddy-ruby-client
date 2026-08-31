@@ -128,6 +128,7 @@ RSpec.describe "reflection-driven resolution (R3.5)" do
     Class.new do
       define_method(:profile) { null_profile }
       def method?(_) = false
+      def ancestor_method_fq(_cls, _name) = nil
       def active_record_class?(_) = false
     end.new
   end
@@ -183,6 +184,7 @@ RSpec.describe "reflection-driven resolution (R3.5)" do
       define_method(:profile) { Object.new.tap { |o| def o.method_missing(n, *) = n.to_s.end_with?("?") ? false : nil
                                                      def o.respond_to_missing?(*) = true } }
       def method?(_) = false
+      def ancestor_method_fq(_cls, _name) = nil
       def active_record_class?(_) = false
     end.new
     r = RESOLVER.new(typed, reflection: table).resolve(
@@ -217,6 +219,7 @@ RSpec.describe "reflection resolves IN-APP self-calls (the mixin case)" do
       define_method(:profile) { p }
       define_method(:known) { fq }
       def method?(x) = x == known
+      def ancestor_method_fq(_cls, _name) = nil
       def active_record_class?(_) = false
     end.new
   end

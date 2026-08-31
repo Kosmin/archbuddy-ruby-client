@@ -58,6 +58,7 @@ RSpec.describe "Probe seam (W1 / P1)" do
   let(:empty_table) do
     Class.new do
       def method?(_fq) = false
+      def ancestor_method_fq(_cls, _name) = nil
       def active_record_class?(_fq) = false
       def profile = M::Profile.reference
     end.new
@@ -67,6 +68,7 @@ RSpec.describe "Probe seam (W1 / P1)" do
   let(:const_table) do
     Class.new do
       def method?(fq) = fq == "Helper.do_it"
+      def ancestor_method_fq(_cls, _name) = nil
       def active_record_class?(_fq) = false
       def profile = M::Profile.reference
     end.new

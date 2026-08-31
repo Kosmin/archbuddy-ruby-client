@@ -141,6 +141,26 @@ module Archbuddy
               end
             end
 
+            # R3.4: the same receiverless call, resolved along the static
+            # ANCESTOR CHAIN — superclasses and the modules they include.
+            #
+            # R3 asks only whether the ENCLOSING class parsed the method itself,
+            # so `include Segmentation::Snowflake` followed by a bare
+            # `snowflake_client` resolved to nothing. Measured on a real service,
+            # that is 506 of the 920 call sites where real complexity could still
+            # be hiding, and not one of them has its target on the calling class.
+            #
+            # BEFORE R3.5 because this is a PROOF and R3.5 is an enrichment:
+            # `mixins`/`superclass` come from literal `include`/`<` in the parsed
+            # source, so the answer is exact and needs no boot. R3.5's reflection
+            # lookup is keyed by owner and cannot see an inherited method at all,
+            # which is why this tier — not a better reflection query — is what
+            # closes the mixin case.
+            if self_receiver?(ctx.receiver) && ctx.enclosing_class &&
+               (ancestor_fq = @table.ancestor_method_fq(ctx.enclosing_class, name))
+              return edge(:self_ancestor, ancestor_fq)
+            end
+
             # R3.5: BOOT-REFLECTION fallback for a receiverless call the static
             # table missed. R3 consults only the enclosing class's OWN parsed
             # methods, so an INHERITED, MIXED-IN or MACRO-GENERATED target falls

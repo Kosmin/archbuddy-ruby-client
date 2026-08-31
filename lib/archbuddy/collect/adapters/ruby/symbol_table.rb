@@ -198,6 +198,63 @@ module Archbuddy
             false
           end
 
+          # RESOLVE `name` along the ancestor chain: the fq symbol of the method
+          # an instance of `fq_name` would actually run, or nil.
+          #
+          # The third sibling of the two primitives above, and the one that
+          # answers a receiverless call rather than a class predicate. `include
+          # Segmentation::Snowflake` puts `snowflake_client` on every including
+          # class; the enclosing-class rule looks only at the class's OWN parsed
+          # methods, so those calls resolved to nothing. Measured on one service
+          # they are 506 of the 920 call sites where real complexity could still
+          # be hiding — the single largest remaining category, and NONE of them
+          # has its target on the calling class, so no amount of tightening the
+          # own-class rule would reach them.
+          #
+          # NEEDS NO REFLECTION. `mixins` and `superclass` are captured from
+          # literal `include`/`<` in source, so this works on an application that
+          # cannot boot — and it is exact where a name-keyed reflection lookup
+          # would be a guess.
+          #
+          # MRO ORDER, not convenience order: Ruby resolves the class itself,
+          # then its modules in REVERSE inclusion order (the last `include`
+          # wins), then repeats up the superclass chain. Walking mixins before
+          # the superclass matters whenever both define the name — picking the
+          # superclass would name a method that never runs.
+          #
+          # A module's own `include`s are NOT followed. That is a real limit,
+          # recorded rather than hidden: nesting modules this way is rare, and
+          # declining leaves the call unresolved instead of resolving it wrongly.
+          def ancestor_method_fq(fq_name, name)
+            seen = {}
+            current = @classes[fq_name]
+            while current && !seen[current.fq_name]
+              seen[current.fq_name] = true
+
+              if (hit = method_on(current.fq_name, name))
+                return hit
+              end
+
+              current.mixins.reverse_each do |mixin_fq|
+                if (hit = method_on(mixin_fq, name))
+                  return hit
+                end
+              end
+
+              current = @classes[current.superclass]
+            end
+            nil
+          end
+
+          # Instance before singleton, mirroring the enclosing-class rule.
+          def method_on(owner_fq, name)
+            instance_fq = "#{owner_fq}##{name}"
+            return instance_fq if @methods.key?(instance_fq)
+
+            singleton_fq = "#{owner_fq}.#{name}"
+            singleton_fq if @methods.key?(singleton_fq)
+          end
+
           # The chain-walked ORM / controller discriminators. Both read the
           # profile (ORM + controller base classes, and the controller NAME
           # SUFFIX convention) — the predicates they replaced on ClassEntry
