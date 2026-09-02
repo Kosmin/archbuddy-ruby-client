@@ -22,13 +22,20 @@ RSpec.describe "Root-seeder seam (v0.10 W1-B)" do
 
   # --- registry map -------------------------------------------------------------
 
-  it "ships a frozen SEEDERS list in ingress-precedence order (jobs -> rake -> middleware -> script -> cron LAST)" do
+  it "ships a frozen SEEDERS list in ingress-precedence order (cron LAST)" do
+    # The GEM-RE-ENTRY seeders sit after the four original ones and before
+    # cron, and the position is load-bearing because mark_entrypoint is
+    # first-write-wins: a Sidekiq worker that also declares
+    # `after_perform :cleanup` must read as a JOB, since the job is why it
+    # runs and the callback is an internal detail of that run.
     expect(R::RootSeederRegistry::SEEDERS).to eq(
       [
         R::RootSeeders::JobSeeder,
         R::RootSeeders::RakeSeeder,
         R::RootSeeders::MiddlewareSeeder,
         R::RootSeeders::ScriptSeeder,
+        R::RootSeeders::CallbackSeeder,
+        R::RootSeeders::OrganizedSeeder,
         R::RootSeeders::CronLinkSeeder
       ]
     )
@@ -39,7 +46,7 @@ RSpec.describe "Root-seeder seam (v0.10 W1-B)" do
 
   it "selects every DEFAULT-ON seeder for :all (the default) — cron EXCLUDED (W4b/R10)" do
     expect(R::RootSeederRegistry.for(Archbuddy::Collect::Config.new).map(&:root_type))
-      .to eq(%i[jobs rake middleware script])
+      .to eq(%i[jobs rake middleware script callbacks organized])
   end
 
   it "keeps CronLinkSeeder registered-but-default-off: :all skips it, naming :cron selects it" do

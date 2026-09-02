@@ -5,6 +5,8 @@ require_relative "root_seeders/job_seeder"
 require_relative "root_seeders/rake_seeder"
 require_relative "root_seeders/middleware_seeder"
 require_relative "root_seeders/script_seeder"
+require_relative "root_seeders/callback_seeder"
+require_relative "root_seeders/organized_seeder"
 require_relative "root_seeders/cron_link_seeder"
 
 module Archbuddy
@@ -31,6 +33,14 @@ module Archbuddy
         # LINK-only — it confirms roots the earlier seeders (jobs) and the
         # Pass-1 rake mint already tagged; it never seeds anything itself.
         #
+        # GEM RE-ENTRY (:callbacks, :organized) is ordered AFTER the four
+        # original seeders and before cron, and the position carries meaning
+        # because mark_entrypoint is first-write-wins. A Sidekiq worker that
+        # also declares `after_perform :cleanup` should read as a JOB — the job
+        # is why it runs; the callback is an internal detail of that run. A
+        # method whose ONLY reason to exist is a framework callback has no
+        # earlier claim on it, so it lands here.
+        #
         # THE RAKE ASYMMETRY (v0.10 W2-B): RakeSeeder is a documenting
         # no-op — task blocks have no DefNode, so rake roots are MINTED (and
         # :rake-categorized) in Pass 1 (DefinitionPass#mint_rake_task, F5
@@ -46,6 +56,8 @@ module Archbuddy
             RootSeeders::RakeSeeder,
             RootSeeders::MiddlewareSeeder,
             RootSeeders::ScriptSeeder,
+            RootSeeders::CallbackSeeder,
+            RootSeeders::OrganizedSeeder,
             RootSeeders::CronLinkSeeder
           ].freeze
 
