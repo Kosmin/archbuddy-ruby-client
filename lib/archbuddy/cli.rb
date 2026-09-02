@@ -9,6 +9,7 @@ require_relative "cli/diff"
 require_relative "cli/lint"
 require_relative "cli/reset"
 require_relative "cli/reflect"
+require_relative "cli/trace"
 
 module Archbuddy
   # dry-cli command registry (D48). The v0.8 committed-cache CLI surface:
@@ -29,5 +30,6 @@ module Archbuddy
     register "lint", Lint
     register "reset", Reset
     register "reflect", Reflect
+    register "trace", Trace
   end
 end
