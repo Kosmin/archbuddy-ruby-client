@@ -104,70 +104,132 @@ RSpec.describe "gem re-entry ingress roots" do
     end
   end
 
-  describe Archbuddy::Collect::Adapters::Ruby::RootSeeders::OrganizedSeeder do
-    it "seeds every interactor an `organize` names — the GEM calls each of them" do
-      t = seed(<<~RUBY, seeder: described_class.new)
-        class Step::One
-          def call; end
-        end
-        class Step::Two
-          def call; end
-        end
-        class Flow
-          organize Step::One, Step::Two
-        end
-      RUBY
-      expect(t.entrypoint_category("Step::One#call")).to eq(:organized)
-      expect(t.entrypoint_category("Step::Two#call")).to eq(:organized)
+  # THE STEPS ARE EDGES, NOT ROOTS. Seeding each step was the first design and
+  # the weaker one: they became reachable but stayed disconnected, so the
+  # organizer had no cost and "what does Clawback do" returned nothing.
+  describe Archbuddy::Collect::Adapters::Ruby::OrganizerNodes do
+    def build(source)
+      fragment = Archbuddy::Collect::Fragment.new(
+        rel_file: "app/x.rb", content_hash: "h", parsed_value: Prism.parse(source).value
+      )
+      table = rb::SymbolTable.new
+      fragment.parsed_value.accept(rb::DefinitionPass.new(table, "app/x.rb"))
+      [described_class.build(fragments: [fragment], table: table), table]
     end
 
-    it "reads the parenthesised multi-line form, which parses to the same arguments" do
-      t = seed(<<~RUBY, seeder: described_class.new)
+    it "mints the organizer's `#call` — app source never declares it" do
+      # Verified on a real service: all 25 organizer classes had NO `#call`
+      # node, because Interactor::Organizer supplies it and it is gem-defined.
+      out, = build(<<~RUBY)
         class Step::One
           def call; end
         end
         class Flow
+          organize Step::One
+        end
+      RUBY
+      expect(out.map(&:call_fq)).to eq(["Flow#call"])
+      expect(out.first.step_fqs).to eq(["Step::One#call"])
+    end
+
+    it "anchors the minted node at the `organize` DECLARATION, so the id-map points at real code" do
+      out, = build("class Flow\n  include Interactor::Organizer\n  organize A\nend\nclass A; def call; end; end\n")
+      expect([out.first.rel_file, out.first.line]).to eq(["app/x.rb", 3])
+    end
+
+    it "links every step of a multi-line declaration in source order" do
+      out, = build(<<~RUBY)
+        class A; def call; end; end
+        class B; def call; end; end
+        class Flow
           organize(
-            Step::One
+            A,
+            B
           )
         end
       RUBY
-      expect(t.entrypoint_category("Step::One#call")).to eq(:organized)
+      expect(out.first.step_fqs).to eq(["A#call", "B#call"])
     end
 
-    # An interactor commonly inherits `#call` from an in-app base. An
-    # own-class-only test declines exactly those — the ownership-versus-ancestry
-    # mistake this codebase has paid for four times.
     it "resolves an INHERITED entry method along the ancestor chain" do
-      t = seed(<<~RUBY, seeder: described_class.new)
+      # An interactor commonly inherits `#call` from an in-app base; an
+      # own-class-only test declines exactly those.
+      out, = build(<<~RUBY)
         class BaseStep
           def call; end
         end
-        class Step::Sub < BaseStep
-        end
+        class Sub < BaseStep; end
         class Flow
-          organize Step::Sub
+          organize Sub
         end
       RUBY
-      expect(t.entrypoint_category("BaseStep#call")).to eq(:organized)
+      expect(out.first.step_fqs).to eq(["BaseStep#call"])
     end
 
-    it "DECLINES a constant whose entry method was never parsed" do
-      t = seed(<<~RUBY, seeder: described_class.new)
-        class Flow
-          organize SomeEngine::Elsewhere
-        end
-      RUBY
-      expect(t.entrypoint_category("SomeEngine::Elsewhere#call")).to be_nil
+    it "DROPS a step whose entry method was never parsed, rather than inventing an edge" do
+      out, = build("class Flow\n  organize SomeEngine::Elsewhere\nend\n")
+      expect(out.first.step_fqs).to eq([])
     end
 
-    it "declines a non-constant argument — a variable names no provable class" do
-      t = seed(<<~RUBY, seeder: described_class.new)
+    it "records NOTHING for a wholly dynamic declaration" do
+      # `organize steps` names no provable class, so there is no sequence to
+      # model. Declining entirely and minting a step-less node cost the same
+      # (a caller's `Flow.call` becomes a cost-1 boundary either way), so the
+      # honest one wins: do not assert a node exists on the strength of a
+      # declaration we could not read.
+      out, = build("class Flow\n  organize steps\nend\n")
+      expect(out).to eq([])
+    end
+
+    it "mints nothing for a class the parser never saw" do
+      fragment = Archbuddy::Collect::Fragment.new(
+        rel_file: "app/x.rb", content_hash: "h",
+        parsed_value: Prism.parse("Flow.organize A").value
+      )
+      expect(described_class.build(fragments: [fragment], table: rb::SymbolTable.new)).to eq([])
+    end
+  end
+
+  describe Archbuddy::Collect::Adapters::Ruby::RootSeeders::OrganizedSeeder do
+    # 18 of 25 organizers on a real service ARE invoked from app source and get
+    # their in-edge from R4; 7 are not, and anchor nothing without a root. This
+    # seeds the ORGANIZER, mirroring JobSeeder: being an ingress is a property
+    # of the declaration, not of whether a caller happens to exist.
+    it "roots the organizer's own `#call`, once the adapter has minted it" do
+      source = <<~RUBY
+        class Step::One
+          def call; end
+        end
         class Flow
-          organize steps
+          organize Step::One
         end
       RUBY
-      expect(t.entrypoint_category("Flow#call")).to be_nil
+      fragment = Archbuddy::Collect::Fragment.new(
+        rel_file: "app/x.rb", content_hash: "h", parsed_value: Prism.parse(source).value
+      )
+      table = rb::SymbolTable.new
+      fragment.parsed_value.accept(rb::DefinitionPass.new(table, "app/x.rb"))
+      # What the adapter does before any seeder runs.
+      table.add_method(rb::SymbolTable::MethodEntry.new(
+                         fq_symbol: "Flow#call", owner_fq: "Flow", name: "call",
+                         rel_file: "app/x.rb", line: 5
+                       ))
+
+      described_class.new.seed(table, fragments: [fragment], root: "/srv/app")
+      expect(table.entrypoint_category("Flow#call")).to eq(:organized)
+      # The step is reached by an EDGE, so it must not also be claimed as a root.
+      expect(table.entrypoint_category("Step::One#call")).to be_nil
+    end
+
+    it "DECLINES when the organizer's `#call` was never minted" do
+      source = "class Flow\n  organize A\nend\nclass A; def call; end; end\n"
+      fragment = Archbuddy::Collect::Fragment.new(
+        rel_file: "app/x.rb", content_hash: "h", parsed_value: Prism.parse(source).value
+      )
+      table = rb::SymbolTable.new
+      fragment.parsed_value.accept(rb::DefinitionPass.new(table, "app/x.rb"))
+      described_class.new.seed(table, fragments: [fragment], root: "/srv/app")
+      expect(table.entrypoint_category("Flow#call")).to be_nil
     end
   end
 

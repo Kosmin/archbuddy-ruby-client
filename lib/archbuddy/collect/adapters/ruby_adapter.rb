@@ -20,6 +20,7 @@ require_relative "../../reflect"
 require_relative "ruby/egress_role_aggregate"
 require_relative "ruby/generated_nodes"
 require_relative "ruby/unresolved_census"
+require_relative "ruby/organizer_nodes"
 
 module Archbuddy
   module Collect
@@ -185,6 +186,14 @@ module Archbuddy
             profile: Ruby::Profile.for(config.profile_id, boundary_override: config.boundary_override)
           )
           run_definition_pass(fragments, table)
+          # BEFORE everything downstream: an organizer's `#call` does not exist
+          # in source (the gem supplies it), and the route catalogue, the
+          # seeders, the arity resolver and the resolution pass all read
+          # `table.methods`. Minting it here means the table is COMPLETE for
+          # every one of them — in particular it is what lets a caller's
+          # `Clawback.call(...)` resolve to `Clawback#call` through R4's ordinary
+          # const-instance fallback, so the organizer gets its in-edge for free.
+          organizers = register_organizer_calls!(table, fragments)
           run_route_catalogue(fragments, table)   # W4: seed routed actions before entrypoints
           run_root_seeders(table, fragments, root) # v0.10 W1-B/W2-B: categorize ingress roots
 
@@ -235,6 +244,7 @@ module Archbuddy
 
           edges, unresolved, unresolved_names = build_edges(acc, key_for_fq, external_keys, nodes)
           edges.concat(generated_edges(minted, key_for_fq))
+          edges.concat(organizer_edges(organizers, key_for_fq))
           stamp_unresolved!(nodes, unresolved)
           # AFTER the edges are final: the census asks whether a call's real
           # target would have had anything BELOW it, and out-degree is not known
@@ -469,6 +479,52 @@ module Archbuddy
             leaf_by_name: Ruby::UnresolvedCensus.leaf_by_name(table.methods.values, degree),
             outside_names: reflection_table&.non_app_method_names || Set.new
           )
+        end
+
+        # The organizer's `#call`, which app source never declares.
+        #
+        # `add_method` is first-wins, so a class that DOES hand-write `def call`
+        # alongside `organize` keeps its own definition and its real branch
+        # count; this only ever fills the hole the gem leaves.
+        #
+        # @return [Array<OrganizerNodes::Organizer>]
+        def register_organizer_calls!(table, fragments)
+          organizers = Ruby::OrganizerNodes.build(fragments: fragments, table: table)
+          return organizers if organizers.empty?
+
+          organizers.each do |o|
+            class_ref = table.class_for(o.class_fq)
+            table.add_method(
+              Ruby::SymbolTable::MethodEntry.new(
+                fq_symbol: o.call_fq, owner_fq: o.class_fq,
+                name: Ruby::RootDsl::GemReentry::ORGANIZED_ENTRY, singleton: false,
+                rel_file: o.rel_file || class_ref&.rel_file,
+                line:     o.line || class_ref&.line,
+                endpoint: false, escapes: false
+              )
+            )
+          end
+          warn "note: #{organizers.length} organizer sequence#{'s' if organizers.length != 1} " \
+               "(#{organizers.sum { |o| o.step_fqs.length }} steps) linked as edges"
+          organizers
+        end
+
+        # One edge per organized step. The organizer runs them because it listed
+        # them, so this is an ordinary call edge — the same treatment `delegate`
+        # gets, and for the same reason: a gem generated the mechanism but the
+        # app declared the intent.
+        def organizer_edges(organizers, key_for_fq)
+          organizers.flat_map do |o|
+            from_key = key_for_fq[o.call_fq]
+            next [] if from_key.nil?
+
+            o.step_fqs.filter_map do |step_fq|
+              to_key = key_for_fq[step_fq]
+              next if to_key.nil? || to_key == from_key
+
+              Raw::RawEdge.new(from_key: from_key, to_key: to_key, calls: 1)
+            end
+          end
         end
 
         # The out-edge of a forwarder: `Order#merchant` calls `purchase`.

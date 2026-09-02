@@ -3,35 +3,36 @@
 require "prism"
 require_relative "../root_seeder"
 require_relative "../root_dsl/gem_reentry"
+require_relative "../organizer_nodes"
 
 module Archbuddy
   module Collect
     module Adapters
       module Ruby
         module RootSeeders
-          # Seeds classes named by an ORGANIZER macro as :organized ingress
-          # roots.
+          # Seeds the ORGANIZER's own `#call` as an :organized ingress root.
           #
-          # `organize A, B, C` is Interactor::Organizer's entire interface: the
-          # GEM calls each of those in turn. The declaring class never mentions
-          # them again, so the graph had no edge and no root for them — measured
-          # on one service, 25 declarations naming 90 interactors, of which 44
-          # had no caller at all and carried 108 branches outside every route.
+          # THE STEPS ARE EDGES, NOT ROOTS — see OrganizerNodes, which mints the
+          # organizer's `#call` and links one edge per organized step. Seeding
+          # the steps was the first design and it was the weaker one: they became
+          # reachable but stayed disconnected, so the organizer had no cost and a
+          # reader asking "what does Clawback do" got nothing back.
           #
-          # WHY A ROOT AND NOT AN EDGE, which is the whole design question here.
-          # An edge from the organizer to each organized class would assert that
-          # the organizer CALLS them, and it does not — it hands a list to a gem
-          # which calls them, in an order and under conditions that live in the
-          # gem. Drawing that edge would put gem control flow into the app graph
-          # and make the organizer's cost the sum of its steps, which is a claim
-          # about the gem's behaviour rather than the app's. Seeding each as its
-          # own ingress root says the true and weaker thing: this code runs, from
-          # outside, and here is its own cost.
+          # WHAT IS LEFT FOR A ROOT is the organizer itself. Measured on a real
+          # service: of 25 organizers, 18 ARE invoked from app source (and now
+          # get their in-edge from R4's const-instance fallback, since the minted
+          # `#call` exists), and 7 are not — dispatched from a sibling engine or
+          # dynamically. Those 7 anchor nothing without a root, and their whole
+          # step sequence would go unreachable with them.
           #
-          # NEVER-FABRICATE (L4): the organized class's entry method must
-          # provably exist in the table, or the constant is DECLINED. An
-          # `organize` naming a class defined in a sibling engine, or one whose
-          # `#call` we never parsed, seeds nothing.
+          # Seeding all 25 rather than only the 7 mirrors JobSeeder exactly: a
+          # job's `#perform` is seeded whether or not something also calls it
+          # directly, because being an ingress is a property of the DECLARATION,
+          # not of whether a caller happens to exist elsewhere in the tree.
+          #
+          # NEVER-FABRICATE (L4): gated on the minted `#call` actually being in
+          # the table. If OrganizerNodes declined to mint it — the class was
+          # never parsed — this seeds nothing.
           class OrganizedSeeder < RootSeeder
             def self.root_type = :organized
 
@@ -40,50 +41,10 @@ module Archbuddy
             def seed(table, fragments: nil, root: nil)
               return if fragments.nil?
 
-              scan = Scan.new
-              fragments.each { |fragment| fragment.parsed_value.accept(scan) }
+              OrganizerNodes.build(fragments: fragments, table: table).each do |organizer|
+                next unless table.method?(organizer.call_fq) # L4 gate — decline
 
-              scan.constants.each do |const_fq|
-                fq = resolve_entry(table, const_fq) or next
-
-                table.mark_entrypoint(fq, :organized)
-              end
-            end
-
-            private
-
-            # The organized class's entry method, resolved along the ANCESTOR
-            # CHAIN rather than only on the class itself.
-            #
-            # An interactor commonly inherits `#call` from an in-app base class,
-            # and an own-class-only test declines exactly those — the same
-            # ownership-versus-ancestry mistake that has cost this codebase four
-            # separate wrong answers.
-            def resolve_entry(table, const_fq)
-              entry = RootDsl::GemReentry::ORGANIZED_ENTRY
-              direct = "#{const_fq}##{entry}"
-              return direct if table.method?(direct)
-
-              table.ancestor_method_fq(const_fq, entry)
-            end
-
-            # One walk collecting every constant named by an organizer macro.
-            # NOT scoped by namespace: `organize` names constants that are
-            # already written as the author qualified them, and re-qualifying
-            # against the enclosing module would invent a name.
-            class Scan < Prism::Visitor
-              attr_reader :constants
-
-              def initialize
-                @constants = []
-                super()
-              end
-
-              def visit_call_node(node)
-                if RootDsl::GemReentry.organizer_macro?(node.name)
-                  @constants.concat(RootDsl::GemReentry.organized_constants(node))
-                end
-                super
+                table.mark_entrypoint(organizer.call_fq, :organized)
               end
             end
           end
