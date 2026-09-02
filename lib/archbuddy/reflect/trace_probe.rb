@@ -34,6 +34,18 @@ module ArchbuddyTraceProbe
   # and picking one would be a fabrication. The consumer decides what to do with
   # an ambiguous key; the probe's job is to report honestly that it is ambiguous.
   OBSERVED = {}
+  # (rel_file, line, method_name) => { observed_class => count }.
+  #
+  # THE JOINABLE HALF, and the reason this probe is usable at all. OBSERVED is
+  # keyed by RECEIVER CLASS, but the static pass never knows a receiver's class —
+  # knowing it is the whole problem. It knows the receiver EXPRESSION and the
+  # file and line it sits on. So the probe also records WHO ASKED: the app-side
+  # frame that reached into the bag. For `delegate :purchase, to: :context` that
+  # frame is the generated `purchase` method, at the `delegate` line, labelled
+  # `purchase` — byte-identical to the (rel_file, line, name) a minted node
+  # already carries. The consumer therefore JOINS on an address instead of
+  # inferring a type from a name.
+  RETURNS = {}
   # Sources whose method_missing we have attached to, and those still waiting
   # for their class to be defined.
   ATTACHED = {}
@@ -147,8 +159,61 @@ module ArchbuddyTraceProbe
       name = missed_name(tp) or return
 
       note(safe_class(tp.self), name.to_s, tp.return_value.class)
+      note_caller(tp.return_value.class)
     rescue StandardError
       nil
+    end
+
+    # The app-side frame that reached into the bag, and what it got back.
+    #
+    # DEPTH IS CAPPED at a handful of frames on purpose. This runs on every bag
+    # event, and an uncapped `caller_locations` on a deep Rails stack is the one
+    # way a targeted probe could stop being cheap.
+    CALLER_DEPTH = 8
+
+    def note_caller(value_class)
+      frame = (caller_locations(2, CALLER_DEPTH) || []).find { |l| app_frame?(l.path) }
+      return if frame.nil?
+
+      rel = relative(frame.path)
+      cls = value_class.name
+      return if cls.nil? || cls.empty?
+
+      bucket = (RETURNS[[rel, frame.lineno, frame.label.to_s]] ||= {})
+      bucket[cls] = (bucket[cls] || 0) + 1
+    rescue StandardError
+      nil
+    end
+
+    # Under the project root and not in a bundled dependency. Gems install
+    # UNDER the root (.devbox/virtenv, vendor/bundle), so a bare prefix test
+    # would call activerecord's own frames application code.
+    VENDOR = %w[/vendor/ /.bundle/ /.devbox/ /gems/ /node_modules/].freeze
+
+    def app_frame?(path)
+      p = absolute(path)
+      return false unless @root && p.start_with?(@root)
+
+      VENDOR.none? { |v| p.include?(v) }
+    end
+
+    # A frame's path is recorded AS IT WAS WRITTEN, so `ruby tmp/driver.rb`
+    # yields a RELATIVE path while a file reached through `require` yields an
+    # absolute one. A bare prefix test therefore silently drops every frame from
+    # a script invoked by relative path — measured: 83 observations recorded and
+    # not one from the very file being exercised, which reads as a working
+    # feature rather than a broken filter. Expanded against the traced project's
+    # root, which is also its working directory.
+    def absolute(path)
+      p = path.to_s
+      return p if p.start_with?("/")
+
+      @root ? File.join(@root, p) : p
+    end
+
+    def relative(path)
+      p = absolute(path)
+      p.start_with?("#{@root}/") ? p[(@root.length + 1)..] : p
     end
 
     # `initialize(hash)` carries every key the object was built with, and the
@@ -228,7 +293,12 @@ module ArchbuddyTraceProbe
         "unattached" => PENDING.keys.sort,
         "types"      => OBSERVED.map { |(cls, name), counts|
           { "class" => cls, "name" => name, "observed" => counts }
-        }.sort_by { |r| [r["class"], r["name"]] }
+        }.sort_by { |r| [r["class"], r["name"]] },
+        # Keyed by ADDRESS, not by type — see RETURNS. This is the section a
+        # resolver can join against without inferring anything.
+        "returns"    => RETURNS.map { |(file, line, name), counts|
+          { "file" => file, "line" => line, "name" => name, "observed" => counts }
+        }.sort_by { |r| [r["file"], r["line"], r["name"]] }
       }
     end
 

@@ -83,6 +83,24 @@ RSpec.describe ArchbuddyTraceProbe do
     expect(described_class::OBSERVED).to be_empty
   end
 
+  # REGRESSION. A frame's path is recorded AS IT WAS WRITTEN, so a script run as
+  # `ruby tmp/driver.rb` yields a RELATIVE path while a required file yields an
+  # absolute one. A bare prefix test dropped every frame from the very file
+  # being exercised — measured: 84 observations recorded and not one from it,
+  # which reads as a working feature rather than a broken filter.
+  it "accepts an app frame whose path is RELATIVE, as a script's frames are" do
+    described_class.instance_variable_set(:@root, "/srv/app")
+    expect(described_class.app_frame?("tmp/driver.rb")).to be(true)
+    expect(described_class.app_frame?("/srv/app/app/models/order.rb")).to be(true)
+    expect(described_class.relative("tmp/driver.rb")).to eq("tmp/driver.rb")
+  end
+
+  it "still rejects a bundled gem, which installs UNDER the project root" do
+    described_class.instance_variable_set(:@root, "/srv/app")
+    expect(described_class.app_frame?("/srv/app/.devbox/virtenv/ruby/gems/x/lib/y.rb")).to be(false)
+    expect(described_class.app_frame?("/elsewhere/thing.rb")).to be(false)
+  end
+
   it "selects ONLY bag sources from the manifest — delegators and unknowns are not black boxes" do
     Dir.mktmpdir do |dir|
       FileUtils.mkdir_p(File.join(dir, ".archbuddy"))

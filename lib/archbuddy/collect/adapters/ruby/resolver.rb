@@ -73,13 +73,17 @@ module Archbuddy
           # / C13).
           UNRESOLVED_TIER = :external
 
-          def initialize(table, probes: [], reflection: nil)
+          def initialize(table, probes: [], reflection: nil, traced_types: nil)
             @table  = table
             @probes = probes
             # OPTIONAL boot-reflection method table. nil when reflection did not
             # run (it is an ENRICHMENT, never a prerequisite) — every rule below
             # behaves exactly as before in that case.
             @reflection = reflection
+            # OPTIONAL observed return types from `archbuddy trace`. nil is the
+            # NORMAL case — no trace has been run — and every rule behaves
+            # exactly as before then. See R4.9.
+            @traced_types = traced_types
           end
 
           # @param ctx [CallContext]
@@ -262,6 +266,35 @@ module Archbuddy
               )
             end
 
+            # R4.9: a chained call whose receiver's type was OBSERVED RUNNING.
+            #
+            # `purchase.recompute!` where `purchase` is `delegate ..., to:
+            # :context`. Nothing static reaches this: the receiver's value came
+            # out of an instance hash a caller in another file filled in, so
+            # there is no method to find, no owner to look up and no bytecode to
+            # read. An execution can see it and nothing else can.
+            #
+            # LAST OF THE BASE TIERS, deliberately. A trace is weaker evidence
+            # than parsed source — partial (it saw only what ran) and
+            # non-deterministic (it varies with inputs) — so every rule that can
+            # answer from source has already declined by the time we get here.
+            #
+            # ONLY WHEN THE OBSERVATION IS UNAMBIGUOUS. If two flows put
+            # different types under one key the union is the true answer, and
+            # `return_type_at` returns nil rather than the popular one; a
+            # majority vote over runtime samples would be a fabrication wearing
+            # a measurement's clothes.
+            #
+            # JOINED ON AN ADDRESS, never on a name. The trace records the
+            # app-side frame that reached into the bag — for a delegate, its own
+            # generated method at the `delegate` line — which is the same
+            # (rel_file, line, name) triple the symbol table holds. So this asks
+            # "what did THIS method return", not "what does something called
+            # `purchase` usually return".
+            if @traced_types && (hit = traced_receiver(ctx, name))
+              return hit
+            end
+
             # R5: framework probes (P1). Recognized framework dynamic-dispatch
             # DSLs resolve to REAL edges the framework PROVABLY wires. Run AFTER
             # all base tiers (never shadow a known app edge) and BEFORE <external>
@@ -325,6 +358,37 @@ module Archbuddy
             return nil unless @table.method?(target)
 
             edge(:"#{tier}_internal", target)
+          end
+
+          # R4.9's body. Three exact steps, each of which declines rather than
+          # guesses:
+          #   1. the receiver must be a BARE receiverless call — `purchase.x`,
+          #      not `a.b.c`. A deeper expression has no single address to look
+          #      up, and inventing one is the failure mode this avoids.
+          #   2. that receiver must resolve to a method we PARSED, so we have
+          #      its address. The ancestor walk is reused, so an inherited or
+          #      mixed-in receiver works too.
+          #   3. the trace must have seen that address return exactly ONE class,
+          #      and the called name must exist on it.
+          def traced_receiver(ctx, name)
+            rcv = ctx.receiver
+            return nil unless rcv.is_a?(Prism::CallNode) && rcv.receiver.nil? &&
+                              rcv.arguments.nil? && rcv.block.nil?
+            return nil unless ctx.enclosing_class
+
+            rcv_name = rcv.name.to_s
+            rcv_fq   = @table.ancestor_method_fq(ctx.enclosing_class, rcv_name) or return nil
+            entry    = @table.method_for(rcv_fq) or return nil
+            return nil if entry.rel_file.nil? || entry.line.nil?
+
+            observed = @traced_types.return_type_at(entry.rel_file, entry.line, rcv_name) or return nil
+            target   = @table.ancestor_method_fq(observed, name) or return nil
+
+            edge(:traced_receiver, target)
+          rescue StandardError
+            # A trace is an enrichment like reflection: learn nothing here
+            # rather than fail a collection that would otherwise succeed.
+            nil
           end
 
           def reflect_exit(fact, cls, name, tier)

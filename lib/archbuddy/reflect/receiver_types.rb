@@ -61,12 +61,38 @@ module Archbuddy
           acc[[r["class"].to_s, r["name"].to_s]] =
             Observation.new(cls: r["class"].to_s, name: r["name"].to_s, counts: counts)
         end
-        new(table, (doc || {})["unattached"] || [])
+        returns = ((doc || {})["returns"] || []).each_with_object({}) do |r, acc|
+          counts = (r["observed"] || {}).reject { |k, _| k == "NilClass" }
+          next if counts.empty?
+
+          acc[[r["file"].to_s, r["line"].to_i, r["name"].to_s]] =
+            Observation.new(cls: r["file"].to_s, name: r["name"].to_s, counts: counts)
+        end
+        new(table, (doc || {})["unattached"] || [], returns)
       end
 
-      def initialize(table = {}, unattached = [])
+      def initialize(table = {}, unattached = [], returns = {})
         @table = table
         @unattached = unattached
+        @returns = returns
+      end
+
+      # What the method at this ADDRESS was observed to return, when exactly one
+      # class was seen.
+      #
+      # Address rather than type, because the static pass knows where a method
+      # is defined and does NOT know what its receiver evaluates to — needing
+      # that is the whole reason this artifact exists. `delegate :purchase,
+      # to: :context` produces a frame at the `delegate` line labelled
+      # `purchase`, which is the (rel_file, line, name) a minted node already
+      # carries, so the join is an equality test on an address and never an
+      # inference from a name.
+      def return_type_at(rel_file, line, name)
+        @returns[[rel_file.to_s, line.to_i, name.to_s]]&.sole_type
+      end
+
+      def return_observation_at(rel_file, line, name)
+        @returns[[rel_file.to_s, line.to_i, name.to_s]]
       end
 
       # The class `cls#name` was observed to return, when exactly one was seen.
@@ -76,7 +102,7 @@ module Archbuddy
 
       def observation(cls, name) = @table[[cls.to_s, name.to_s]]
 
-      def empty? = @table.empty?
+      def empty? = @table.empty? && @returns.empty?
 
       # Bag sources the probe never managed to attach to. Surfaced because a
       # thin trace should read as a coverage problem, not as "nothing to find".
@@ -87,7 +113,12 @@ module Archbuddy
           pairs: @table.size,
           unambiguous: @table.count { |_, o| o.sole_type },
           ambiguous: @table.count { |_, o| o.ambiguous? },
-          unattached: @unattached.length
+          unattached: @unattached.length,
+          # Reported apart from `pairs` because only these are consumable: the
+          # type-keyed rows describe a class, the address-keyed rows describe a
+          # method the resolver can find.
+          addresses: @returns.size,
+          addresses_unambiguous: @returns.count { |_, o| o.sole_type }
         }
       end
     end

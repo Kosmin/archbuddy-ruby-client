@@ -180,7 +180,17 @@ module ArchbuddyReflectProbe
   end
 
   SEND_FAMILY  = /mid:(?:__send__|public_send|send),/.freeze
-  RECEIVERLESS = /FCALL/.freeze
+  # A CALL WITH NO EXPLICIT RECEIVER. FCALL is a receiverless call with
+  # arguments or an explicit self; VCALL is a bare identifier that looked like a
+  # local variable. Both are self-calls and both readers below want both.
+  #
+  # DEFINED ONCE ON PURPOSE. This constant and FORWARD_MID were briefly declared
+  # twice in this file — once here as /FCALL/ and once beside the forwarding
+  # matcher as /FCALL|VCALL/ — so the later definition silently won and the
+  # earlier reader got a rule it never asked for. Two names for one question is
+  # how that happens.
+  RECEIVERLESS = /FCALL|VCALL/.freeze
+  FORWARD_MID  = /mid:([a-zA-Z_][a-zA-Z0-9_]*[?!=]?)/.freeze
 
   # WHAT KIND of dynamic interface, from the bytecode of `method_missing` alone.
   #
@@ -455,8 +465,7 @@ module ArchbuddyReflectProbe
   # lines first is what keeps the count at two — and, deliberately, it is also
   # what keeps this rule from depending on ActiveSupport's error TEXT, which is
   # the sort of vocabulary this whole approach exists to avoid.
-  FORWARD_MID  = /mid:([a-zA-Z_][a-zA-Z0-9_]*[?!=]?)/.freeze
-  RECEIVERLESS = /FCALL|VCALL/.freeze
+  # RECEIVERLESS and FORWARD_MID are declared once, near classify_dynamism.
 
   # @return [Hash, nil] {"to" =>, "via" =>}, or nil when not a forwarder
   def forwards_for(um)

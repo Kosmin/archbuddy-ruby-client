@@ -113,6 +113,32 @@ module Archbuddy
           @reflection_forwarding = nil
         end
 
+        # Observed return types from `archbuddy trace`, or nil.
+        #
+        # nil is the NORMAL case and changes nothing: no trace has been run, so
+        # R4.9 never fires and the graph is exactly what it was. Loaded with the
+        # same forgiveness as the reflection manifest — a missing or corrupt file
+        # must never fail a collection that would otherwise succeed.
+        #
+        # DELIBERATELY NOT MERGED into any other table. A trace is partial and
+        # non-deterministic where the graph and the boot manifest are complete
+        # and reproducible; keeping it a separate optional input is what stops
+        # "no callers" from quietly coming to mean "not exercised".
+        def traced_types
+          return @traced_types if defined?(@traced_types)
+
+          path = File.join(root, ".archbuddy", "receiver_types.json")
+          types = Archbuddy::Reflect::ReceiverTypes.from_file(path)
+          if types.empty?
+            @traced_types = nil
+          else
+            s = types.stats
+            warn "note: receiver trace loaded — #{s[:addresses_unambiguous]} of #{s[:addresses]} " \
+                 "observed call addresses carry a single type (#{s[:ambiguous]} ambiguous, left unresolved)"
+            @traced_types = types
+          end
+        end
+
         def collect(mode: :full, base_ref: nil)
           files = Ruby::FileEnumerator.new(root, config).files
 
@@ -344,7 +370,8 @@ module Archbuddy
           fragments.each do |fragment|
             fragment.parsed_value.accept(
               Ruby::ResolutionPass.new(table, acc, probes: probes, rel_file: fragment.rel_file,
-                                       reflection: reflection_table)
+                                       reflection: reflection_table,
+                                       traced_types: traced_types)
             )
           end
         end
