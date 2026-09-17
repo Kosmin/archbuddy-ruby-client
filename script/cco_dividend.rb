@@ -25,13 +25,24 @@
 #   `elsif` continuation is at the SAME level as its head: an alternative, not
 #   a nest.
 #
+# WHAT IT IS: A CANDIDATE FINDER, NOT A YIELD PREDICTOR.
+#   Measured over 16 real splits (two batches, the second committed to before
+#   being measured), the dividend's rank correlation with the actual CONTEXT
+#   reduction a split delivers is +0.40 combined and 0.00 out-of-sample. Its top
+#   pick on one corpus (32x) delivered a mid-pack context win; a body it scored
+#   1.0x ("skip") delivered one of the best. So: use it to narrow thousands of
+#   hybrids to a short list worth reading. Never quote a predicted yield from it.
+#
 # CAVEATS (do not publish magnitudes without reading these)
-#   - Predicts PER-BODY factor reduction. Tree path count dissociates from it;
-#     score bodies, not trees.
+#   - Predicts PER-BODY factor reduction only — validated exactly on 3 splits.
+#     It does NOT predict the context win (see above), and tree path count
+#     dissociates from both. Score bodies, not trees.
 #   - `b` comes from BranchCounter, which multiplies `elsif` and guard chains
 #     where they are semantically alternatives. Ranking is usable; magnitudes
 #     are inflated wherever the branching is chain-shaped rather than nested.
-#   - Says nothing about whether a split is semantically coherent.
+#   - Says nothing about whether a split is semantically coherent. Some long
+#     hybrids are templates (one big heredoc), not layered logic; those yield
+#     almost nothing and the score cannot tell them apart.
 
 require "prism"
 require "yaml"
