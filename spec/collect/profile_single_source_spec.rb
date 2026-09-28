@@ -81,6 +81,8 @@ RSpec.describe "profile single-source" do
     %w[language resolvable_dispatch_verbs],
     %w[framework orm methods],
     %w[framework orm base_classes],
+    %w[framework orm chain_shapes record_verbs],
+    %w[framework orm chain_shapes relation_verbs],
     %w[framework controllers base_classes],
     %w[framework controllers name_suffixes],
     %w[framework jobs mixins],

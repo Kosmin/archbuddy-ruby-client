@@ -207,6 +207,36 @@ module Archbuddy
               end
             end
 
+            # R4.4: an ORM CHAIN rooted at a model constant.
+            #
+            #   Order.unscoped.find(id).recalculate_total
+            #
+            # Measured on a real service, that single unresolved call site
+            # orphaned the costliest subtree in the codebase: 8.16e+11 paths,
+            # 151,250x the entire SCORED production cost, invisible because
+            # `Order#recalculate_total` had no in-edge. The job that calls it is
+            # a rooted entrypoint; only the receiver was untypeable.
+            #
+            # WHY THIS IS A PROOF AND NOT INFERENCE. Every step is read from
+            # declared vocabulary the profile owns: the root must be a class the
+            # static table proves is ActiveRecord, and each hop must be an ORM
+            # verb whose RETURN SHAPE the profile states. A verb the profile does
+            # not describe ends the walk — `pluck`, `count`, `find_each` return
+            # scalars and enumerators, so a chain through one of them is not the
+            # model and declining is the only honest answer.
+            #
+            # THE STATE MACHINE IS THE WHOLE RULE:
+            #   constant  -> :relation   (a model class is a relation source)
+            #   :relation -> :relation    on a relation-returning verb
+            #   :relation -> :record      on a record-returning verb
+            #   :record   -> STOP         the next call is the one we resolve
+            # Only a :record receiver resolves, because an instance method
+            # called on a Relation is a scope or a delegation, not this method.
+            if (orm_fq = orm_chain_receiver_fq(ctx.receiver))
+              target = @table.ancestor_method_fq(orm_fq, name)
+              return edge(:orm_chain, target) if target
+            end
+
             # R4.5: TYPED variable / ivar / memoized-accessor / inline-`Const.new`
             # receiver -> known method node, via the conservative intra-procedural
             # type scope (L1). Fires ONLY when R3/R4 did NOT match (a genuine
@@ -389,6 +419,44 @@ module Archbuddy
             # A trace is an enrichment like reflection: learn nothing here
             # rather than fail a collection that would otherwise succeed.
             nil
+          end
+
+
+          # R4.4's walk. Returns the MODEL fq when the receiver expression
+          # provably evaluates to an instance of it, else nil.
+          #
+          # Walks outermost-inward to collect the chain, then replays it from the
+          # constant so the state machine reads in execution order.
+          def orm_chain_receiver_fq(receiver)
+            verbs = []
+            node = receiver
+            while node.is_a?(Prism::CallNode)
+              return nil unless node.block.nil?
+
+              verbs.unshift(node.name.to_s)
+              node = node.receiver
+            end
+            return nil unless verbs.any?
+
+            const_fq = constant_receiver_fq(node) or return nil
+            return nil unless @table.active_record_class?(const_fq)
+
+            state = :relation
+            verbs.each do |verb|
+              # A :record receiver followed by more calls is an instance chain we
+              # cannot follow (`find(id).account.name` needs the association's
+              # type, which is a different question). Decline rather than guess.
+              return nil unless state == :relation
+
+              if profile.orm_relation_verb?(verb)
+                state = :relation
+              elsif profile.orm_record_verb?(verb)
+                state = :record
+              else
+                return nil
+              end
+            end
+            state == :record ? const_fq : nil
           end
 
           def reflect_exit(fact, cls, name, tier)

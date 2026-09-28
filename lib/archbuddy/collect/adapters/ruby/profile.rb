@@ -178,6 +178,18 @@ module Archbuddy
           # @return [String, nil] role for an ORM method name.
           def orm_role(name) = @orm_roles[name.to_s]
 
+          # What a CLASS-LEVEL call to this ORM verb evaluates to. Asked as two
+          # PREDICATES rather than a value accessor, because the answer is a
+          # profile WORD and re-typing one into lib/ restores the second source
+          # of truth the profile exists to remove (the single-source gate fails
+          # on exactly that).
+          #
+          # A verb in NEITHER list is undescribed — `pluck`, `count`,
+          # `find_each` return scalars and enumerators — and a chain through one
+          # is not typed by the model. Both false means DECLINE, never "assume".
+          def orm_record_verb?(name)   = @orm_record_verbs.include?(name.to_s)
+          def orm_relation_verb?(name) = @orm_relation_verbs.include?(name.to_s)
+
           # @return [String, nil] role for an egress (HTTP-client) verb name.
           def egress_verb_role(name) = @egress_verb_roles[name.to_s]
 
@@ -187,6 +199,9 @@ module Archbuddy
             @orm_methods = set_of((orm["methods"] || []).map { |entry| entry["name"] })
             @orm_bases   = set_of(orm["base_classes"])
             @orm_roles   = role_table(orm["methods"])
+            shapes = orm["chain_shapes"] || {}
+            @orm_record_verbs   = set_of(shapes["record_verbs"])
+            @orm_relation_verbs = set_of(shapes["relation_verbs"])
           end
 
           def load_controllers(controllers)
