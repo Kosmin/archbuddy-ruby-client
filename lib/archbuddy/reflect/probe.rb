@@ -19,7 +19,7 @@
 # a real `def customer=` and an `attr_accessor :customer` are indistinguishable
 # by name but differ by source line.
 module ArchbuddyReflectProbe
-  VERSION = "4"
+  VERSION = "5"
 
   # CONSTANT PROVENANCE — which constants this application defines, and from
   # which file. This is what makes "is this receiver app code or an exit?"
@@ -113,6 +113,7 @@ module ArchbuddyReflectProbe
       "ruby"        => RUBY_VERSION,
       "captured_at" => Time.now.utc.iso8601,
       "classes"     => classes.map { |m| safe_name(m) }.compact.sort,
+      "superclasses" => superclasses(classes),
       "constants"   => constant_provenance(root),
       "loaded_files" => $LOADED_FEATURES.select { |f| app_path?(f, root) }.map { |f| relative(f, root) },
       # Swept over EVERY loaded module, not just the ones that touch the app: a
@@ -121,6 +122,50 @@ module ArchbuddyReflectProbe
       "dynamic_interfaces" => dynamic_interfaces(named),
       "methods"     => entries
     }
+  end
+
+  # THE SUPERCLASS LINK THAT SOURCE CANNOT SEE.
+  #
+  # Static capture reads `class Foo < Bar` from the file in front of it. That
+  # works until a class is DEFINED in one place and REOPENED in another: the
+  # reopening carries no superclass, so a collector parsing only the reopening
+  # records `superclass = nil` and every chain-walked predicate stops at the
+  # first step. Measured on one service, 215 of 997 parsed classes are ORM
+  # models reopened from a sibling engine — every one of them invisible to ORM
+  # typing, which is why that graph held 19 database nodes.
+  #
+  # ONE LEVEL, WALKED TRANSITIVELY. Each class records only its IMMEDIATE
+  # superclass, but the walk continues up through the ancestors so every link
+  # the chain needs is present as a key — including the shared bases
+  # (ApplicationRecord, ActiveRecord::Base) which are recorded once between
+  # them rather than once per model. Bounded by `acc.key?` so a chain already
+  # captured is not re-walked.
+  #
+  # VALUES MAY NAME CLASSES OUTSIDE THE APP, and must: the framework base a
+  # model ultimately descends from is precisely the fact being recovered, and
+  # it lives in a gem. `touches?` gates the KEYS, not the values.
+  #
+  # ANONYMOUS CLASSES END A WALK rather than fabricating a link. `safe_name`
+  # returns nil for them, so the chain stops where it stops being nameable.
+  def superclasses(modules)
+    modules.each_with_object({}) do |mod, acc|
+      next unless mod.is_a?(Class)
+
+      current = mod
+      while current
+        name = safe_name(current) or break
+        break if acc.key?(name)
+
+        parent = current.superclass
+        parent_name = parent && safe_name(parent)
+        break if parent_name.nil?
+
+        acc[name] = parent_name
+        current = parent
+      end
+    end
+  rescue StandardError
+    {}
   end
 
   # CLASSES WHOSE METHOD TABLE IS NOT A DESCRIPTION OF THEIR INTERFACE.

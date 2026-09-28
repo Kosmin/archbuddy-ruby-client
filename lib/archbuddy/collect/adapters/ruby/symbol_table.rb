@@ -80,8 +80,15 @@ module Archbuddy
           # spec that news a bare table — is unaffected; there is deliberately
           # NO `nil ⇒ hardcoded vocab` fallback, so a profile that fails to
           # load raises here rather than silently reviving the old constants.
-          def initialize(profile: nil)
+          # `ancestry` is the OPTIONAL reflection-supplied {class => superclass}
+          # map (reflection manifest schema 5). It exists because a REOPENED
+          # class carries no superclass in the source in front of us, so the
+          # static chain for such a class is a single step long. Defaults to
+          # `{}` — the exact pre-reflection behaviour — so a project that never
+          # booted, and every spec that news a bare table, is unaffected.
+          def initialize(profile: nil, ancestry: nil)
             @profile = profile || Profile.reference
+            @ancestry = ancestry || {}
             @classes = {}  # fq_name => ClassEntry
             @methods = {}  # fq_symbol => MethodEntry
             # Routed-action pairs seeded by RouteCatalogue (W4). Stored as a Set
@@ -164,19 +171,66 @@ module Archbuddy
             @entrypoint_categories[fq_symbol]
           end
 
-          # Walk the superclass chain (within known app classes) testing a
-          # predicate; used so a model that extends an intermediate AR subclass
-          # still counts as ActiveRecord.
+          # Walk the superclass chain testing a predicate; used so a model that
+          # extends an intermediate AR subclass still counts as ActiveRecord.
+          #
+          # THE CHAIN CONTINUES PAST THE PARSED CLASSES, through `superclass_of`,
+          # and that is the whole reason this is not a three-line loop. A class
+          # defined in a sibling engine and merely REOPENED here parses as
+          # `superclass = nil`, so the source-only walk ends on step one and the
+          # predicate answers false for a class that plainly satisfies it.
+          # Measured on one service: 215 of 997 parsed classes are ORM models in
+          # exactly that shape, and the graph held 19 database nodes.
+          #
+          # ONLY `chain_any?` GETS THE REFLECTION FALLBACK — `ancestor_method_fq`
+          # deliberately does not. The two ask different questions. This one asks
+          # a superclass-only question ("is an ORM base anywhere above me"), which
+          # superclass-only data answers exactly. Method lookup has to run the
+          # real MRO, mixins included, and reflection supplies no mixin order, so
+          # a chain extended there could name a superclass method where an
+          # included module's would actually run. Declining is the honest answer.
           def chain_any?(fq_name)
             seen = {}
-            current = @classes[fq_name]
-            while current && !seen[current.fq_name]
-              return true if yield(current)
+            current = fq_name
+            while current && !seen[current]
+              seen[current] = true
+              entry = chain_entry(current) or break
+              return true if yield(entry)
 
-              seen[current.fq_name] = true
-              current = @classes[current.superclass]
+              current = entry.superclass
             end
             false
+          end
+
+          # The chain step for `name`: the parsed entry, with its superclass
+          # FILLED IN from reflection when source recorded none; or, when the
+          # name was never parsed here at all, a synthetic entry carrying the one
+          # thing reflection knows about it. nil ends the walk.
+          #
+          # FILLING THE LINK RATHER THAN CHANGING WHAT IS YIELDED is what keeps
+          # this a local fix. Every predicate built on `chain_any?` reads
+          # `entry.superclass`; had the walk started yielding bare names instead,
+          # all three call sites would have had to be rewritten and each would
+          # have quietly gained a self-match (`ApplicationRecord` answering true
+          # to "is an ORM base above you"). The chain was never wrong about what
+          # to test — it was missing one edge.
+          #
+          # PARSED WINS, always. Reflection describes a boot that may have loaded
+          # a different revision than the source in front of us, so it may only
+          # ever supply a link source did not have, never overrule one it did.
+          #
+          # WIDENED ONLY WHERE REFLECTION SPOKE. An unparsed name with no
+          # ancestry entry still ends the walk exactly as before, so a collection
+          # with no manifest — every spec that news a bare table, every project
+          # that cannot boot — takes the identical path it always did.
+          def chain_entry(name)
+            entry = @classes[name]
+            link  = @ancestry[name]
+            return entry if entry && (entry.superclass || link.nil?)
+            return nil if entry.nil? && link.nil?
+
+            ClassEntry.new(fq_name: name, rel_file: entry&.rel_file, line: entry&.line,
+                           superclass: entry&.superclass || link, mixins: entry&.mixins)
           end
 
           # Sibling of `chain_any?` for mixins (L14): walk the SAME superclass

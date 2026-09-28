@@ -87,9 +87,21 @@ module Archbuddy
           @reflection_forwarding
         end
 
+        # The reflection-supplied {class => superclass} map, or {} when
+        # reflection did not run / predates manifest schema 5. Loaded in the
+        # same pass for the same reason as the forwarding facts.
+        #
+        # `{}` rather than nil, because every consumer wants to index it and a
+        # nil check at each site is a worse contract than an empty answer.
+        def reflection_ancestry
+          load_reflection unless defined?(@reflection_ancestry)
+          @reflection_ancestry || {}
+        end
+
         def load_reflection
           @reflection_table = nil
           @reflection_forwarding = nil
+          @reflection_ancestry = {}
 
           path = (config.respond_to?(:reflection_path) && config.reflection_path) ||
                  File.join(root, ".archbuddy", "reflection.json")
@@ -102,6 +114,7 @@ module Archbuddy
           scan = Archbuddy::Reflect::MacroScan.scan_all(Dir.glob(File.join(root, "**", "*.rb")))
           @reflection_table = Archbuddy::Reflect::MethodTable.from_manifest(manifest, macro_calls: scan.macros)
           @reflection_forwarding = Archbuddy::Reflect::Forwarding.from(manifest, delegations: scan.delegations)
+          @reflection_ancestry = Archbuddy::Reflect::Ancestry.from_manifest(manifest)
           s = @reflection_table.stats
           f = @reflection_forwarding.stats
           warn "note: reflection loaded — #{s[:methods]} methods, " \
@@ -112,6 +125,7 @@ module Archbuddy
                "continuing with static collection only"
           @reflection_table = nil
           @reflection_forwarding = nil
+          @reflection_ancestry = {}
         end
 
         # Observed return types from `archbuddy trace`, or nil.
@@ -183,7 +197,8 @@ module Archbuddy
         # return type (AdapterResult) is unchanged so `cli/collect.rb` keeps working.
         def assemble(fragments)
           table = Ruby::SymbolTable.new(
-            profile: Ruby::Profile.for(config.profile_id, boundary_override: config.boundary_override)
+            profile: Ruby::Profile.for(config.profile_id, boundary_override: config.boundary_override),
+            ancestry: reflection_ancestry
           )
           run_definition_pass(fragments, table)
           # BEFORE everything downstream: an organizer's `#call` does not exist
