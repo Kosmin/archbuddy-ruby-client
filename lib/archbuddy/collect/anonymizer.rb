@@ -175,6 +175,54 @@ module Archbuddy
           Validator.valid?(:graph, ESCAPES_PROBE_GRAPH)
       end
 
+      # v0.13-usage (C5) emission gate probe — the EDGE twin of the four NODE
+      # probes above. VERIFIED against a live 1.6 engine: the graph EDGE schema
+      # is additionalProperties:false exactly as the node schema is, so an
+      # undeclared `usage` key FAILS validation rather than being ignored —
+      # reproduced verbatim:
+      #   "The property '#/edges/0' contains additional properties [\"usage\"]"
+      #
+      # WHY A PROBE, when cco_role deliberately has none (see the note on the
+      # role emission below): that argument rests on graph 1.5 being INSIDE
+      # EnginePreflight's engine >= 0.12 floor. `usage` is graph 1.7 and 0.12
+      # ships 1.6, so a floor-satisfying, gemspec-satisfying engine
+      # (">= 0.12, < 1.0") REJECTS the key. The failing configuration is live,
+      # not theoretical, and Emitter validates BEFORE writing — so without this
+      # gate every collect against such an engine would RAISE instead of
+      # degrading.
+      #
+      # `nodes: []` with edge ids no node declares is deliberate: the graph
+      # schema carries no referential integrity (shape only), and the four node
+      # probes use the mirror trick (`edges: []`). Confirmed by running this
+      # probe MINUS the usage key, which validates under BOTH postures — so a
+      # false answer is attributable to `usage` alone and never to a malformed
+      # probe. That baseline is spec-locked, which is one guard the four
+      # existing probes do not have.
+      USAGE_PROBE_GRAPH = {
+        "schema_version" => ArchitectureAuditor::Contract::SCHEMA_VERSION,
+        "generator"      => {
+          "tool" => "archbuddy-probe", "adapter" => "ruby", "capture" => "static"
+        },
+        "nodes"       => [],
+        "edges"       => [{
+          "from"         => "n_000000000000",
+          "to"           => "n_000000000001",
+          "calls"        => 1,
+          "count"        => nil,
+          "self_time_ms" => nil,
+          "usage"        => { "value" => 1 }
+        }],
+        "entrypoints" => []
+      }.freeze
+
+      # True when the installed engine's graph schema accepts an edge `usage`
+      # property (memoized once per process).
+      def self.graph_schema_accepts_usage?
+        return @graph_schema_accepts_usage unless @graph_schema_accepts_usage.nil?
+
+        @graph_schema_accepts_usage = Validator.valid?(:graph, USAGE_PROBE_GRAPH)
+      end
+
       def initialize(adapter_result, tool:, adapter:)
         @adapter_result = adapter_result
         @tool           = tool
@@ -372,13 +420,32 @@ module Archbuddy
           to   = @id_for_key[edge.to_key]
           next if from.nil? || to.nil?
 
-          {
+          hash = {
             "from"         => from,
             "to"           => to,
             "calls"        => edge.calls,
             "count"        => nil,
             "self_time_ms" => nil
           }
+
+          # v0.13-usage (C6): the per-edge call-site usage histogram rides the
+          # shareable graph ONLY when the edge actually observed a classified
+          # call site AND the installed engine schema declares the graph-1.7
+          # field (see USAGE_PROBE_GRAPH — a 1.6 engine REJECTS unknown EDGE
+          # keys exactly as it rejects unknown node keys). Sparse by
+          # construction: a class with zero observed sites is omitted, and an
+          # edge with nothing classified omits the key ENTIRELY rather than
+          # emitting an empty object — absent over fabricated. Four small
+          # integers, no app semantics: SECRET-safe.
+          #
+          # No sorting here: Contract::Serializer#deep_sort sorts keys at every
+          # nesting level on write, so the sub-hash renders alphabetically
+          # regardless of insertion order.
+          if edge.usage && !edge.usage.empty? && self.class.graph_schema_accepts_usage?
+            hash["usage"] = edge.usage.transform_keys(&:to_s)
+          end
+
+          hash
         end
       end
 

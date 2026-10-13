@@ -197,16 +197,22 @@ RSpec.describe "Egress probe (W2-C e2e)" do
       expect(resolution.target_fq).to eq("SomeGem::Client")
     end
 
-    it "records {type:, category:, target:, cco_role:} on the Accumulator external call record" do
+    it "records {type:, category:, target:, cco_role:} + a top-level usage on the call record" do
       # RE-BASELINED by configurator W3 (C7): the call record gained the
       # PER-CALL-SITE inert role, because a per-target sink merges many call
       # sites and the aggregate needs to see each one. It DEFAULTS TO nil —
       # undeclared — and EgressRoleAggregate never turns a nil into a stamp.
+      #
+      # RE-BASELINED AGAIN by v0.13-usage (C1): the record gained a TOP-LEVEL
+      # `usage` key — top-level, not inside `to:`, because it describes the
+      # call SITE rather than the target. Same nil-default discipline: a site
+      # the walker never classified stays nil and is tallied, never guessed.
       acc = Archbuddy::Collect::Adapters::Ruby::Accumulator.new
       acc.add_external_edge("Caller#go", category: :gem, target: "X")
       expect(acc.calls).to eq(
         [{ from_fq: "Caller#go",
-           to: { type: :external, category: :gem, target: "X", cco_role: nil, name: nil } }]
+           to: { type: :external, category: :gem, target: "X", cco_role: nil, name: nil },
+           usage: nil }]
       )
     end
 

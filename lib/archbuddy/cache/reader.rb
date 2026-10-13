@@ -31,7 +31,18 @@ module Archbuddy
       # 2 = v0.12 CL-C (the DefinitionPass now derives outcome_classes/escapes
       # — the documented bump policy names a DefinitionPass change; blobs store
       # marshaled ASTs only, so this costs one forced re-parse per machine).
-      COLLECTOR_VERSION = 2
+      # 3 = v0.13-usage (the ResolutionPass now derives a per-call-site usage
+      # class and folds it into a per-edge histogram — the documented bump
+      # policy names a ResolutionPass change). Same one-forced-re-parse cost as
+      # the version-2 bump, and the same reasoning: "blobs store marshaled ASTs
+      # that do not change" was considered AND REJECTED there, because the
+      # reuse gate is about whether an older collector would DERIVE the same
+      # output, not about whether the stored bytes moved. Without this bump a
+      # hash-matching pre-usage blob is reused for an unchanged file and its
+      # edges carry no histogram at all — which a consumer cannot distinguish
+      # from an honest ABSENT, silently corrupting the very signal the
+      # histogram exists to supply and presenting as an inflated unknown rate.
+      COLLECTOR_VERSION = 3
 
       CACHE_SUBDIR = ".cache"
 

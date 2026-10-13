@@ -125,6 +125,13 @@ only when the installed engine's schema declares them (graph 1.4 — auto-off ag
 engines) and always ride the local id-map. `collect` prints two stderr notes when relevant:
 `N methods with unresolved outcome arity` and `N escaping defs`.
 
+Since v0.13 each graph EDGE can also carry **`usage`** — a sparse histogram of how the call sites
+bundled into that edge consume the callee's result (`value` / `predicate` / `effect` / `unknown`,
+summing to `calls`). It is derived from each call site's own AST position, never from the callee,
+and it rides `graph.yml` behind the same schema-acceptance gate (graph 1.7 — auto-off against
+older engines). An edge whose sites were all unclassifiable, and a synthesized edge with no AST
+call site behind it, omit the key entirely rather than carrying an empty object.
+
 ### 2. Analyze — run the engine on the opaque graph
 
 ```bash

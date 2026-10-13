@@ -96,7 +96,21 @@ module Archbuddy
       end
 
       # A directed call relationship between two RawNode real_keys.
-      RawEdge = Struct.new(:from_key, :to_key, :calls, keyword_init: true) do
+      #
+      # `usage` (v0.13-usage / C4, optional): the SPARSE per-edge histogram of
+      # how the call sites bundled into this edge consume the callee's result —
+      # { :value|:predicate|:effect|:unknown => Integer >= 1 }. A class with
+      # zero observed sites is OMITTED, and an edge with nothing classified
+      # carries nil, NEVER {} (absent over fabricated). Because classification
+      # is total over the sites it reaches, `usage.values.sum == calls` for
+      # every edge that CARRIES a histogram.
+      #
+      # Deliberately NOT defaulted the way `calls` is: nil is the honest
+      # absent. The two SYNTHESIZED edge producers (organizer / generated) mint
+      # their edges from a DSL declaration with no AST call site behind them,
+      # so they keep their two-kwarg construction and get `usage: nil` for
+      # free — there is no position to read, so there is no usage.
+      RawEdge = Struct.new(:from_key, :to_key, :calls, :usage, keyword_init: true) do
         def initialize(*)
           super
           self.calls ||= 1

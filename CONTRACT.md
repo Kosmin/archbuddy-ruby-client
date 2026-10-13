@@ -60,6 +60,15 @@ edges:                    # array; each edge:
     calls: 1              # integer >= 1 (duplicate (from,to) pairs collapsed)
     count: null
     self_time_ms: null
+    usage:                # OPTIONAL (graph 1.7); sparse per-edge histogram of how the call
+      value: 1            # site(s) bundled into THIS edge consume the callee's result.
+      predicate: 1        # value=assigned/argument/returned/interpolated; predicate=condition
+                          # or &&/|| left operand; effect=result discarded; unknown=the two
+                          # irreducible non-local cases (implicit def tail, block tail).
+                          # Zero-count classes OMITTED; sum == calls; the whole key is ABSENT
+                          # when nothing on the edge was classified (never an empty object),
+                          # and on SYNTHESIZED edges (organizer/generated), which have no AST
+                          # call site behind them. Same acceptance gate (below).
 entrypoints:              # array of node_id (may be EMPTY → M3 warning)
   - "n_…"
 ```
@@ -74,6 +83,21 @@ undeclared key would FAIL D37 validation, not be ignored — the gate auto-disab
 an old engine with no version sniffing. **Both fields always ride the id-map descriptor regardless**
 (the aggregate writer reads categories from there, schema-independent). Category words are fixed
 vocab, never app symbols — safe on the opaque graph (I8).
+
+The same family now has a fifth member and a first EDGE member: `usage`
+(`Collect::Anonymizer.graph_schema_accepts_usage?` / `USAGE_PROBE_GRAPH`). The edge schema is
+`additionalProperties: false` exactly as the node schema is, so a pre-1.7 engine REJECTS the key
+rather than ignoring it.
+
+**Why `usage` gets a probe when `cco_role` deliberately does not.** `cco_role`'s no-probe posture
+rests on graph 1.5 sitting INSIDE `Collect::EnginePreflight`'s engine `>= 0.12` floor — one
+precondition, checked once and loudly. That argument INVERTS here: `usage` is graph 1.7 and engine
+0.12 ships graph 1.6, so a floor-satisfying, gemspec-satisfying engine (`">= 0.12", "< 1.0"`)
+rejects it. The failing configuration is live rather than theoretical, and `Emitter` validates
+BEFORE writing — so without the gate a collect against such an engine would raise instead of
+degrading. Unlike the two node fields above, `usage` has **no id-map mirror**: the id-map has no
+edge section at all, so under a closed gate the data is simply not carried. Four small integers,
+no app semantics — safe on the opaque graph.
 
 ### v0.11: E1 per-target egress sub-sinks — graph stays 1.3 (node multiplicity only)
 

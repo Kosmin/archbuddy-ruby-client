@@ -7,6 +7,7 @@ require_relative "receiver_shape_tally"
 require_relative "grape_dsl"
 require_relative "root_dsl/rake_dsl"
 require_relative "probes/dispatch_probe"
+require_relative "usage_walker"
 
 module Archbuddy
   module Collect
@@ -29,7 +30,8 @@ module Archbuddy
           #              the generic <external> for target-less records.
           attr_reader :calls, :db_ops, :meta_sites, :probe_edges,
                       :total_call_sites, :meta_resolved, :egress_counts,
-                      :cco_role_unattachable, :receiver_shapes
+                      :cco_role_unattachable, :receiver_shapes,
+                      :usage_unmapped
 
           def initialize
             @calls       = []          # [{from_fq:, to:{type:, ...}}]
@@ -63,6 +65,16 @@ module Archbuddy
             # "how many crossings could the role not reach"), and the second
             # will gain reasons the first never will.
             @cco_role_unattachable = Hash.new(0)
+            # v0.13-usage (C1) — THE SECOND DECLARED GAP, COUNTED. A call site
+            # the UsageWalker never classified at all, tallied by REASON:
+            #   :walker_miss — the site reached #record inside a known method
+            #     scope but carried no entry in the per-file usage map. The
+            #     EDGE is unchanged; only the per-call-site usage class is
+            #     ABSENT. Counting it is what keeps an honest "we could not
+            #     tell" distinguishable from a coverage hole in the walker.
+            # {} when nothing was missed — a genuine zero is an EMPTY hash,
+            # never {walker_miss: 0}. Diagnostics-only — never graph.yml.
+            @usage_unmapped = Hash.new(0)
             # configurator W4 (C13): the per-receiver-shape breakdown of the
             # unresolved call sites. COMPOSED, not implemented here — the
             # Accumulator holds one and knows nothing about what it counts or
@@ -75,6 +87,13 @@ module Archbuddy
           # to attach. `reason` is a Symbol naming the fork, never a free string.
           def tally_cco_role_unattachable(reason)
             @cco_role_unattachable[reason] += 1
+          end
+
+          # v0.13-usage (C1): one tally per call site the walker never
+          # classified. `reason` is a Symbol naming the fork, never a free
+          # string — the tally_cco_role_unattachable discipline.
+          def tally_usage_unmapped(reason)
+            @usage_unmapped[reason] += 1
           end
 
           def tally_probe_edge(probe_name)
@@ -95,8 +114,14 @@ module Archbuddy
             @egress_counts[category || :generic] += 1
           end
 
-          def add_method_edge(from_fq, to_fq)
-            @calls << { from_fq: from_fq, to: { type: :method, fq: to_fq } }
+          # `usage` (v0.13-usage / C1, optional): the PER-CALL-SITE usage class
+          # (:value/:predicate/:effect/:unknown) the UsageWalker derived from
+          # this site's AST position, or nil when the site was never classified
+          # (the declared gap, tallied as :walker_miss). It rides at the TOP
+          # LEVEL of the call record, NOT inside `to:` — it describes the call
+          # SITE, not the target.
+          def add_method_edge(from_fq, to_fq, usage: nil)
+            @calls << { from_fq: from_fq, to: { type: :method, fq: to_fq }, usage: usage }
           end
 
           # db_ops collapse by Class.method (resolver db_op_symbol), so one node
@@ -108,9 +133,14 @@ module Archbuddy
           # symbol already embeds the method (`Class.method`), so every call
           # site collapsing onto one node carries the same verb and therefore
           # the same role. No aggregation is needed or performed here.
-          def add_db_op_edge(from_fq, symbol, class_fq, cco_role: nil)
+          # `usage` (v0.13-usage / C1): per-call-site, top-level — see
+          # add_method_edge. Deliberately NOT folded into `@db_ops[symbol]`:
+          # the HOMOGENEOUS-BY-CONSTRUCTION note above is about the ORM VERB,
+          # which usage explicitly is not — many sites collapsing onto one
+          # db_op node can consume its result differently.
+          def add_db_op_edge(from_fq, symbol, class_fq, cco_role: nil, usage: nil)
             @db_ops[symbol] ||= { class_fq: class_fq, cco_role: cco_role }
-            @calls << { from_fq: from_fq, to: { type: :db_op, fq: symbol } }
+            @calls << { from_fq: from_fq, to: { type: :db_op, fq: symbol }, usage: usage }
           end
 
           # `category` (v0.10 W2-C, optional): the EgressProbe's egress
@@ -128,10 +158,14 @@ module Archbuddy
           # `name` (v0.13-locality, optional): the CALLED method name. Carried so
           # an UNRESOLVED external can mint its own analysis-boundary sink per
           # (caller, name) rather than sharing one global node.
-          def add_external_edge(from_fq, category: nil, target: nil, cco_role: nil, name: nil)
+          # `usage` (v0.13-usage / C1): per-call-site, top-level — see
+          # add_method_edge.
+          def add_external_edge(from_fq, category: nil, target: nil, cco_role: nil, name: nil,
+                                usage: nil)
             @calls << { from_fq: from_fq,
                         to: { type: :external, category: category, target: target,
-                              cco_role: cco_role, name: name } }
+                              cco_role: cco_role, name: name },
+                        usage: usage }
           end
 
           def flag_metaprogramming(from_fq, name, line)
@@ -275,6 +309,15 @@ module Archbuddy
             #                         accumulated per class via the pre-scan.
             #   @accessor_returns  => { class_fq => { "svc" => "Const" } } —
             #                         memoized-accessor return types, per class.
+            # v0.13-usage (C3): the per-file call-site usage map,
+            #   { Prism node_id => :value|:predicate|:effect|:unknown }
+            # filled by a read-only PRE-SCAN at each of the three places this
+            # pass opens a fresh method scope, and read O(1) by the generic
+            # call path. Per-Pass-instance (per-file) lifecycle, symmetric with
+            # @verb_ordinals / @local_types — NEVER global. A PLAIN Hash on
+            # purpose: a default proc would CREATE an entry on a miss, which is
+            # exactly the fabrication the :walker_miss tally exists to avoid.
+            @usage_by_node    = {}
             @local_types      = {}
             @ivar_types       = Hash.new { |h, k| h[k] = {} }
             @accessor_returns = Hash.new { |h, k| h[k] = {} }
@@ -318,6 +361,24 @@ module Archbuddy
             # Locals never leak across methods (L1): reset on def entry. The
             # class-scoped ivar/accessor maps (built by the pre-scan) persist.
             @local_types = {}
+            # v0.13-usage (C3): the usage class is PRE-COMPUTED per scope, not
+            # tracked on a stack while we walk. Prism's visitor hands
+            # visit_call_node no parent context, so a stack would mean
+            # replacing every blanket `super` with hand-written per-child
+            # descent across ~35 node classes — and a single forgotten child
+            # field deletes real edges from the graph. A read-only pre-scan
+            # cannot lose an edge; its worst failure is an ABSENT usage, which
+            # we count (usage_unmapped) instead of guessing. Measured on two
+            # production Ruby codebases of very different size, ~14% of call
+            # sites are honestly unclassifiable (two irreducible cases: the
+            # implicit def tail and a block tail, both decided by a caller we
+            # are not allowed to look at); a mechanism whose bugs are
+            # indistinguishable from that 14% is not one we can audit.
+            #
+            # The WHOLE DefNode is scanned, not just the body: `super` below
+            # descends into `parameters` too, so a call in an optional
+            # parameter's default is ALREADY a recorded edge today.
+            @usage_by_node.merge!(UsageWalker.classify(node, seed: :unknown_def_tail))
             super
           ensure
             @method_stack.pop
@@ -341,6 +402,13 @@ module Archbuddy
               @method_stack.push(GrapeDsl.endpoint_fq(class_fq, verb, ordinal))
               # A Grape verb-block is a fresh method scope (L1): reset locals.
               @local_types = {}
+              # v0.13-usage (C3): second of the THREE scope sites. Seeded
+              # :effect — the framework calls the verb for its declaration side
+              # effect and discards the value; the handler block's own tail is
+              # then :unknown by the block rule, exactly as it would be
+              # anywhere else. The verb call itself is never recorded (early
+              # return below), so its own class is irrelevant.
+              @usage_by_node.merge!(UsageWalker.classify(node, seed: :effect))
               begin
                 super # walk the handler block body; its calls record as edges
               ensure
@@ -378,6 +446,11 @@ module Archbuddy
               @method_stack.push(RootDsl::RakeDsl.rake_fq(@rake_stack, name, ordinal))
               # A task block is a fresh method scope (L1): reset locals.
               @local_types = {}
+              # v0.13-usage (C3): third of the THREE scope sites — the mirror
+              # of the Grape branch above, same seed and same reason. Omitting
+              # it would leave every call site inside a rake task body
+              # unclassified (counted as :walker_miss, never guessed).
+              @usage_by_node.merge!(UsageWalker.classify(node, seed: :effect))
               begin
                 super # walk the task block body; its calls record as edges
               ensure
@@ -403,7 +476,10 @@ module Archbuddy
               # "is this unresolved" predicate and the shape classification both
               # belong to the tally; this pass only supplies the pair.
               @acc.receiver_shapes.observe(ctx, resolution)
-              record(resolution, from_fq, node)
+              # v0.13-usage (C3): O(1) read of the pre-scan's result. A plain
+              # [] on a plain Hash — a miss is nil and is TALLIED in #record,
+              # never defaulted to a class.
+              record(resolution, from_fq, node, usage: @usage_by_node[node.node_id])
             end
             super
           end
@@ -432,7 +508,12 @@ module Archbuddy
 
           private
 
-          def record(resolution, from_fq, node)
+          def record(resolution, from_fq, node, usage: nil)
+            # v0.13-usage (C3) — THE DECLARED GAP, COUNTED. A site that reached
+            # here with no pre-scan entry is a walker coverage hole: the edge is
+            # recorded exactly as before, the usage is left ABSENT, and the miss
+            # is tallied by reason rather than defaulted to a class.
+            @acc.tally_usage_unmapped(:walker_miss) if usage.nil?
             # v0.10 W1-D coverage tallies (L21): denominator = every call site
             # that reached the pass inside a known method body (from_fq
             # guaranteed non-nil by the caller); numerator = call sites the
@@ -459,13 +540,13 @@ module Archbuddy
               if resolution.provenance == Probes::DispatchProbe.probe_name
                 @acc.tally_cco_role_unattachable(:queue_dispatch_in_tree)
               end
-              @acc.add_method_edge(from_fq, resolution.target_fq)
+              @acc.add_method_edge(from_fq, resolution.target_fq, usage: usage)
             when :external
               if resolution.kind == "db_op"
                 # L3: a db_op is a plain COST-1 terminal — no sink spec derived.
                 # W3 (C6): the ORM verb's INERT role rides along.
                 @acc.add_db_op_edge(from_fq, resolution.target_fq, enclosing_class_fq,
-                                    cco_role: resolution.cco_role)
+                                    cco_role: resolution.cco_role, usage: usage)
               else
                 # v0.10 W2-C: carry the EgressProbe's category (nil for the
                 # generic R9 fallthrough) and tally it (nil → :generic, CR-3).
@@ -475,7 +556,8 @@ module Archbuddy
                 @acc.add_external_edge(from_fq, category: resolution.egress_category,
                                                 target: resolution.target_fq,
                                                 cco_role: resolution.cco_role,
-                                                name: node.name.to_s)
+                                                name: node.name.to_s,
+                                                usage: usage)
                 @acc.tally_egress(resolution.egress_category)
               end
             end

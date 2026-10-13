@@ -257,7 +257,8 @@ module Archbuddy
           egress_roles  = Ruby::EgressRoleAggregate.new(acc.calls)
           external_keys = add_external_sinks(nodes, acc, egress_roles)
 
-          edges, unresolved, unresolved_names = build_edges(acc, key_for_fq, external_keys, nodes)
+          edges, unresolved, unresolved_names, usage_counts =
+            build_edges(acc, key_for_fq, external_keys, nodes)
           edges.concat(generated_edges(minted, key_for_fq))
           edges.concat(organizer_edges(organizers, key_for_fq))
           stamp_unresolved!(nodes, unresolved)
@@ -311,6 +312,22 @@ module Archbuddy
               #   DispatchProbe recovers as an edge ({} when none occurred).
               cco_role_suppressed: egress_roles.suppressed,
               cco_role_unattachable: acc.cco_role_unattachable,
+              # v0.13-usage (C7): the two per-call-site usage counters. Same
+              # channel and print discipline as the counters above —
+              # CLI/diagnostics only, NEVER graph.yml content.
+              # usage_counts  = the per-class split of the call sites that
+              #   BECAME edges (the denominator the per-edge histograms are
+              #   built from). {} when nothing was classified.
+              # usage_unmapped = call sites the walker never classified at all,
+              #   tallied by REASON at the producer (ResolutionPass#record).
+              #   {} when none — a genuine zero is an empty hash, never
+              #   {walker_miss: 0}.
+              # They are deliberately NOT one counter: the first asks "what did
+              # we see", the second asks "what did we fail to see", and
+              # collapsing them would make a coverage hole look like an
+              # unknown-class observation.
+              usage_counts: usage_counts,
+              usage_unmapped: acc.usage_unmapped,
               # configurator W4 (C13): WHY the unresolved call sites are
               # unresolved, split by receiver shape (self / literal_const /
               # local / ivar / chained / other). Same channel and print
@@ -674,6 +691,12 @@ module Archbuddy
         # receivers, base-tier R9 fallthrough).
         def build_edges(acc, key_for_fq, external_keys, nodes_ref = nil)
           counts = Hash.new(0)
+          # v0.13-usage (C4): the per-edge usage histogram, folded inside the
+          # EXISTING acc.calls loop below — no second traversal is introduced.
+          # A PLAIN Hash of plain Hashes: see the read at the bottom of this
+          # method for why a default proc is forbidden here.
+          usages = {}
+          usage_counts = Hash.new(0)
           unresolved = Hash.new(0)
           # The called NAME of every unresolved site, one entry per SITE. The
           # per-caller counts above cannot answer "how much of this could have
@@ -718,12 +741,24 @@ module Archbuddy
             end
 
             counts[[from_key, to_key]] += 1
+            if call[:usage]
+              (usages[[from_key, to_key]] ||= Hash.new(0))[call[:usage]] += 1
+              usage_counts[call[:usage]] += 1
+            end
           end
 
           edges = counts.map do |(from_key, to_key), calls|
-            Raw::RawEdge.new(from_key: from_key, to_key: to_key, calls: calls)
+            # THE READ MUST NOT CREATE. `usages` is a plain Hash and this is a
+            # `fetch(.., nil)`: a `Hash.new { |h,k| h[k] = {} }` default proc
+            # would MATERIALIZE an entry for every edge the moment it is read,
+            # turning "no classified call site on this edge" into an emitted
+            # empty histogram — fabricating a measurement nobody made. nil here
+            # is the honest absent, and it is what keeps `usage: {}` impossible
+            # rather than merely unlikely.
+            Raw::RawEdge.new(from_key: from_key, to_key: to_key, calls: calls,
+                             usage: usages.fetch([from_key, to_key], nil))
           end
-          [edges, unresolved, unresolved_names]
+          [edges, unresolved, unresolved_names, usage_counts]
         end
 
         # v0.10 W1-A1: consumes the fq list from the ONE categorized detection
