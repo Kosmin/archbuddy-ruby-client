@@ -5,81 +5,113 @@ edges:
   from: n_80a0edd5dd2e
   self_time_ms:
   to: ext_c91e3de8820d
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_80a0edd5dd2e
   self_time_ms:
   to: ext_f47e99e7da54
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_f15d6dbed897
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_595364040ea0
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_89b789443609
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_b4c7d579ed85
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_6e7d822caee2
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_14daca451cee
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_44ba00ccaa8e
   self_time_ms:
   to: ext_35f2ec8cfd4e
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_b55f711e52a0
   self_time_ms:
   to: ext_dd670f52f8d6
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_b55f711e52a0
   self_time_ms:
   to: ext_3a97d7dcadf5
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_5eadac733a44
   self_time_ms:
   to: ext_48a81d423203
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_5eadac733a44
   self_time_ms:
   to: ext_49512ef6b264
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_06a4d04650f5
   self_time_ms:
   to: ext_6835cf042cd4
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_06a4d04650f5
   self_time_ms:
   to: ext_77ffc0c48ade
+  usage:
+    value: 1
 - calls: 1
   count:
   from: n_06a4d04650f5
   self_time_ms:
   to: ext_d2b3af422828
+  usage:
+    unknown: 1
 entrypoints: []
 generator:
   adapter: ruby
@@ -302,4 +334,4 @@ nodes:
   self_time_ms:
   terminal_kind: unknown
   total_time_ms:
-schema_version: '1.6'
+schema_version: '1.7'

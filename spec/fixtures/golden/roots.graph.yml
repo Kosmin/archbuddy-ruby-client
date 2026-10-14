@@ -5,41 +5,57 @@ edges:
   from: n_d84d6e2eb6aa
   self_time_ms:
   to: n_cc05f2cd1b15
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_3010dd42d76f
   self_time_ms:
   to: n_6c8511115ff2
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_4bb49bbe2243
   self_time_ms:
   to: ext_aee06ef39ebc
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_b67fd83e64f3
   self_time_ms:
   to: ext_2d22aa53ff36
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_4dd310d48dad
   self_time_ms:
   to: ext_922b359bb2d6
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_4dd310d48dad
   self_time_ms:
   to: ext_4de993c31d67
+  usage:
+    value: 1
 - calls: 1
   count:
   from: n_f14839693d81
   self_time_ms:
   to: n_cc05f2cd1b15
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_0aa96b7ad3fc
   self_time_ms:
   to: n_cc05f2cd1b15
+  usage:
+    unknown: 1
 entrypoints:
 - n_58b68f839b6b
 - n_d84d6e2eb6aa
@@ -233,4 +249,4 @@ nodes:
   self_time_ms:
   terminal_kind: unknown
   total_time_ms:
-schema_version: '1.6'
+schema_version: '1.7'

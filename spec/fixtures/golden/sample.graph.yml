@@ -5,36 +5,50 @@ edges:
   from: n_08bb59686a0d
   self_time_ms:
   to: n_2915376b0e45
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_2915376b0e45
   self_time_ms:
   to: n_b4d223161dcd
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_203f7cbbf624
   self_time_ms:
   to: n_636138555468
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_2c5fb0268163
   self_time_ms:
   to: n_3a36e57a3991
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_bb9d4823332c
   self_time_ms:
   to: n_e348f0cf638f
+  usage:
+    value: 1
 - calls: 1
   count:
   from: n_bb9d4823332c
   self_time_ms:
   to: n_b12661b4b862
+  usage:
+    value: 1
 - calls: 1
   count:
   from: n_b12661b4b862
   self_time_ms:
   to: ext_1917c66ce540
+  usage:
+    unknown: 1
 entrypoints:
 - n_08bb59686a0d
 generator:
@@ -153,4 +167,4 @@ nodes:
   self_time_ms:
   terminal_kind: gem
   total_time_ms:
-schema_version: '1.6'
+schema_version: '1.7'

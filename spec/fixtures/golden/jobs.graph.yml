@@ -5,36 +5,50 @@ edges:
   from: n_edf9d4997e6e
   self_time_ms:
   to: n_b4b437660fdf
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_edf9d4997e6e
   self_time_ms:
   to: n_f7141eb9e4ff
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_edf9d4997e6e
   self_time_ms:
   to: n_7877ceb3b214
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_edf9d4997e6e
   self_time_ms:
   to: n_93b1ac109eaa
+  usage:
+    effect: 1
 - calls: 1
   count:
   from: n_edf9d4997e6e
   self_time_ms:
   to: ext_bdf94d645d27
+  usage:
+    value: 1
 - calls: 1
   count:
   from: n_edf9d4997e6e
   self_time_ms:
   to: ext_c8d490cb8b9d
+  usage:
+    unknown: 1
 - calls: 1
   count:
   from: n_00a3f5985cdf
   self_time_ms:
   to: n_f7141eb9e4ff
+  usage:
+    unknown: 1
 entrypoints:
 - n_00a3f5985cdf
 - n_93b1ac109eaa
@@ -132,4 +146,4 @@ nodes:
   self_time_ms:
   terminal_kind: unknown
   total_time_ms:
-schema_version: '1.6'
+schema_version: '1.7'

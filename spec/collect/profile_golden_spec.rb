@@ -28,6 +28,17 @@ require "support/golden_corpus"
 # which re-derives "the only delta is the cco_role key" on every run by
 # capturing each corpus twice, through the shipped profile and through the same
 # profile with its roles stripped.
+#
+# RE-BASELINED A SECOND TIME, BY the call-site-usage arc. The graph contract
+# gained an OPTIONAL edge field (`usage`, graph schema 1.6 -> 1.7) and the
+# collector now emits it, so the five *.graph.yml goldens legitimately moved.
+# The delta is mechanically constrained and was asserted before committing:
+# five changed `schema_version` lines, 57 added `usage:` blocks (one per edge,
+# on EVERY edge: sample 7, jobs 7, rails 19, egress 16, roots 8) plus their 58
+# class-count lines, ZERO other removals, and node / edge / entrypoint counts
+# identical. All five id-map goldens and the cron ledger are byte-untouched.
+# NEITHER documented regeneration trigger applied — no corpus changed and this
+# is not the profile migration — so the re-baseline is deliberate, not drift.
 RSpec.describe "profile migration golden" do
   Archbuddy::GoldenCorpus.corpora.each_key do |corpus|
     describe "corpus #{corpus.inspect}" do

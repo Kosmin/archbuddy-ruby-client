@@ -29,9 +29,24 @@ module Archbuddy
   # the only way the gate can see a cron-vocabulary regression at all.
   #
   # REGENERATE (only ever from PRE-migration code, or when a corpus changes):
-  #   ARCHITECTURE_AUDITOR_PATH=... bundle exec ruby \
-  #     -Ilib -Ispec -e 'require "spec_helper"; \
-  #       require "support/golden_corpus"; Archbuddy::GoldenCorpus.write_golden!'
+  #   ARCHITECTURE_AUDITOR_PATH=... bundle exec ruby -Ilib -Ispec \
+  #     -e 'require "rspec/core"; require "spec_helper"; \
+  #       require "support/golden_corpus"; Archbuddy::GoldenCorpus.write_golden!; \
+  #       puts "REGENERATED"'
+  #
+  # `require "rspec/core"` IS LOAD-BEARING, not decoration. `spec_helper.rb:6`
+  # calls `RSpec.configure`, and a bare `ruby -Ispec` process has never loaded
+  # RSpec (only `rspec` the runner does), so the require raises
+  # `NameError: uninitialized constant RSpec` BEFORE `write_golden!` is ever
+  # reached. The failure is easy to miss: the goldens are simply not rewritten,
+  # which is indistinguishable from "they were already correct" — and if the
+  # command is piped (`| head`, `| tail`) the shell reports the PIPE's status,
+  # not ruby's. ALWAYS confirm a regeneration by its effect (`git status`, or
+  # the fixture mtimes/digests) and by the trailing `REGENERATED` line, never
+  # by exit status alone.
+  #
+  # Deliberate re-baselines of these bytes are recorded in the PR that performs
+  # them; `spec/collect/profile_golden_spec.rb` carries the running record.
   module GoldenCorpus
     GOLDEN_DIR = File.expand_path("../fixtures/golden", __dir__)
 
