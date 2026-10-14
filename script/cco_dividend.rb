@@ -179,15 +179,41 @@ findings = YAML.unsafe_load_file(File.join(dir, "findings.yml"))
 idmap    = YAML.unsafe_load_file(File.join(dir, "id-map.yml"))["ids"]
 
 # C+O is the depth-free, semantically real hybrid: dispatches onward AND exits itself.
+#
+# THE FLAGS ARE TRI-STATE: true / false / nil. `nil` is UNKNOWN -- the node has
+# callees whose call sites could not all be placed, so we have no reading, which
+# is NOT the same as a reading of "no". This file used to fold the two together
+# with plain truthiness (`cco["control"] && cco["operation"]`), because `nil &&
+# x` is falsy; every unknown node silently left the candidate list. For a
+# CANDIDATE FINDER a silently dropped candidate is worse than a listed uncertain
+# one, so the unknowns are now separated explicitly and COUNTED, and the count is
+# printed with the summary rather than left for the reader to guess at.
 hybrids = {}
+unknown_co = 0
+no_locality = !findings.key?("locality") || (findings["locality"] || {}).empty?
 (findings["locality"] || {}).each do |id, lo|
   cco = lo["cco"]
-  next if cco.nil? || !(cco["control"] && cco["operation"])
+  next if cco.nil? # no callees at all -- no layer test applies
+
+  # UNKNOWN before the verdict: either flag unreadable means the node cannot be
+  # confirmed a hybrid NOR ruled out as one.
+  if cco["control"].nil? || cco["operation"].nil?
+    unknown_co += 1
+    next
+  end
+  next unless cco["control"] == true && cco["operation"] == true
 
   entry = idmap[id]
   next unless entry && entry["file"] && entry["line"]
 
   hybrids[[entry["file"], entry["line"]]] = entry["symbol"]
+end
+
+# Said before anything else, because an empty table reads like "no hybrids
+# exist" when the truth may be "nothing was analysed".
+if no_locality
+  warn "no locality block in findings.yml -- nothing to score"
+  exit 0
 end
 
 rows = []
@@ -214,6 +240,10 @@ end
 
 actionable = rows.select { |r| r[:dividend] > 1.0 }
 puts "C+O hybrids: #{hybrids.size}  joined to a parsed def: #{joined} (#{(100.0 * joined / [hybrids.size, 1].max).round(1)}%)"
+# Printed unconditionally, INCLUDING the zero: "0 suppressed" is itself the
+# evidence that every flag was readable, and a counter that only speaks up when
+# non-zero cannot be told apart from a counter that was never wired in.
+puts "  suppressed -- control/operation UNKNOWN (unresolved call-site usage): #{unknown_co}"
 puts "  with an extraction dividend > 1: #{actionable.size} (#{(100.0 * actionable.size / [rows.size, 1].max).round(1)}%)"
 if actionable.empty?
   puts "  nothing actionable — every hybrid's branching is already flat."
