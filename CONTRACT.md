@@ -7,10 +7,13 @@ All three shapes are owned canonically by the **engine Contract** (`Architecture
 authoritative JSON schemas live in the sibling repo at
 `../architecture-auditor/lib/architecture_auditor/contract/schemas/{graph,findings}.v1.schema.json`.
 This doc summarizes those shapes for quick reference — **the schemas are the source of truth; do not let
-this doc drift from them.** Graph schema is `"1.3"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
-is `"1.6"` (`Contract::FINDINGS_SCHEMA_VERSION`, v0.11). All bumps are MINOR / additive; old 1.0–1.5 docs
-still validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3 1.4 1.5 1.6]` (explicit retain-list,
-never derived — new versions are APPENDED to the literal). Verified against the live sibling engine (0.8.0).
+this doc drift from them.** Graph schema is `"1.7"` (`Contract::GRAPH_SCHEMA_VERSION`); findings schema
+is `"1.12"` (`Contract::FINDINGS_SCHEMA_VERSION`). All bumps are MINOR / additive; old 1.0–1.11 docs
+still validate. `Contract::SUPPORTED_VERSIONS = %w[1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 1.10 1.11 1.12]`
+(explicit retain-list, never derived — new versions are APPENDED to the literal; note `"1.10"` sorts BELOW
+`"1.9"` numerically, which is why the gate is `Array#include?` and never a version comparison). Verified
+against the live sibling engine. **The two artifacts version INDEPENDENTLY** — findings is five minors
+ahead of graph — so a single "schema version" is never a meaningful thing to quote.
 
 Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minted only by `Contract::Ids`).
 
@@ -21,7 +24,7 @@ Opaque-id format everywhere: `^(n_|ext_|cls_)[0-9a-f]{12}([0-9a-f]{4})?$` (minte
 Validated against `graph.v1.schema.json` **before writing** (D37). Produced by `Collect::Anonymizer`.
 
 ```yaml
-schema_version: "1.3"
+schema_version: "1.7"
 generator:               # all 3 keys required
   tool: "archbuddy 0.14.0"     # "archbuddy #{Archbuddy::VERSION}"
   adapter: "ruby"
@@ -220,7 +223,7 @@ intentionally NOT ignored — a runtime dependency, not a secret.)
 are copied **verbatim** (D17); the reporter never recomputes.
 
 ```yaml
-schema_version: "1.6"
+schema_version: "1.12"
 generator: { tool, adapter, capture }     # same shape as graph
 nodes:                                      # map: opaque_id => entry
   "n_…":

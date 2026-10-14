@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased — the per-call-site usage stamp (collector half of graph 1.7)
+
+The collector now records, for every call site it resolves, **how the caller uses the callee's
+result**, and ships it as a sparse per-EDGE histogram on `graph.yml`. The engine reads the SAME
+stamp from both ends — outward to say what a node's body does, inward to say what its callers use
+it for — so this one field is the substrate under the engine's rebuilt layer analysis. Everything
+here is ADDITIVE and byte-neutral against an older engine.
+
+### Added
+- **Per-call-site usage classification (graph 1.7, edge field `usage`).** Each call site is placed
+  from its own AST position into one of four classes — `value` (the result is assigned, passed,
+  returned or interpolated), `predicate` (it is an `if`/`unless`/`case`/`while` condition or an
+  `&&`/`||` operand), `effect` (it is discarded — bare statement position), `unknown` (the position
+  was examined and could not be classified). Two cases are **irreducibly** unknown and are reported
+  as such rather than guessed: the implicit method-tail and a block/lambda tail, both non-local by
+  nature. Measured unknown rate on the two corpora: **13.8%** and **13.0%**, agreeing within 0.5pp
+  with an independent offline reference classifier written before the walker shipped.
+- **A HISTOGRAM per edge, not a scalar.** One edge is already a many-to-one fold of call sites
+  (`calls` is literally that count), so a method calling another four times — three as a bare
+  statement, once inside an `if` — is ONE edge. A scalar could describe that only by electing a
+  winner, which fabricates. Unobserved classes are OMITTED, never emitted as `0`; an edge with
+  nothing classified, and a SYNTHESIZED edge with no AST call site behind it, omit the key entirely
+  rather than emitting `{}` (the engine schema rejects `{}` for exactly this reason — an empty
+  histogram is indistinguishable from honest absence).
+- **A fifth schema-acceptance gate, and the first EDGE one** — `graph_schema_accepts_usage?`.
+  Unlike the four node-field probes this one guards a LIVE configuration, not a theoretical one:
+  graph 1.7 sits outside the engine preflight floor, so a current client can genuinely meet an
+  engine whose `additionalProperties: false` rejects the key. Under a closed gate the field is
+  simply not emitted and the graph is byte-identical to the previous release. There is **no id-map
+  mirror** — the id-map has no edge section — so nothing is carried behind the gate's back.
+
+### Changed
+- Golden `graph.yml` fixtures regenerated for `schema_version: "1.7"` plus the new `usage` key.
+  This sits **outside** the golden suite's documented regeneration trigger and is called out here
+  for that reason: the diff is a one-line version bump plus additive edge keys, and the node and
+  edge SETS are unchanged.
+- `CONTRACT.md` version strings refreshed to the live engine contract (graph `1.7` / findings
+  `1.12`, thirteen-entry retain-list). Pre-existing drift, not introduced by this release.
+
+### Honest limits
+- The walker is READ-ONLY with respect to the graph: it adds a stamp and **deletes nothing**.
+  Verified by execution rather than by reading — node and edge counts, and both sets, come out
+  identical to the unstamped arm.
+- Four small integers per edge. No symbol, path or source text crosses the boundary; the opaque
+  graph stays opaque.
+- Two corpora is **fewer than three vintages**, so the unknown-rate figures above are indicative,
+  not calibrated.
+
 ## [0.14.0] — the per-function reusability score (v0.16)
 
 The client half of the v0.16 reusability-score arc: the engine (findings 1.9 / architecture-auditor
