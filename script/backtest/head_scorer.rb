@@ -3,6 +3,7 @@
 require "open3"
 require "fileutils"
 require "json"
+require "archbuddy/cache/writer"
 
 module Backtest
   # Score arbitrary SHAs of the probe repos COLLECT-ONLY (P8: fragments
@@ -67,14 +68,21 @@ module Backtest
 
     private
 
-    # Resume check (idempotent): a parseable CURRENT-serializer (v6, the
-    # v0.16 score wave) aggregate short-circuits with ZERO git commands; an
-    # older-vintage cached dir re-scores (stale committed shape).
+    # Resume check (idempotent): a parseable CURRENT-serializer aggregate
+    # short-circuits with ZERO git commands; an older-vintage cached dir
+    # re-scores (stale committed shape).
+    #
+    # DERIVED, NEVER RE-TYPED. This read used to hardcode the then-current
+    # version. Every bump therefore silently made EVERY cached dir look stale,
+    # so the resume path fell back to git and re-scored the whole corpus while
+    # still reporting success — a slow, invisible regression. The constant has
+    # exactly one producer; read it from there.
     def cached?(cache_dir)
       aggregate = File.join(cache_dir, "archbuddy-findings.json")
       return false unless File.file?(aggregate)
 
-      JSON.parse(File.read(aggregate))["serializer_version"] == 6
+      JSON.parse(File.read(aggregate))["serializer_version"] ==
+        Archbuddy::Cache::Writer::SERIALIZER_VERSION
     rescue JSON::ParserError, SystemCallError
       false
     end
