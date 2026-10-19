@@ -106,6 +106,25 @@ module Archbuddy
           adapter: language
         ).call
 
+        # graph 1.8: fuse the COMMITTED asserted-graph overlay, if the repo keeps
+        # one. Applied AFTER anonymization and BEFORE emission so asserted nodes
+        # are minted and id-mapped exactly like collected ones — real names reach
+        # the secret id-map only, never graph.yml. A missing overlay returns the
+        # result untouched, so repos without one pay nothing.
+        overlay = Archbuddy::Collect::ManualOverlay.new(project_root: target_root)
+        anon =
+          begin
+            overlay.apply(anon)
+          rescue Archbuddy::Collect::ManualOverlay::Error => e
+            warn "error: #{e.message}"
+            exit 1
+          end
+        if overlay.exist?
+          r = overlay.report
+          warn "manual overlay: +#{r.edges_added} edges, +#{r.nodes_added} nodes" \
+               "#{r.edges_redundant.positive? ? ", #{r.edges_redundant} already observed" : ''}"
+        end
+
         # W1: the Emitter writes the COMMITTED cache under the TARGET repo root,
         # not Dir.pwd — so the detail tree + aggregate land in the target.
         # v0.10 W3 (Reconciliation 1): the collect-time diagnostics carrier rides

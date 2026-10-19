@@ -151,7 +151,7 @@ RSpec.describe Archbuddy::Cache::Writer do
       write_into(dir)
 
       frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/controllers/orders_controller.rb.json")))
-      expect(frag["serializer_version"]).to eq(6)
+      expect(frag["serializer_version"]).to eq(Archbuddy::Cache::Writer::SERIALIZER_VERSION)
       action = frag["nodes"].find { |n| n["symbol"] == "OrdersController#index" }
       expect(action["entrypoint"]).to be(true)
       expect(action["entrypoint_kind"]).to eq("controllers")
@@ -769,5 +769,77 @@ RSpec.describe Archbuddy::Cache::Writer do
 
   def deep_dup(obj)
     JSON.parse(JSON.generate(obj))
+  end
+  # --- v7: the per-node COMPLEXITY SIGNALS stamp + its carry ------------------
+  #
+  # The engine published `locality[id].signals` for several releases with ZERO
+  # consumers, which made the signal untrackable: the aggregate score could be
+  # watched over time, but the signal meant to EXPLAIN a move could not. These
+  # examples pin the two properties that make it trackable:
+  #
+  #   LANDS   — the block reaches the committed fragment whole, verdicts beside
+  #             the evidence that produced them, so a consumer can re-threshold
+  #             without re-deriving and `archbuddy diff` can compare base to head.
+  #   SURVIVES— a later COLLECT-ONLY run does not erase it. Collect has no
+  #             findings, so without the carry every collect would silently wipe
+  #             the history the whole analytics loop depends on.
+  describe "complexity signals stamp (v7)" do
+    def signals_findings(a)
+      total_id = opaque_id_for(a, "Billing::Invoice#total")
+      {
+        "locality" => {
+          total_id => {
+            "signals" => {
+              "multiplexed_tree" => true, "mixed_fan" => nil,
+              "ambiguity" => "unknown", "entries" => 3,
+              "downward" => 128.0, "shape" => "vertical"
+            }
+          }
+        }
+      }
+    end
+
+    def total_node(dir)
+      frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+      frag["nodes"].find { |n| n["symbol"] == "Billing::Invoice#total" }
+    end
+
+    it "lands the block WHOLE — verdicts beside the evidence that produced them" do
+      Dir.mktmpdir do |dir|
+        a = anon
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: a.graph, id_map: a.id_map, findings: signals_findings(a))
+        expect(total_node(dir)["signals"]).to eq(
+          "multiplexed_tree" => true, "mixed_fan" => nil, "ambiguity" => "unknown",
+          "entries" => 3, "downward" => 128.0, "shape" => "vertical"
+        )
+      end
+    end
+
+    it "stamps null for a node the engine published no locality entry for" do
+      Dir.mktmpdir do |dir|
+        a = anon
+        Archbuddy::Cache::Writer.new(project_root: dir)
+                                .write(graph: a.graph, id_map: a.id_map, findings: signals_findings(a))
+        frag = JSON.parse(File.read(File.join(dir, ".archbuddy/app/models/invoice.rb.json")))
+        other = frag["nodes"].find { |n| n["symbol"] != "Billing::Invoice#total" }
+        # An honest absence — NOT a fabricated "no signals here" verdict.
+        expect(other).to have_key("signals")
+        expect(other["signals"]).to be_nil
+      end
+    end
+
+    it "SURVIVES a later collect-only write — the carry, not a re-derivation" do
+      Dir.mktmpdir do |dir|
+        a = anon
+        w = Archbuddy::Cache::Writer.new(project_root: dir)
+        w.write(graph: a.graph, id_map: a.id_map, findings: signals_findings(a))
+        expect(total_node(dir)["signals"]["downward"]).to eq(128.0)
+
+        # collect-only: findings nil. Without the carry this wipes the history.
+        w.write(graph: a.graph, id_map: a.id_map, findings: nil)
+        expect(total_node(dir)["signals"]).to include("downward" => 128.0, "entries" => 3)
+      end
+    end
   end
 end

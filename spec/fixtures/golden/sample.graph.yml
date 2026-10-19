@@ -167,4 +167,4 @@ nodes:
   self_time_ms:
   terminal_kind: gem
   total_time_ms:
-schema_version: '1.7'
+schema_version: '1.8'

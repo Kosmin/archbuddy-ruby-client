@@ -410,7 +410,7 @@ RSpec.describe Archbuddy::Review::VintageSource do
       expect(node.score_band).to eq(-1)
       expect(node.score_raw).to eq(-1.9)
       expect(vintage.analyzed?).to be(true)
-      expect(vintage.meta[:serializer_versions]).to eq([6])
+      expect(vintage.meta[:serializer_versions]).to eq([Archbuddy::Cache::Writer::SERIALIZER_VERSION])
 
       # CLEAN-STDOUT pin: the engine subprocess's stdout is routed to stderr.
       expect(calls.size).to eq(1)

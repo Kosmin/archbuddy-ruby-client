@@ -90,7 +90,7 @@ module Archbuddy
       # quadrant} — COMPASS_KEYS), copied VERBATIM from findings 1.8's
       # top-level `reusability` map at analyze/reset; on a COLLECT-ONLY
       # rewrite (no findings) the stamps are CARRIED from the prior committed
-      # fragment per surviving node (carry_prior_compass! — the
+      # fragment per surviving node (carry_prior_analyze_stamps! — the
       # preserve_existing_scores rule applied per-fragment; compass values
       # are analyze-time and are never re-derived here, D17). The aggregate
       # additionally carries the `reusability` block folded VERBATIM from
@@ -107,7 +107,7 @@ module Archbuddy
       # `reusability` map at analyze/reset; a 1.8 doc carries none of the
       # keys, so the stamps write null (honest absence, never derived), and
       # the absorb pair is engine-ABSENT on ineligible nodes — it stamps
-      # null the same way. carry_prior_compass! iterates COMPASS_KEYS, so
+      # null the same way. carry_prior_analyze_stamps! iterates ANALYZE_STAMP_KEYS, so
       # the collect-only carry extends with ZERO method changes. The
       # aggregate `reusability` block additionally carries the findings-1.9
       # `score_distribution` stat block VERBATIM (present-iff-source) and a
@@ -116,7 +116,18 @@ module Archbuddy
       # n_negative, n_positive, headline}, engine-published order); both are
       # sub-keys of `reusability`, so they ride the existing whole-block
       # collect-only carry free.
-      SERIALIZER_VERSION = 6
+      # 7 = TWO fragment-shape additions shipped together, both of which an
+      # older serializer would silently drop:
+      #   * edges carry `provenance` when the edge was ASSERTED through the
+      #     manual overlay rather than observed (graph 1.8);
+      #   * nodes carry the `signals` block (see ANALYZE_STAMP_KEYS below).
+      # Bumped on the same rule the collector stamp uses — the gate asks whether an OLDER serializer would derive the
+      # same output, and a v6 serializer would silently drop the marker from an
+      # overlay-carrying repo's fragments, leaving an assertion looking exactly
+      # like an observation in the one artifact humans actually review. A repo
+      # with no overlay emits byte-identical fragments either way, so the cost
+      # is one forced re-serialize and no committed diff.
+      SERIALIZER_VERSION = 7
 
       # v0.13 (v5): the per-node compass stamp keys on committed fragment
       # nodes. All four ALWAYS present on a v5 fragment (deterministic shape,
@@ -135,12 +146,30 @@ module Archbuddy
       # null = never analyzed / pre-1.9 engine / N-A ladder, and for the
       # absorb pair also "not eligible" (the engine omits the keys on
       # ineligible nodes — an omitted advisory stamps null, never a
-      # fabricated value). carry_prior_compass! grafts via this constant, so
+      # fabricated value). carry_prior_analyze_stamps! grafts via this constant, so
       # extending it extends the collect-only carry with zero method edits.
       COMPASS_KEYS = %w[
         leverage collapse toll_booth quadrant
         score score_band score_raw absorb absorb_raw
       ].freeze
+
+      # v7 (see SERIALIZER_VERSION): the per-node COMPLEXITY SIGNALS block,
+      # carried on the same rule as
+      # the compass stamps. Engine-published signals existed for several
+      # releases with ZERO consumers — computed, serialized, and read by
+      # nothing — which made them untrackable: you could watch the aggregate
+      # score move but not the signal that was supposed to explain it. Landing
+      # them in the committed fragment is what closes that loop, because the
+      # committed tree is what `archbuddy diff` compares base-to-head, so a
+      # signal becomes a number with a HISTORY rather than a momentary verdict.
+      #
+      # Carried WHOLE and VERBATIM (findings key names 1:1), not flattened into
+      # sibling keys: the engine publishes the boolean verdicts beside the
+      # evidence that produced them (`entries`, `downward`, `shape`,
+      # `ambiguity`) precisely so a consumer can re-threshold without
+      # re-deriving, and splitting them up would break that pairing. null when
+      # the node has no locality entry — never fabricated.
+      ANALYZE_STAMP_KEYS = (COMPASS_KEYS + %w[signals]).freeze
 
       # @param project_root [String] the audited repo root (CWD by default).
       def initialize(project_root: Dir.pwd)
@@ -160,7 +189,8 @@ module Archbuddy
       # @return [Hash] { aggregate: <rel>, fragments: [<rel>, …] }
       def write(graph:, id_map:, findings: nil, diagnostics: nil)
         resolver  = Deanonymizer.new(id_map)
-        by_file   = group_nodes_by_file(graph, resolver, findings && findings["reusability"])
+        by_file   = group_nodes_by_file(graph, resolver, findings && findings["reusability"],
+                                        findings && findings["locality"])
         edges     = deanonymize_edges(graph, resolver)
         entry_set = entrypoint_symbols(graph, resolver)
 
@@ -173,7 +203,7 @@ module Archbuddy
           # surviving node) BEFORE the fragment is rebuilt, so a plain
           # collect never clobbers them to null (the preserve_existing_scores
           # rule, per-fragment).
-          carry_prior_compass!(rel_file, nodes) if findings.nil?
+          carry_prior_analyze_stamps!(rel_file, nodes) if findings.nil?
           fragment = build_fragment(rel_file, nodes, edges, entry_set)
           mode, files = write_fragment(rel_file, fragment)
           pointers[rel_file] = { "path" => committed_path_for(rel_file, mode), "shard_mode" => mode }
@@ -194,9 +224,9 @@ module Archbuddy
       #
       # `reusability` is findings 1.8's OPTIONAL top-level per-node map (opaque
       # id → compass entry), present only on the analyze/reset path; nil at
-      # collect (carry_prior_compass! grafts prior stamps there) and on
+      # collect (carry_prior_analyze_stamps! grafts prior stamps there) and on
       # pre-1.8 findings (stamps write null — honest absence, never derived).
-      def group_nodes_by_file(graph, resolver, reusability)
+      def group_nodes_by_file(graph, resolver, reusability, locality = nil)
         grouped = Hash.new { |h, k| h[k] = [] }
         (graph["nodes"] || []).each do |node|
           desc = resolver.describe(node["id"])
@@ -204,6 +234,7 @@ module Archbuddy
           next if file.nil? # external sink / unmapped → not a committed source node
 
           compass = reusability && reusability[node["id"]]
+          signals = locality && locality.dig(node["id"], "signals")
           grouped[file] << {
             "symbol"    => desc["symbol"],
             "kind"      => desc["kind"],
@@ -236,6 +267,13 @@ module Archbuddy
             # false is a real engine verdict, null means "never analyzed".
             # Numbers, booleans, and a quadrant word — NOT a line, NOT an
             # id: the C1 line-free invariant is untouched.
+            # v7: the complexity-signals block, VERBATIM from findings'
+            # `locality[id].signals` — the boolean verdicts AND the evidence
+            # that produced them, so the signal is diffable in git alongside
+            # the score it is meant to explain. null = no locality entry
+            # (collect-only, a pre-1.10 engine, or a node the engine declined
+            # to measure) — an honest absence, never a fabricated verdict.
+            "signals"         => signals,
             "leverage"        => compass && compass["leverage"],
             "collapse"        => compass && compass["collapse"],
             "toll_booth"      => compass && compass["toll_booth"],
@@ -267,11 +305,19 @@ module Archbuddy
       # placeholder symbol so the structural signal is preserved.
       def deanonymize_edges(graph, resolver)
         (graph["edges"] || []).map do |edge|
-          {
+          e = {
             "from"  => resolver.symbol(edge["from"]),
             "to"    => resolver.symbol(edge["to"]),
             "calls" => edge["calls"]
           }
+          # graph 1.8: provenance must survive into the COMMITTED, human-readable
+          # surface. This file is where a reviewer actually looks, so an asserted
+          # edge that arrived here unmarked would be indistinguishable from an
+          # observed one precisely where the audit matters most. Carried only when
+          # present, so a collected edge's bytes are unchanged (the committed diff
+          # for a repo with no overlay stays empty).
+          e["provenance"] = edge["provenance"] if edge["provenance"]
+          e
         end
       end
 
@@ -307,15 +353,15 @@ module Archbuddy
       # not emitted at all); a prior without the keys (a v4 fragment) grafts
       # nothing — a collect never manufactures stamps; a first-ever collect
       # has no prior — stamps stay null until the first analyze.
-      def carry_prior_compass!(rel_file, nodes)
-        prior = prior_fragment_compass(rel_file)
+      def carry_prior_analyze_stamps!(rel_file, nodes)
+        prior = prior_fragment_analyze_stamps(rel_file)
         return if prior.empty?
 
         nodes.each do |node|
           stamps = prior[node["symbol"]]
           next unless stamps
 
-          COMPASS_KEYS.each { |key| node[key] = stamps[key] if stamps.key?(key) }
+          ANALYZE_STAMP_KEYS.each { |key| node[key] = stamps[key] if stamps.key?(key) }
         end
       end
 
@@ -326,14 +372,14 @@ module Archbuddy
       # no prior fragment or no node carries a compass key (a v4-vintage
       # tree). First occurrence wins across shards (the writer emits identical
       # node payloads per symbol — the DetailTree rule).
-      def prior_fragment_compass(rel_file)
+      def prior_fragment_analyze_stamps(rel_file)
         index = {}
         prior_fragment_docs(rel_file).each do |doc|
           (doc["nodes"] || []).each do |node|
             sym = node["symbol"]
             next if sym.nil? || index.key?(sym)
 
-            stamps = node.slice(*COMPASS_KEYS)
+            stamps = node.slice(*ANALYZE_STAMP_KEYS)
             index[sym] = stamps unless stamps.empty?
           end
         end

@@ -227,19 +227,19 @@ RSpec.describe Archbuddy::CLI::Diff do
   end
 
   describe "the reusability envelope block (v0.16 T10, e2e over v6 caches)" do
-    # A minimal serializer-v6 committed cache: aggregate + one fragment.
+    # A minimal CURRENT-serializer committed cache: aggregate + one fragment.
     # Score stamps are fixture stand-ins for ENGINE-published values (the
     # client only ever copies/subtracts them — L2/D17); `collapse` is kept
     # consistent with branches/arity so the stamps read FRESH (D-C3).
-    def write_v6_cache(dir, nodes)
+    def write_current_cache(dir, nodes)
       frag_rel = ".archbuddy/app/api/w.rb.json"
       FileUtils.mkdir_p(File.join(dir, File.dirname(frag_rel)))
       File.write(File.join(dir, "archbuddy-findings.json"), JSON.pretty_generate(
-        "serializer_version" => 6,
+        "serializer_version" => Archbuddy::Cache::Writer::SERIALIZER_VERSION,
         "sources" => { "app/api/w.rb" => { "path" => frag_rel, "shard_mode" => "single" } }
       ))
       File.write(File.join(dir, frag_rel), JSON.pretty_generate(
-        "serializer_version" => 6, "file" => "app/api/w.rb", "nodes" => nodes
+        "serializer_version" => Archbuddy::Cache::Writer::SERIALIZER_VERSION, "file" => "app/api/w.rb", "nodes" => nodes
       ))
     end
 
@@ -259,11 +259,11 @@ RSpec.describe Archbuddy::CLI::Diff do
         base_dir = File.join(dir, "base")
         head_dir = File.join(dir, "head")
         FileUtils.mkdir_p([base_dir, head_dir])
-        write_v6_cache(base_dir, [
+        write_current_cache(base_dir, [
           v6_node(symbol: "W#go", branches: 8, score: -1.2, score_raw: -1.9,
                   score_band: -1, entrypoint: true)
         ])
-        write_v6_cache(head_dir, [
+        write_current_cache(head_dir, [
           v6_node(symbol: "W#go", branches: 16, score: -1.5, score_raw: -2.2,
                   score_band: -2, entrypoint: true),
           v6_node(symbol: "W#booth", branches: 1, score: 0.0, score_raw: 0.0,
@@ -283,7 +283,7 @@ RSpec.describe Archbuddy::CLI::Diff do
 
         block = doc.fetch("reusability")
         expect(block["base"]).to eq(
-          "source" => "injected-dir", "analyzed" => true, "serializer" => [6],
+          "source" => "injected-dir", "analyzed" => true, "serializer" => [Archbuddy::Cache::Writer::SERIALIZER_VERSION],
           "scored_nodes" => 1, "stale_stamps" => 0
         )
         expect(block["head"]["source"]).to eq("trusted-cache")
@@ -319,8 +319,8 @@ RSpec.describe Archbuddy::CLI::Diff do
           v6_node(symbol: "W#booth", branches: 1, score: 0.0, score_raw: 0.0,
                   absorb: 4.32, absorb_raw: 6.907)
         ]
-        write_v6_cache(base_dir, twin_nodes)
-        write_v6_cache(head_dir, twin_nodes)
+        write_current_cache(base_dir, twin_nodes)
+        write_current_cache(head_dir, twin_nodes)
         code, stdout, = run_diff(target: head_dir, base_cache: base_dir,
                                  trust_cache: true, format: "json")
         expect(code).to eq(0)
@@ -416,7 +416,7 @@ RSpec.describe Archbuddy::CLI::Diff do
         %w[base head].each do |side|
           expect(block[side]["source"]).to eq("analyze-sides")
           expect(block[side]["analyzed"]).to be(true)
-          expect(block[side]["serializer"]).to eq([6])
+          expect(block[side]["serializer"]).to eq([Archbuddy::Cache::Writer::SERIALIZER_VERSION])
           expect(block[side]["scored_nodes"]).to be > 0
           expect(block[side]["stale_stamps"]).to eq(0) # fresh BY CONSTRUCTION (D-C3)
         end

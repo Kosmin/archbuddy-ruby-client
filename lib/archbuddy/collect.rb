@@ -6,6 +6,7 @@ require_relative "collect/adapter"
 require_relative "collect/config"
 require_relative "collect/anonymizer"
 require_relative "collect/emitter"
+require_relative "collect/manual_overlay"
 require_relative "collect/adapters/ruby_adapter"
 require_relative "collect/registry"
 

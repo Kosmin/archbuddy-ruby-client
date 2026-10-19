@@ -94,7 +94,7 @@ RSpec.describe "collect --check CI staleness gate (R3-1)" do
   end
 
   # v0.16 (serializer v6): `--check` regenerates via a COLLECT-ONLY pass —
-  # the carry (fragment stamps via carry_prior_compass!, aggregate blocks via
+  # the carry (fragment stamps via carry_prior_analyze_stamps!, aggregate blocks via
   # preserve_existing_scores) must reproduce an analyze-stamped cache
   # byte-identically, or every analyzed repo would read permanently stale.
   it "exits 0 (clean) after an analyze stamps v6 scores — the carry keeps the rewrite byte-identical" do
