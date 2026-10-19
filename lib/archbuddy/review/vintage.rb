@@ -21,8 +21,28 @@ module Archbuddy
         :entrypoint, :entrypoint_kind, :escapes, :outcome_arity,
         :toll_booth, :quadrant, :leverage, :collapse,
         :score, :score_band, :score_raw, :absorb, :absorb_raw,
+        # The engine's complexity-signals block, carried WHOLE (verdicts beside
+        # the evidence that produced them) exactly as the fragment holds it. A
+        # projection that listed the sub-keys here would have to be edited for
+        # every new signal, which is how a published signal stays invisible to
+        # its own consumer. nil = the fragment carried no `signals` key at all
+        # (pre-serializer-7, or a vintage that never analyzed) — UNKNOWN, which
+        # is categorically not "no signals fired".
+        :signals,
         :serializer_version, :keys_present
-      )
+      ) do
+        # `signals` DEFAULTS TO nil so adding it did not become a 150-site edit
+        # across every fixture that builds a Node. The default is not a
+        # convenience: nil is the CORRECT value for a fragment that carried no
+        # `signals` key — pre-serializer-7, or a vintage that never analyzed —
+        # and that is UNKNOWN, categorically not "no signals fired". A consumer
+        # must treat it as "this vintage cannot answer", which is what
+        # SignalDelta does: an unknown side yields no verdict rather than a
+        # fabricated flip.
+        def initialize(signals: nil, **rest)
+          super(signals: signals, **rest)
+        end
+      end
 
       attr_reader :nodes, :edges, :corrupt_files
 

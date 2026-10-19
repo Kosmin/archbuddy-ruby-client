@@ -42,6 +42,7 @@ module Archbuddy
             doc["ratchet"] = ratchet_rows
             doc["review_surface"] = review_surface_block if context.review_surface
             doc["reusability"] = reusability_block if context.reusability
+            doc["signals"] = signals_block if context.signals&.any?
           end
           doc["ratchet_context"] = ratchet_context_rows if lint? && ratchet_context_rows.any?
           doc["grandfathered"] = grandfathered_rows
@@ -236,6 +237,27 @@ module Archbuddy
             "head" => side_provenance_row(r[:head]),
             "deltas" => (r[:deltas] || []).map { |row| score_delta_row(row) },
             "absorb_candidates" => (r[:absorb_candidates] || []).map { |row| absorb_row(row) }
+          }
+        end
+
+        # The analytics surface, machine-readable. This is the shape a
+        # dashboard consumes to plot a signal over time, which is the whole
+        # point of tracking one: the terminal section is for the reviewer
+        # reading one PR, this is for the trend across many.
+        #
+        # ABSENT when nothing moved — an empty block and "no movement" are the
+        # same fact here, and emitting `[]` every run would train a consumer to
+        # ignore the key. There is no severity and no exit-code field BY
+        # CONSTRUCTION: movement is reported, never gated.
+        def signals_block
+          sd = context.signals
+          {
+            "summary" => sd.summary.transform_keys(&:to_s),
+            "movements" => sd.movements.map { |m|
+              { "file" => m.file, "symbol" => m.symbol, "signal" => m.signal,
+                "direction" => m.direction.to_s,
+                "base_strength" => m.base_strength, "head_strength" => m.head_strength }
+            }
           }
         end
 

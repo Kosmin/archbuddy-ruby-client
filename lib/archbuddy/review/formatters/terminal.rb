@@ -30,6 +30,7 @@ module Archbuddy
           lines.concat(review_surface_lines) # item 2b
           lines.concat(disclosure_lines)     # item 2c
           lines.concat(reusability_lines)    # v0.16 T10 — mirrors the envelope block
+          lines.concat(signal_lines)         # the analytics half — reports, never gates
           lines.concat(grandfathered_lines)
           lines.concat(not_evaluable_lines)
           lines.concat(impact_lines)
@@ -159,6 +160,51 @@ module Archbuddy
           lines.concat(absorb_line(r[:absorb_candidates] || []))
           lines
         end
+
+        # ---- signals (diff only) ---------------------------------------------------
+        #
+        # What MOVED, not what IS. A node that was already flagged and still is
+        # produces no line: that is the standing state, it belongs in `lint`,
+        # and repeating it here would bury the handful of lines that are new.
+        #
+        # Deliberately carries no verdict word and no exit-code effect. The
+        # ratchet gates on SCORE; this reports MOVEMENT, because the right
+        # response to a signal is a judgement call and gating on a number whose
+        # correct response is unknown just teaches people to route around it.
+        def signal_lines
+          sd = context.signals
+          return [] if sd.nil? || !sd.any?
+
+          counts = sd.summary
+          head = ["", "signals moved: #{signal_summary(counts)} " \
+                      "(tracked, not gated — see `archbuddy lint` for the standing set)"]
+          head + sd.movements.first(8).map { |m| "  #{signal_movement_line(m)}" }
+        end
+
+        def signal_summary(counts)
+          parts = []
+          parts << "#{counts[:fired]} fired"   if counts[:fired].to_i.positive?
+          parts << "#{counts[:cleared]} cleared" if counts[:cleared].to_i.positive?
+          parts << "#{counts[:strength]} shifted" if counts[:strength].to_i.positive?
+          parts.join(", ")
+        end
+
+        def signal_movement_line(m)
+          where = "#{m.symbol} (#{m.file})"
+          case m.direction
+          when :fired   then "#{m.signal} FIRED   #{where}#{strength_cell(m)}"
+          when :cleared then "#{m.signal} cleared #{where}#{strength_cell(m)}"
+          else               "#{m.signal} shifted #{where}#{strength_cell(m)}"
+          end
+        end
+
+        def strength_cell(m)
+          return "" if m.base_strength.nil? && m.head_strength.nil?
+
+          " [#{fmt_strength(m.base_strength)} -> #{fmt_strength(m.head_strength)}]"
+        end
+
+        def fmt_strength(v) = v.nil? ? "n/a" : format("%g", v)
 
         def provenance_line(block)
           "reusability: base #{side_cell(block[:base])} -> head " \

@@ -11,6 +11,7 @@ module ReviewStubs
     entrypoint: false, entrypoint_kind: nil, escapes: nil, outcome_arity: nil,
     toll_booth: nil, quadrant: nil, leverage: nil, collapse: nil,
     score: nil, score_band: nil, score_raw: nil, absorb: nil, absorb_raw: nil,
+    signals: nil,
     serializer_version: 5
   }.freeze
 

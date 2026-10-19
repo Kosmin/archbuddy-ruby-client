@@ -88,7 +88,11 @@ module Archbuddy
             base_label: base_label, head_v: head_v, head_label: head_label,
             delta: delta, evaluation: evaluation, exit_code: exit_code,
             reusability: reusability_block(base_v, base_label, head_v,
-                                           head_label, delta, config)
+                                           head_label, delta, config),
+            # The analytics half: which signals MOVED between the two vintages.
+            # Reads the committed fragments both sides already carry, so it
+            # costs no extra collect and no extra engine call. NEVER gates.
+            signals: Review::SignalDelta.new(delta)
           )
           $stdout.puts Review::Formatter.for(format).new(context).render
           exit exit_code
@@ -152,7 +156,7 @@ module Archbuddy
 
       def build_context(target:, opts:, config:, base_v:, base_label:, head_v:,
                         head_label:, delta:, evaluation:, exit_code:,
-                        reusability: nil)
+                        reusability: nil, signals: nil)
         Review::Formatter::ReviewContext.new(
           command: "diff", target: target, config_path: opts[:config],
           advisory: !!opts[:advisory], fail_level: config.effective_fail_level,
@@ -168,7 +172,8 @@ module Archbuddy
           use_cases: nil, # diff never renders the leaderboard (Q9(iv))
           review_surface: evaluation.review_surface,
           disclosures: delta.disclosures,
-          reusability: reusability
+          reusability: reusability,
+          signals: signals
         )
       end
 

@@ -17,7 +17,7 @@ module Archbuddy
         :command, :target, :config_path, :advisory, :fail_level, :base, :head,
         :findings, :grandfathered, :not_evaluable, :delta_summary, :delta_top,
         :ratchet, :excluded_files, :calibration, :exit_code, :tool, :delta_index,
-        :use_cases, :review_surface, :disclosures, :reusability,
+        :use_cases, :review_surface, :disclosures, :reusability, :signals,
         keyword_init: true
       )
 

@@ -157,6 +157,34 @@
         }
       }
     },
+    "signals": {
+      "description": "OPTIONAL, diff-only. Signal MOVEMENT between the two vintages -- what flipped and what shifted materially, NOT the standing set. ABSENT when nothing moved: an empty block and 'no movement' are the same fact, and emitting an empty array every run would train a consumer to ignore the key. Carries NO severity and NO exit-code field BY CONSTRUCTION -- the ratchet gates on score, this reports movement.",
+      "type": "object",
+      "required": ["summary", "movements"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "movements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "symbol", "signal", "direction"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string" },
+              "symbol": { "type": "string" },
+              "signal": { "type": "string" },
+              "direction": { "enum": ["fired", "cleared", "strength"] },
+              "base_strength": { "type": ["number", "null"] },
+              "head_strength": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
     "reusability": {
       "type": "object",
       "required": ["base", "head", "deltas", "absorb_candidates"],
