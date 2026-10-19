@@ -158,6 +158,35 @@
       }
     },
     "signals": {
+      "description": "OPTIONAL, lint-only. The STANDING signal set for this vintage -- what is flagged RIGHT NOW, which is the series a dashboard charts. `diff` answers a different question (what MOVED) under `signal_movement`; a repo quietly bad for a year shows no movement at all. The DENOMINATOR ships with the numerator: `flagged` is meaningless without `measured`, and `unmeasured` is published beside both because a node whose vintage carried no signals block is UNKNOWN, not clean. The terminal surface caps its list; this one carries the full set, because a consumer that asked for JSON asked for the data.",
+      "type": "object",
+      "required": ["measured", "unmeasured", "flagged", "counts", "nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "measured": { "type": "integer", "minimum": 0 },
+        "unmeasured": { "type": "integer", "minimum": 0 },
+        "flagged": { "type": "integer", "minimum": 0 },
+        "counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "symbol", "signal"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string" },
+              "symbol": { "type": "string" },
+              "signal": { "type": "string" },
+              "strength": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "signal_movement": {
       "description": "OPTIONAL, diff-only. Signal MOVEMENT between the two vintages -- what flipped and what shifted materially, NOT the standing set. ABSENT when nothing moved: an empty block and 'no movement' are the same fact, and emitting an empty array every run would train a consumer to ignore the key. Carries NO severity and NO exit-code field BY CONSTRUCTION -- the ratchet gates on score, this reports movement.",
       "type": "object",
       "required": ["summary", "movements"],

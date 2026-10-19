@@ -208,7 +208,11 @@ module Archbuddy
           calibration: calibration_block(config, evaluation),
           exit_code: exit_code, tool: tool_block,
           use_cases: use_cases_member(vintage),
-          review_surface: nil, disclosures: nil
+          review_surface: nil, disclosures: nil,
+          # The STANDING set, not movement — `diff` reports what changed, this
+          # reports what is flagged right now, which is the series a dashboard
+          # charts. One pass over nodes the vintage already holds.
+          signals: Review::SignalCensus.new(vintage)
         )
       end
 

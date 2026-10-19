@@ -36,13 +36,14 @@ module Archbuddy
             "summary" => summary_block
           }
           doc["use_cases"] = use_cases_block if lint? && context.use_cases
+          doc["signals"] = signal_census_block if lint? && context.signals.respond_to?(:counts)
           doc["findings"] = sorted_findings.map { |f| finding_row(f) }
           unless lint?
             doc["delta_top"] = (context.delta_top || []).map { |row| delta_top_row(row) }
             doc["ratchet"] = ratchet_rows
             doc["review_surface"] = review_surface_block if context.review_surface
             doc["reusability"] = reusability_block if context.reusability
-            doc["signals"] = signals_block if context.signals&.any?
+            doc["signal_movement"] = signal_movement_block if context.signals&.any?
           end
           doc["ratchet_context"] = ratchet_context_rows if lint? && ratchet_context_rows.any?
           doc["grandfathered"] = grandfathered_rows
@@ -240,6 +241,30 @@ module Archbuddy
           }
         end
 
+        # The lint-side counterpart: the STANDING set rather than movement.
+        # The terminal caps its list because a human is reading it; here the
+        # full set ships, because a consumer that asked for JSON asked for the
+        # data and capping it would quietly break any trend built on top.
+        def signal_census_block
+          c = context.signals
+          {
+            "measured" => c.measured,
+            "unmeasured" => c.unmeasured,
+            "flagged" => c.flagged,
+            "counts" => c.counts,
+            "nodes" => c.top(c.flagged).map { |r|
+              { "file" => r.file, "symbol" => r.symbol,
+                "signal" => r.signal, "strength" => r.strength }
+            }
+          }
+        end
+
+        # DIFF-side: what MOVED. Named apart from the lint-side `signals`
+        # census deliberately — they are different questions with different
+        # shapes, and one key carrying both would force every consumer to sniff
+        # which it got. `signals` is the standing series a dashboard charts;
+        # this is the derived PR-level view of what changed.
+        #
         # The analytics surface, machine-readable. This is the shape a
         # dashboard consumes to plot a signal over time, which is the whole
         # point of tracking one: the terminal section is for the reviewer
@@ -249,7 +274,7 @@ module Archbuddy
         # same fact here, and emitting `[]` every run would train a consumer to
         # ignore the key. There is no severity and no exit-code field BY
         # CONSTRUCTION: movement is reported, never gated.
-        def signals_block
+        def signal_movement_block
           sd = context.signals
           {
             "summary" => sd.summary.transform_keys(&:to_s),

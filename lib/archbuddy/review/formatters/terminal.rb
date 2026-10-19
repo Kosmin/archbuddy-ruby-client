@@ -42,6 +42,7 @@ module Archbuddy
           lines = [lint_summary_line]
           lines.concat(finding_lines)
           lines.concat(leaderboard_lines)
+          lines.concat(signal_census_lines)
           lines.concat(ratchet_lines)
           lines.concat(grandfathered_lines)
           lines.concat(not_evaluable_lines)
@@ -255,6 +256,46 @@ module Archbuddy
           end
           lines.concat(unreachable_note(use_cases[:unreachable]))
           lines
+        end
+
+        # ---- standing signal set (lint only) ---------------------------------------
+        #
+        # BOUNDED ON PURPOSE. The counts line is O(1) in output however large
+        # the repo; the detail is capped and says what it withheld. A real
+        # service carries ~1,861 flagged nodes, and printing those would bury
+        # every other section of the report.
+        #
+        # The denominator ships with the numerator: "flagged of measured", plus
+        # the unmeasured remainder, because a node whose vintage carried no
+        # signals block is UNKNOWN rather than clean.
+        def signal_census_lines
+          c = context.signals
+          return [] if c.nil? || !c.respond_to?(:counts)
+          return [] if c.measured.zero?
+
+          lines = ["", signal_census_headline(c)]
+          return lines unless c.any?
+
+          rows = c.top
+          lines << "  worst #{rows.length} of #{c.flagged} by strength:"
+          rows.each { |r| lines << signal_census_row(r) }
+          omitted = c.omitted
+          lines << "  #{omitted} more — --format json for the full set" if omitted.positive?
+          lines
+        end
+
+        def signal_census_headline(census)
+          tally = census.counts.sort_by { |signal, n| [-n, signal] }
+                        .map { |signal, n| "#{signal} #{n}" }.join(", ")
+          head = "signals: #{census.flagged} flagged of #{census.measured} measured"
+          head += " (#{tally})" unless tally.empty?
+          head += " — #{census.unmeasured} unmeasured" if census.unmeasured.positive?
+          head
+        end
+
+        def signal_census_row(row)
+          strength = row.strength ? " strength #{format('%g', row.strength)}" : ""
+          "    #{row.signal}#{strength} — #{row.symbol} (#{row.file})"
         end
 
         def leaderboard_row(row)

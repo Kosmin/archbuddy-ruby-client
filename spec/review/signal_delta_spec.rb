@@ -150,7 +150,7 @@ RSpec.describe Archbuddy::Review::SignalDelta do
 
     # Validate the block against ITS OWN sub-schema, which is what the full
     # report validation reduces to for this key.
-    let(:signals_schema) { schema.fetch("properties").fetch("signals") }
+    let(:signals_schema) { schema.fetch("properties").fetch("signal_movement") }
 
     it "declares `signals`, so a report carrying movement validates" do
       block = {
@@ -170,7 +170,7 @@ RSpec.describe Archbuddy::Review::SignalDelta do
     end
 
     it "carries NO severity or exit-code field — it cannot gate by construction" do
-      props = schema.dig("properties", "signals", "properties")
+      props = schema.dig("properties", "signal_movement", "properties")
       expect(props.keys).to contain_exactly("summary", "movements")
       item_props = props.dig("movements", "items", "properties").keys
       expect(item_props).not_to include("severity", "exit_code", "level")
